@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: relove-bot-service
+  # namespace: your-namespace # Укажите ваш namespace
+  labels:
+    app: relove-bot
+spec:
+  selector:
+    app: relove-bot # Должен совпадать с селектором Deployment
+  ports:
+    - protocol: TCP
+      port: 80 # Порт, на котором Service будет слушать
+      targetPort: http # Имя порта из Deployment (или номер 8080)
+      name: http
+  # --- Выберите один из вариантов ниже (LoadBalancer или Ingress) ---
+
+  # --- Вариант 1: Service типа LoadBalancer ---
+  # Автоматически создает облачный балансировщик нагрузки.
+  # Подходит для простых случаев или если Ingress контроллер не настроен.
+  type: LoadBalancer
+  # externalTrafficPolicy: Cluster # Или Local, если нужно сохранять IP источника
+
+  # --- Вариант 2: Service типа ClusterIP (для использования с Ingress) ---
+  # type: ClusterIP # Этот тип используется по умолчанию, если не указан
+
+# --- Манифест Ingress (если используете Вариант 2 с ClusterIP) ---
+# Требует наличия Ingress контроллера в кластере (nginx-ingress, Traefik, или облачный)
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: relove-bot-ingress
+#   # namespace: your-namespace
+#   # annotations:
+#   #   # Аннотации для управления Ingress контроллером (зависят от контроллера)
+#   #   # Например, для автоматического SSL через cert-manager:
+#   #   cert-manager.io/cluster-issuer: "letsencrypt-prod"
+#   #   # Например, для указания класса Ingress:
+#   #   kubernetes.io/ingress.class: "nginx"
+# spec:
+#   # tls:
+#   # - hosts:
+#   #   - your-bot-domain.com # Замените на ваш домен
+#   #   secretName: relove-bot-tls-secret # Имя секрета с TLS сертификатом (может создаваться cert-manager)
+#   rules:
+#   - host: your-bot-domain.com # Замените на ваш домен
+#     http:
+#       paths:
+#       - path: /webhook # Путь, который настроен в боте (WEBHOOK_PATH)
+#         pathType: Prefix
+#         backend:
+#           service:
+#             name: relove-bot-service # Имя вашего Service (типа ClusterIP)
+#             port:
+#               name: http # Имя порта из Service 

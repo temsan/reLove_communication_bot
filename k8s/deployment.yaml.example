@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: relove-bot-deployment
+  # namespace: your-namespace # Укажите ваш namespace
+  labels:
+    app: relove-bot
+spec:
+  replicas: 2 # Начните с 2 для отказоустойчивости
+  selector:
+    matchLabels:
+      app: relove-bot
+  template:
+    metadata:
+      labels:
+        app: relove-bot
+    spec:
+      # serviceAccountName: relove-bot-sa # Укажите Service Account, если используете IAM роли для SA
+      containers:
+      - name: relove-bot
+        image: your-registry/relove-bot:latest # Замените на ваш репозиторий и тег
+        imagePullPolicy: Always # Или IfNotPresent
+        ports:
+        - containerPort: 8080 # Должен совпадать с WEB_SERVER_PORT
+          name: http
+        envFrom:
+          - configMapRef:
+              name: relove-bot-config
+          - secretRef:
+              name: relove-bot-secret
+        # Можно также передавать отдельные переменные:
+        # env:
+        #   - name: SOME_OTHER_VAR
+        #     value: "some_value"
+
+        # --- Health Checks ---
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http # Используем имя порта
+          initialDelaySeconds: 15 # Даем время на запуск
+          periodSeconds: 20
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          failureThreshold: 3
+
+        # --- Resource Limits (ВАЖНО!) ---
+        # Установите реалистичные лимиты и запросы
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m" # 0.1 CPU
+          limits:
+            memory: "256Mi"
+            cpu: "500m" # 0.5 CPU
+
+      # --- Security Context (Пример) ---
+      # Запуск от непривилегированного пользователя
+      # securityContext:
+      #   runAsNonRoot: true
+      #   runAsUser: 1001 # Убедитесь, что этот UID существует в образе
+      #   runAsGroup: 1001
+      #   readOnlyRootFilesystem: true # Если возможно
+      #   allowPrivilegeEscalation: false
+
+# --- Horizontal Pod Autoscaler (Опционально, но рекомендуется) ---
+# apiVersion: autoscaling/v2
+# kind: HorizontalPodAutoscaler
+# metadata:
+#   name: relove-bot-hpa
+#   # namespace: your-namespace
+# spec:
+#   scaleTargetRef:
+#     apiVersion: apps/v1
+#     kind: Deployment
+#     name: relove-bot-deployment
+#   minReplicas: 2
+#   maxReplicas: 5
+#   metrics:
+#   - type: Resource
+#     resource:
+#       name: cpu
+#       target:
+#         type: Utilization
+#         averageUtilization: 80 # Масштабировать, если CPU > 80%
+#   # Можно добавить метрики по памяти или кастомные метрики
