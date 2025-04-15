@@ -13,28 +13,117 @@ router = Router()
 from ..rag.pipeline import get_profile_summary
 from ..db.vector import search_similar_users
 from ..rag.llm import get_text_embedding
+from ..utils.fill_profiles import select_users
 import logging
+
+# Список Telegram user_id админов
+ADMIN_IDS = {123456789, 987654321}  # Замените на свои id
+
+@router.message(commands=["admin_find_users"])
+async def handle_admin_find_users(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.reply("Нет доступа. Только для администраторов.")
+        return
+    args = message.get_args() if hasattr(message, 'get_args') else message.text[len("/admin_find_users"):].strip()
+    # Парсим фильтры: gender=, текст=, rank_by=, limit=
+    filters = {}
+    for part in args.split():
+        if '=' in part:
+            k, v = part.split('=', 1)
+            filters[k.strip()] = v.strip()
+    gender = filters.get('gender')
+    text_filter = filters.get('текст') or filters.get('text')
+    rank_by = filters.get('rank_by')
+    try:
+        limit = int(filters.get('limit', 20))
+    except Exception:
+        limit = 20
+    # Выборка пользователей
+    try:
+        users = await select_users(gender=gender, text_filter=text_filter, rank_by=rank_by, limit=limit)
+        if not users:
+            await message.reply("Пользователи не найдены по заданным фильтрам.")
+            return
+        lines = [f"id | username | gender | summary"]
+        for u in users:
+            lines.append(f"{u['id']} | @{u['username']} | {u['gender']} | {(u['summary'] or '')[:60]}")
+        text = '\n'.join(lines)
+        if len(text) > 4000:
+            text = text[:3990] + '\n...'
+        await message.reply(text)
+    except Exception as e:
+        logging.error(f"Ошибка в handle_admin_find_users: {e}")
+        await message.reply(f"Ошибка при поиске пользователей: {e}")
+
+@router.message(commands=["admin_user_info"])
+async def handle_admin_user_info(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.reply("Нет доступа. Только для администраторов.")
+        return
+    args = message.get_args() if hasattr(message, 'get_args') else message.text[len("/admin_user_info"):].strip()
+    user_id = None
+    for part in args.split():
+        if part.startswith("user_id="):
+            try:
+                user_id = int(part.split("=", 1)[1])
+            except Exception:
+                pass
+    if not user_id:
+        await message.reply("Укажите user_id: /admin_user_info user_id=123456")
+        return
+    try:
+        async with SessionLocal() as session:
+            user = await session.get(User, user_id)
+            if not user:
+                await message.reply(f"Пользователь с id={user_id} не найден.")
+                return
+            context = user.context or {}
+            summary = context.get('last_profile_summary')
+            gender = context.get('gender')
+            info = (
+                f"ID: {user.id}\n"
+                f"Username: @{user.username}\n"
+                f"Имя: {user.first_name or ''} {user.last_name or ''}\n"
+                f"is_active: {user.is_active}\n"
+                f"Gender: {gender}\n"
+                f"Summary: {summary or '-'}\n"
+            )
+            ctx_str = str(context)
+            if len(ctx_str) < 1500:
+                info += f"Context: {ctx_str}\n"
+            else:
+                info += f"Context: слишком длинный ({len(ctx_str)} символов)\n"
+            await message.reply(info)
+    except Exception as e:
+        logging.error(f"Ошибка в handle_admin_user_info: {e}")
+        await message.reply(f"Ошибка при получении информации: {e}")
 
 @router.message()
 async def handle_message(message: types.Message):
     try:
         summary = await generate_summary(message.text)
         async with SessionLocal() as session:
-            # Сохраняем summary
-            log = UserActivityLog(
-                user_id=message.from_user.id,
-                chat_id=message.chat.id,
-                activity_type="message",
-                timestamp=datetime.utcnow(),
-                details={"message_id": message.message_id},
-                summary=summary
-            )
-            session.add(log)
-            # Получаем пользователя и его этап пути героя
+            # Получаем или создаём пользователя
             user = await session.get(User, message.from_user.id)
-            relove_context = (user.context or {}).get("relove_context") if user and user.context else None
+            if not user:
+                user = User(
+                    id=message.from_user.id,
+                    username=message.from_user.username,
+                    first_name=message.from_user.first_name,
+                    last_name=message.from_user.last_name,
+                    is_active=True,
+                    context={}
+                )
+                session.add(user)
+            # Обновляем context: summary и relove_context
+            user.context = user.context or {}
+            user.context['last_message'] = message.text
+            user.context['last_profile_summary'] = summary
+            # Можно обновлять relove_context через get_profile_summary или отдельную функцию
             profile_summary = await get_profile_summary(message.from_user.id, session)
+            user.context['relove_context'] = profile_summary
             await session.commit()
+            relove_context = user.context.get("relove_context")
         # Генерируем персонализированный ответ с учетом контекста
         if relove_context:
             prompt = (
@@ -44,7 +133,7 @@ async def handle_message(message: types.Message):
             )
         else:
             prompt = (
-                f"Профиль пользователя (summary): {profile_summary}\n"
+                f"Профиль пользователя (summary): {summary}\n"
                 f"Новое сообщение пользователя: {message.text}\n"
                 f"Дай персонализированную обратную связь для пробуждения и развития в потоке reLove."
             )
