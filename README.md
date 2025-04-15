@@ -2,7 +2,7 @@
 
 ## Описание
 
-Минималистичный Telegram-бот для инкрементального хранения и саммаризации пользовательских сообщений с Retrieval-Augmented Generation (RAG) на основе обычной реляционной БД (PostgreSQL) и OpenAI API.
+Telegram-бот для инкрементального хранения и саммаризации пользовательских сообщений с Retrieval-Augmented Generation (RAG) на основе обычной реляционной БД (PostgreSQL) и OpenAI API.
 
 - Все сообщения пользователя агрегируются и саммаризируются через OpenAI.
 - Summary и логи хранятся только по user_id в PostgreSQL.
@@ -14,6 +14,7 @@
 - **SQLAlchemy (async)** — работа с PostgreSQL
 - **OpenAI API** — генерация summary и RAG-ответов
 - **Вся логика поиска — только по user_id**
+- **Qdrant** — векторное хранилище для хранения эмбеддингов
 
 ## Быстрый старт
 
@@ -32,6 +33,13 @@
    # Пример с alembic или вручную через SQLAlchemy
    ```
 
+4. Запустите Qdrant (векторная база) локально:
+   ```bash
+   docker run -p 6333:6333 qdrant/qdrant
+   ```
+
+5. Запустите бота:
+   ```bash
 4. Запустите бота:
    ```sh
    python -m relove_bot.main

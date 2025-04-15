@@ -1,5 +1,10 @@
 aiogram>=3.0.0
-aiohttp>=3.8.0
+apscheduler
+asyncpg
+openai
 pydantic>=2.0.0
-pydantic-settings>=2.0.0
-python-json-logger>=2.0.0 
+pyqdrant-client
+python-dotenv
+python-json-logger>=2.0.0
+SQLAlchemy[asyncio]
+alembic
