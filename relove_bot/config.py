@@ -1,4 +1,4 @@
-from pydantic import SecretStr, Field, HttpUrl, validator
+from pydantic import SecretStr, Field, HttpUrl, validator, PostgresDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal, Optional, List, Set
 
@@ -21,13 +21,8 @@ class Settings(BaseSettings):
     # Admin settings
     admin_ids: Set[int] = Field(default_factory=set, description="Set of Telegram User IDs for admins")
 
-    # Database settings (add more as needed)
-    # db_type: Optional[str] = Field(None, description="Database type (e.g., postgres)")
-    # db_host: Optional[str] = Field(None, description="Database host")
-    # db_port: Optional[int] = Field(None, description="Database port")
-    # db_user: Optional[str] = Field(None, description="Database user")
-    # db_password: Optional[SecretStr] = Field(None, description="Database password")
-    # db_name: Optional[str] = Field(None, description="Database name")
+    # Database settings
+    db_dsn: Optional[PostgresDsn] = Field(None, description="Database DSN (e.g., postgresql+asyncpg://user:pass@host:port/db)")
 
     # Load settings from .env file if present (useful for local development)
     # In Kubernetes, environment variables are typically injected directly.
@@ -59,6 +54,7 @@ if __name__ == "__main__":
     print(f"Web Server Host: {settings.web_server_host}")
     print(f"Web Server Port: {settings.web_server_port}")
     print(f"Admin IDs: {settings.admin_ids}")
+    print(f"Database DSN: {settings.db_dsn}") # Print DSN
 
     # print(f"DB Type: {settings.db_type}")
     # print(f"DB Host: {settings.db_host}") 

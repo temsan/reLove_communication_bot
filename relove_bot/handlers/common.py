@@ -1,6 +1,9 @@
 import logging
 from aiogram import Router, types
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandStart
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
 from ..rag.llm import LLM, generate_rag_answer
 from ..rag.pipeline import get_user_context
 from ..db.session import SessionLocal
@@ -22,6 +25,82 @@ ADMIN_IDS = {123456789, 987654321}  # Замените на свои id
 from relove_bot.utils.fill_profiles import fill_all_profiles
 from relove_bot.config import settings
 import asyncio
+
+async def get_or_create_user(session: AsyncSession, tg_user: types.User) -> User:
+    """Gets a user from DB or creates/updates it."""
+    # Пытаемся получить пользователя
+    stmt = select(User).where(User.id == tg_user.id)
+    result = await session.execute(stmt)
+    db_user = result.scalar_one_or_none()
+
+    if db_user:
+        # Пользователь найден, проверяем, нужно ли обновить данные
+        update_needed = False
+        if db_user.username != tg_user.username:
+            db_user.username = tg_user.username
+            update_needed = True
+        if db_user.first_name != tg_user.first_name:
+            db_user.first_name = tg_user.first_name
+            update_needed = True
+        if db_user.last_name != tg_user.last_name:
+            db_user.last_name = tg_user.last_name
+            update_needed = True
+        if not db_user.is_active: # Активируем, если был неактивен
+             db_user.is_active = True
+             update_needed = True
+
+        if update_needed:
+            logger.info(f"Updating user data for {tg_user.id}")
+            await session.commit()
+        # Обновляем last_seen неявно через onupdate=func.now() при любом SELECT/UPDATE,
+        # но можно и явно: db_user.last_seen_date = datetime.datetime.now(datetime.timezone.utc)
+
+        return db_user
+    else:
+        # Пользователь не найден, создаем нового
+        logger.info(f"Creating new user for {tg_user.id}")
+        new_user = User(
+            id=tg_user.id,
+            username=tg_user.username,
+            first_name=tg_user.first_name or "", # first_name может быть None?
+            last_name=tg_user.last_name,
+            is_active=True
+            # registration_date установится по умолчанию
+            # is_admin и другие поля по умолчанию
+        )
+        session.add(new_user)
+        try:
+            await session.commit()
+            await session.refresh(new_user)
+            return new_user
+        except IntegrityError as e:
+            logger.error(f"Integrity error creating user {tg_user.id}: {e}. Rolling back.")
+            await session.rollback()
+            # Попробуем снова получить пользователя, вдруг гонка состояний?
+            result = await session.execute(select(User).where(User.id == tg_user.id))
+            return result.scalar_one_or_none() # Может быть None, если ошибка не связана с гонкой
+        except Exception as e:
+            logger.exception(f"Error creating user {tg_user.id}: {e}. Rolling back.")
+            await session.rollback()
+            return None
+
+@router.message(CommandStart())
+async def handle_start(message: types.Message, session: AsyncSession):
+    """Handles the /start command, creates or updates user in DB."""
+    tg_user = message.from_user
+    db_user = await get_or_create_user(session, tg_user)
+
+    if db_user:
+        user_name = db_user.first_name # Берем имя из БД
+        logger.info(f"User {user_name} (ID: {db_user.id}) started the bot.")
+        await message.answer(
+            f"Привет, {user_name}! 👋\n\n" \
+            f"Я Ассистент Релавы, готов помочь тебе с навигацией в нашем сообществе.\n"
+            f"Используй команду /help, чтобы узнать больше о моих возможностях."
+        )
+    else:
+         logger.error(f"Failed to get or create user for ID {tg_user.id}")
+         await message.answer("Произошла ошибка при обработке вашего профиля. Попробуйте позже.")
 
 @router.message(commands=["admin_update_summaries"])
 async def handle_admin_update_summaries(message: types.Message):
@@ -186,3 +265,24 @@ async def handle_similar(message: types.Message):
     except Exception as e:
         logging.error(f"Ошибка в /similar: {e}")
         await message.answer("Ошибка при поиске похожих пользователей. Попробуйте позже.")
+
+@router.message(Command(commands=["help"]))
+async def handle_help(message: types.Message):
+    """Handles the /help command."""
+    user_name = message.from_user.full_name
+    user_id = message.from_user.id
+    logger.info(f"User {user_name} (ID: {user_id}) requested help.")
+    # TODO: Дополнить текст справки по мере добавления функционала
+    help_text = (
+        "ℹ️ **Справка по боту:**\\n\\n"
+        "Я помогу тебе:\\n"
+        "- Узнавать о предстоящих мероприятиях (потоках, ритуалах).\\n"
+        "- Регистрироваться на мероприятия.\\n"
+        "- (В будущем) Следить за твоим \\\"Путем Героя\\\" в сообществе.\\n\\n"
+        "**Доступные команды:**\\n"
+        "/start - Начать работу с ботом\\n"
+        "/help - Показать это сообщение\\n"
+        # "/events - Показать ближайшие мероприятия\\n"
+        # "/my_registrations - Показать мои регистрации\\n"
+    )
+    await message.answer(help_text, parse_mode="HTML")
