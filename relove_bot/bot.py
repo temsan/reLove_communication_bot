@@ -38,6 +38,11 @@ DEFAULT_COMMANDS = [
     # Добавляйте другие команды сюда
 ]
 
+ADMIN_COMMANDS = [
+    BotCommand(command="fill_profiles", description="[Админ] Заполнить профили пользователей (имитация)"),
+    BotCommand(command="broadcast", description="[Админ] Создать рассылку пользователям"),
+]
+
 def include_routers(dispatcher: Dispatcher = None) -> None:
     """
     Подключает роутеры из модуля handlers. Добавляйте другие роутеры здесь.
@@ -46,9 +51,11 @@ def include_routers(dispatcher: Dispatcher = None) -> None:
     if dispatcher is None:
         dispatcher = dp
     try:
-        from .handlers import common  # Импорт внутри функции для избежания циклических зависимостей
+        from .handlers import common, admin  # Импорт внутри функции для избежания циклических зависимостей
         dispatcher.include_router(common.router)
         logger.info("Common router included.")
+        dispatcher.include_router(admin.router)
+        logger.info("Admin router included.")
         # TODO: Добавлять другие роутеры по мере их создания
     except Exception as e:
         logger.exception(f"Ошибка подключения роутеров: {e}")
@@ -64,5 +71,17 @@ async def setup_bot_commands(bot_instance: Bot = None) -> None:
     try:
         await bot_instance.set_my_commands(DEFAULT_COMMANDS, BotCommandScopeDefault())
         logger.info("Bot commands set.")
+        # Устанавливаем расширенный список команд для админов
+        if settings.admin_ids:
+            all_commands = DEFAULT_COMMANDS + ADMIN_COMMANDS
+            admin_scopes = [BotCommandScopeDefault(chat_id=admin_id) for admin_id in settings.admin_ids]
+            for scope in admin_scopes:
+                try:
+                    await bot_instance.set_my_commands(all_commands, scope)
+                except Exception as e:
+                    logger.error(f"Failed to set commands for admin scope {scope.chat_id}: {e}")
+            logger.info(f"Admin commands set for {len(settings.admin_ids)} admins.")
+        else:
+            logger.info("Bot commands set for default scope only (no admins configured).")
     except Exception as e:
         logger.exception(f"Ошибка установки команд бота: {e}")

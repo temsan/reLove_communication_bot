@@ -1,6 +1,6 @@
-from pydantic import SecretStr, Field, HttpUrl
+from pydantic import SecretStr, Field, HttpUrl, validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Literal, Optional
+from typing import Literal, Optional, List, Set
 
 class Settings(BaseSettings):
     """
@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     web_server_host: str = Field("0.0.0.0", description="Host for the web server")
     web_server_port: int = Field(8080, description="Port for the web server")
 
+    # Admin settings
+    admin_ids: Set[int] = Field(default_factory=set, description="Set of Telegram User IDs for admins")
+
     # Database settings (add more as needed)
     # db_type: Optional[str] = Field(None, description="Database type (e.g., postgres)")
     # db_host: Optional[str] = Field(None, description="Database host")
@@ -29,6 +32,16 @@ class Settings(BaseSettings):
     # Load settings from .env file if present (useful for local development)
     # In Kubernetes, environment variables are typically injected directly.
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+
+    @validator('admin_ids', pre=True)
+    def parse_admin_ids(cls, v):
+        if isinstance(v, str):
+            if not v: return set()
+            try:
+                return {int(admin_id.strip()) for admin_id in v.split(',')}
+            except ValueError:
+                raise ValueError("ADMIN_IDS must be a comma-separated list of integers.")
+        return v
 
 # Create a single instance of the settings to be imported elsewhere
 settings = Settings()
@@ -45,6 +58,7 @@ if __name__ == "__main__":
         print(f"Webhook Secret: {settings.webhook_secret.get_secret_value()[:5]}..." if settings.webhook_secret else "Not set")
     print(f"Web Server Host: {settings.web_server_host}")
     print(f"Web Server Port: {settings.web_server_port}")
+    print(f"Admin IDs: {settings.admin_ids}")
 
     # print(f"DB Type: {settings.db_type}")
     # print(f"DB Host: {settings.db_host}") 
