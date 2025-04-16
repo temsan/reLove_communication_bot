@@ -2,7 +2,7 @@ from ..db.session import SessionLocal
 from ..db.models import UserActivityLog
 from sqlalchemy import select
 
-from .llm import generate_summary
+from .llm import LLM
 from ..db.models import User, UserActivityLog
 from sqlalchemy import select
 from datetime import datetime
@@ -33,7 +33,8 @@ async def aggregate_profile_summary(user_id, session):
     )
     if not all_messages and not profile_info:
         return
-    summary = await generate_summary(
+    llm = LLM()
+    summary_struct = await llm.analyze_content(
         f"Проанализируй профиль и сообщения пользователя. Определи этап пути героя и дай рекомендации, как его пробудить:\n{text_for_summary}"
     )
     # Получаем эмбеддинг summary профиля

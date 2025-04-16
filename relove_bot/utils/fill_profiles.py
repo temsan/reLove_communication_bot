@@ -2,7 +2,7 @@ import asyncio
 from relove_bot.db.session import SessionLocal
 from relove_bot.db.models import User
 from relove_bot.rag.pipeline import aggregate_profile_summary
-from relove_bot.rag.llm import generate_summary
+
 
 from relove_bot.rag.llm import LLM
 from relove_bot.services.telegram_service import client
@@ -17,7 +17,7 @@ async def detect_gender(profile_text: str, user_id: int = None) -> str:
     if not profile_text or not isinstance(profile_text, str) or not profile_text.strip():
         return 'unknown'
     llm = LLM()
-    image_url = None
+    
     if user_id is not None:
         # Берём последнее фото профиля пользователя
         async for photo in client.iter_profile_photos(user_id, limit=1):
@@ -26,7 +26,7 @@ async def detect_gender(profile_text: str, user_id: int = None) -> str:
             bioio.seek(0)
             img_bytes = bioio.read()
             img_b64 = base64.b64encode(img_bytes).decode()
-            image_url = f"data:image/png;base64,{img_b64}"
+            
             break
     prompt = (
         "Определи пол пользователя (мужской или женский) по следующему профилю и, если доступно, по фото. "
@@ -34,7 +34,7 @@ async def detect_gender(profile_text: str, user_id: int = None) -> str:
         f"Профиль:\n{profile_text}"
     )
     try:
-        result = await llm.analyze_content(text=prompt, image_url=image_url, system_prompt="Определи пол пользователя по тексту и фото. Ответь 'male', 'female' или 'unknown' одним словом.", max_tokens=6)
+        result = await llm.analyze_content(text=prompt, image_base64=img_b64 if 'img_b64' in locals() else None, system_prompt="Определи пол пользователя по тексту и фото. Ответь 'male', 'female' или 'unknown' одним словом.", max_tokens=6)
         value = (result["summary"] or '').lower().strip()
         if value in {'female', 'жен', 'женский'} or 'female' in value or 'жен' in value:
             return 'female'
@@ -106,8 +106,8 @@ from relove_bot.utils.tg_data import (
     start_client, get_channel_users, get_user_profile,
     get_user_posts_in_channel, get_personal_channel_posts
 )
-from relove_bot.services.telegram_service import get_full_psychological_summary
-from relove_bot.utils.user_utils import save_psychological_summary
+
+
 
 async def fill_all_profiles(channel_id: str):
     """
@@ -124,13 +124,15 @@ async def fill_all_profiles(channel_id: str):
             if not user:
                 continue
             try:
-                summary = await get_full_psychological_summary(user_id, main_channel_id=channel_id)
+                # summary = await get_full_psychological_summary(user_id, main_channel_id=channel_id)
+# Здесь должен быть вызов нового анализа через LLM.analyze_content, если нужно.
                 await save_summary(user_id, summary, session)
                 logging.info(f"[fill_all_profiles] Обновлено summary для user_id={user_id}")
-                personal_channel_summary = await llm.generate_summary("\n".join(personal_posts))
+                personal_channel_summary = await llm.analyze_content(text="\n".join(personal_posts))
                 # Интеграция анализа фото в общий summary
                 # Новый подход: только психологический портрет через OpenAI
-                summary = await get_full_psychological_summary(user_id, main_channel_id=channel_id)
+                # summary = await get_full_psychological_summary(user_id, main_channel_id=channel_id)
+# Здесь должен быть вызов нового анализа через LLM.analyze_content, если нужно.
                 await save_summary(user_id, summary, session)
                 logging.info(f"[fill_all_profiles] Обновлено summary для user_id={user_id}")
 

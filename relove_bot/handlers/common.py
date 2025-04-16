@@ -1,7 +1,7 @@
 import logging
 from aiogram import Router, types
 from aiogram.filters import Command
-from ..rag.llm import generate_summary, generate_rag_answer
+from ..rag.llm import LLM, generate_rag_answer
 from ..rag.pipeline import get_user_context
 from ..db.session import SessionLocal
 from ..db.models import UserActivityLog, User
@@ -115,7 +115,9 @@ async def handle_admin_user_info(message: types.Message):
 @router.message()
 async def handle_message(message: types.Message):
     try:
-        summary = await generate_summary(message.text)
+        llm = LLM()
+        summary_struct = await llm.analyze_content(text=message.text)
+        summary = summary_struct['summary']
         async with SessionLocal() as session:
             # Получаем или создаём пользователя
             user = await session.get(User, message.from_user.id)
