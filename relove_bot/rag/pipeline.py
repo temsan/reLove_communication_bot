@@ -51,7 +51,7 @@ async def aggregate_profile_summary(user_id, session):
     user.context = user.context or {}
     if stage:
         user.context["hero_path_stage"] = stage
-    user.context["last_profile_summary"] = summary
+    user.context["summary"] = summary
     # Формируем сжатый контекст для общения и пробуждения пользователя (relove_context)
     # Например, summary + ключевые выводы для пробуждения и направления в relove (мужской/женский)
     # Здесь можно использовать simple NLP или шаблон, либо добавить анализ пола пользователя

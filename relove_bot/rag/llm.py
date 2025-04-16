@@ -1,43 +1,70 @@
-import os
-import openai
 import asyncio
-
-openai.api_key = os.getenv("OPENAI_API_KEY")
+from openai import AsyncOpenAI
+from relove_bot.config import settings
 
 class LLM:
-    async def generate_summary(self, text: str, model: str = "gpt-3.5-turbo", max_tokens: int = 256) -> str:
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: openai.ChatCompletion.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "Сделай краткое информативное summary для следующего текста."},
-                    {"role": "user", "content": text}
-                ],
-                max_tokens=max_tokens,
-                temperature=0.4,
-            )
-        )
-        return response.choices[0].message.content.strip()
+    def __init__(self):
+        self.client = AsyncOpenAI(api_key=getattr(settings, "openai_api_key", None))
 
-    async def generate_rag_answer(self, context: str, question: str, model: str = "gpt-3.5-turbo", max_tokens: int = 256) -> str:
-        loop = asyncio.get_event_loop()
+    async def analyze_content(
+        self,
+        text: str = None,
+        image_url: str = None,
+        image_base64: str = None,
+        model: str = "gpt-4.1",
+        max_tokens: int = 512,
+        temperature: float = 0.4,
+        system_prompt: str = "Сделай краткое информативное summary для следующего текста или изображения."
+    ) -> dict:
+        """
+        Универсальный анализ: текст, изображение или оба сразу.
+        Возвращает структуру с summary, usage, finish_reason, raw_response.
+        """
+        messages = [{"role": "system", "content": system_prompt}]
+        user_content = []
+        if text:
+            user_content.append({"type": "text", "text": text})
+        # Новый приоритет: image_base64 > image_url
+        if image_base64:
+            user_content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/png;base64,{image_base64}"}
+            })
+        elif image_url:
+            user_content.append({"type": "image_url", "image_url": {"url": image_url}})
+        if user_content:
+            messages.append({"role": "user", "content": user_content})
+        else:
+            raise ValueError("Необходимо указать text и/или image_url/image_base64 для анализа.")
+        response = await self.client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        result = {
+            "summary": response.choices[0].message.content.strip() if response.choices else None,
+            "usage": response.usage.model_dump() if hasattr(response, "usage") else None,
+            "finish_reason": response.choices[0].finish_reason if response.choices else None,
+            "raw_response": response.model_dump() if hasattr(response, "model_dump") else str(response)
+        }
+        return result
+
+    async def generate_summary(self, text: str, model: str = "gpt-4-vision-preview", max_tokens: int = 256) -> str:
+        """
+        Саммаризация только текста (GPT-4.1 vision).
+        Возвращает только summary (строка).
+        """
+        result = await self.analyze_content(text=text, model=model, max_tokens=max_tokens)
+        return result["summary"]
+
+    async def generate_rag_answer(self, context: str, question: str, model: str = "gpt-4-vision-preview", max_tokens: int = 256) -> str:
         prompt = (
             f"Контекст пользователя:\n{context}\n\n"
             f"Вопрос пользователя: {question}\n"
             f"Ответь максимально полезно, учитывая только контекст."
         )
-        response = await loop.run_in_executor(
-            None,
-            lambda: openai.ChatCompletion.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": "Ты ассистент, отвечай только на основе контекста."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=max_tokens,
-                temperature=0.4,
-            )
-        )
-        return response.choices[0].message.content.strip()
+        result = await self.analyze_content(text=prompt, model=model, max_tokens=max_tokens,
+                                            system_prompt="Ты ассистент, отвечай только на основе контекста.")
+        return result["summary"]
+

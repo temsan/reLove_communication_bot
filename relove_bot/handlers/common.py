@@ -19,6 +19,20 @@ import logging
 # Список Telegram user_id админов
 ADMIN_IDS = {123456789, 987654321}  # Замените на свои id
 
+from relove_bot.utils.fill_profiles import fill_all_profiles
+from relove_bot.config import settings
+import asyncio
+
+@router.message(commands=["admin_update_summaries"])
+async def handle_admin_update_summaries(message: types.Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.reply("Нет доступа. Только для администраторов.")
+        return
+    await message.reply("Обновление summary пользователей запущено!")
+    # Запуск в фоне, чтобы не блокировать бота
+    asyncio.create_task(fill_all_profiles(settings.channel_id))
+    await message.reply("Обновление запущено в фоне. Результат будет доступен в логах.")
+
 @router.message(commands=["admin_find_users"])
 async def handle_admin_find_users(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
@@ -78,7 +92,7 @@ async def handle_admin_user_info(message: types.Message):
                 await message.reply(f"Пользователь с id={user_id} не найден.")
                 return
             context = user.context or {}
-            summary = context.get('last_profile_summary')
+            summary = context.get('summary')
             gender = context.get('gender')
             info = (
                 f"ID: {user.id}\n"
@@ -118,7 +132,7 @@ async def handle_message(message: types.Message):
             # Обновляем context: summary и relove_context
             user.context = user.context or {}
             user.context['last_message'] = message.text
-            user.context['last_profile_summary'] = summary
+            user.context['summary'] = summary
             # Можно обновлять relove_context через get_profile_summary или отдельную функцию
             profile_summary = await get_profile_summary(message.from_user.id, session)
             user.context['relove_context'] = profile_summary

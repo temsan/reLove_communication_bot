@@ -29,6 +29,17 @@ async def update_user_on_touch(user_id, message, session, extra_context: dict = 
     await session.commit()
     return user
 
+async def save_summary(user_id: int, summary: str, session) -> None:
+    """
+    Сохраняет summary (психологический портрет для общения) в context['summary'] пользователя.
+    """
+    user = await session.get(User, user_id)
+    if not user:
+        raise ValueError(f"Пользователь с id={user_id} не найден")
+    user.context = user.context or {}
+    user.context['summary'] = summary
+    await session.commit()
+
 async def set_user_marker(user, key: str, value, session):
     user.markers = user.markers or {}
     user.markers[key] = value
