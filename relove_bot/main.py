@@ -12,8 +12,9 @@ logger = logging.getLogger(__name__)
 
 async def main():
     """Main function to setup logging, bot, webhooks, and start polling or web server."""
-    # 1. Настройка логирования
+    # 1. Настройка логирования (Вызываем здесь)
     setup_logging()
+    logger.info("Starting application setup...") # Добавим лог старта
 
     # 2. Включение роутеров
     include_routers()

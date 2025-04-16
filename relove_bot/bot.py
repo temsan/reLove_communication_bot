@@ -4,6 +4,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.base import BaseStorage
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand, BotCommandScopeDefault
 
 from .config import settings
 
@@ -30,6 +31,12 @@ def create_bot_and_dispatcher(storage: BaseStorage = None) -> Tuple[Bot, Dispatc
 # Глобальные экземпляры для совместимости
 bot, dp = create_bot_and_dispatcher()
 
+# Список команд бота
+DEFAULT_COMMANDS = [
+    BotCommand(command="start", description="🚀 Запустить/перезапустить бота"),
+    BotCommand(command="help", description="❓ Получить справку"),
+    # Добавляйте другие команды сюда
+]
 
 def include_routers(dispatcher: Dispatcher = None) -> None:
     """
@@ -52,16 +59,10 @@ async def setup_bot_commands(bot_instance: Bot = None) -> None:
     Устанавливает команды меню бота.
     :param bot_instance: экземпляр Bot (по умолчанию глобальный bot)
     """
-    from aiogram.types import BotCommand, BotCommandScopeDefault
     if bot_instance is None:
         bot_instance = bot
-    commands = [
-        BotCommand(command="start", description="🚀 Запустить/перезапустить бота"),
-        BotCommand(command="help", description="❓ Получить справку"),
-        # TODO: Добавлять другие команды сюда
-    ]
     try:
-        await bot_instance.set_my_commands(commands, BotCommandScopeDefault())
+        await bot_instance.set_my_commands(DEFAULT_COMMANDS, BotCommandScopeDefault())
         logger.info("Bot commands set.")
     except Exception as e:
         logger.exception(f"Ошибка установки команд бота: {e}")

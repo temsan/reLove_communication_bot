@@ -48,5 +48,5 @@ def setup_logging():
 
     logging.info(f"Logging configured with level: {log_level_str}")
 
-# Вызываем настройку при импорте модуля
+# Вызываем настройку при импорте модуля -- УДАЛЯЕМ ЭТО
 # setup_logging() 
