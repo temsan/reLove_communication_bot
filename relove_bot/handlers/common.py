@@ -259,8 +259,8 @@ async def handle_similar(message: types.Message):
         for hit in hits:
             user_id = hit.id
             username = hit.payload.get("username") if hit.payload else None
-            hero_stage = hit.payload.get("hero_path_stage") if hit.payload else None
-            response += f"ID: {user_id} | username: {username or '-'} | этап: {hero_stage or '-'}\n"
+            user_context = hit.payload.get("context") if hit.payload else None
+            response += f"ID: {user_id} | username: {username or '-'} | контекст: {user_context or '-'}\n"
         await message.answer(response)
     except Exception as e:
         logging.error(f"Ошибка в /similar: {e}")

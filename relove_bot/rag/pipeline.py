@@ -42,16 +42,8 @@ async def aggregate_profile_summary(user_id, session):
     from .llm import get_text_embedding
     embedding = await get_text_embedding(summary)
 
-    # Примитивное извлечение этапа пути героя из summary (можно заменить на NLP)
-    import re
-    stage = None
-    stage_match = re.search(r"Этап пути героя: ([^\n]+)", summary)
-    if stage_match:
-        stage = stage_match.group(1).strip()
-    # Сохраняем этап, summary и историю диалога в user.context
+    # Сохраняем summary и историю диалога в user.context
     user.context = user.context or {}
-    if stage:
-        user.context["hero_path_stage"] = stage
     user.context["summary"] = summary
     # Формируем сжатый контекст для общения и пробуждения пользователя (relove_context)
     # Например, summary + ключевые выводы для пробуждения и направления в relove (мужской/женский)
@@ -64,7 +56,7 @@ async def aggregate_profile_summary(user_id, session):
     upsert_user_embedding(
         user_id=user_id,
         embedding=embedding,
-        metadata={"username": user.username, "hero_path_stage": user.context.get("hero_path_stage")}
+        metadata={"username": user.username, "context": user.context}
     )
     log = UserActivityLog(
         user_id=user_id,
