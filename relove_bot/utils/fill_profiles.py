@@ -332,10 +332,7 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                         gender = str(user.gender) if user else None
 
                     processed_count += 1
-<<<<<<< HEAD
                     refusal_phrases = [
-=======
->>>>>>> 3239143766d15e2a1d6485c49683134b24f56b05
                         "i'm sorry, i can't help",
                         "i'm sorry, i can't assist",
                         "i can't help with that",
