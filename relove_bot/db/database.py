@@ -19,14 +19,14 @@ AsyncSessionFactory = None
 async def setup_database():
     """Initializes the database engine and session factory."""
     global async_engine, AsyncSessionFactory
-    if not settings.db_dsn:
-        logger.error("DB_DSN is not configured. Database functionality will be disabled.")
+    if not settings.db_url:
+        logger.error("DB_URL (DB_DSN) is not configured. Database functionality will be disabled.")
         return False
 
     try:
-        logger.info(f"Initializing database connection to: {settings.db_dsn.host}...")
+        logger.info(f"Initializing database connection using URL...")
         async_engine = create_async_engine(
-            str(settings.db_dsn),
+            settings.db_url,
             echo=False, # Установить в True для отладки SQL-запросов
             pool_pre_ping=True, # Проверять соединение перед использованием
             pool_size=10, # Настроить размер пула под нагрузку

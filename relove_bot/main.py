@@ -10,6 +10,7 @@ from .bot import bot, dp, include_routers, setup_bot_commands
 from .web import create_app
 from .db.database import setup_database, close_database, AsyncSessionFactory
 from .middlewares.db import DbSessionMiddleware
+from .middlewares.activity import ActivityLogMiddleware
 
 logger = logging.getLogger(__name__)
 

@@ -18,9 +18,14 @@ Telegram-бот для инкрементального хранения и са
 
 ## Быстрый старт
 
-1. Установите зависимости:
-   ```sh
-   pip install -r requirements.txt
+1. Установите зависимости (через Poetry или pip):
+   ```bash
+   # С помощью Poetry
+   poetry install
+
+   # Или без Poetry (через pip)
+   python -m pip install --upgrade pip
+   python -m pip install -e .
    ```
 
 2. Заполните переменные окружения (или config.py):
@@ -40,8 +45,6 @@ Telegram-бот для инкрементального хранения и са
 
 5. Запустите бота:
    ```bash
-4. Запустите бота:
-   ```sh
    python -m relove_bot.main
    ```
 

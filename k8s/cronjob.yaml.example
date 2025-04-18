@@ -1,0 +1,68 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: relove-bot-fill-profiles
+  # namespace: your-namespace # Укажите ваш namespace
+  labels:
+    app: relove-bot-fill-profiles
+spec:
+  # Расписание в формате Cron (например, раз в день в 3:00 ночи по UTC)
+  schedule: "0 3 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          # --- Персистентность для сессии Telethon ---
+          volumes:
+            - name: telethon-session-storage
+              persistentVolumeClaim:
+                claimName: relove-bot-telethon-pvc # Убедитесь, что PVC с таким именем существует!
+          # --- /Персистентность --- 
+          containers:
+          - name: fill-profiles-job
+            image: your-registry/relove-bot:latest # Замените на ваш репозиторий и тег
+            imagePullPolicy: Always
+            command: ["python", "scripts/fill_profiles.py"]
+            # Аргументы можно передать в args, если нужно (например, --batch-size)
+            # args:
+            #   - "--some-argument"
+            envFrom:
+              - configMapRef:
+                  name: relove-bot-config # Используем тот же ConfigMap
+              - secretRef:
+                  name: relove-bot-secret # Используем тот же Secret
+            # --- Монтирование Volume для сессии Telethon ---
+            volumeMounts:
+              - name: telethon-session-storage
+                mountPath: /app # Монтируем в рабочую директорию, где будет создан .session файл
+            # --- /Монтирование --- 
+            resources:
+              # Установите лимиты ресурсов для задачи (может требовать больше CPU/Memory)
+              requests:
+                memory: "256Mi"
+                cpu: "200m"
+              limits:
+                memory: "512Mi"
+                cpu: "1000m" # 1 CPU
+          # serviceAccountName: relove-bot-sa # Если нужен доступ к облачным API
+          restartPolicy: OnFailure # Перезапускать, если задача упала
+  # --- Дополнительные настройки CronJob ---
+  concurrencyPolicy: Forbid # Не запускать новую задачу, если предыдущая еще работает
+  successfulJobsHistoryLimit: 3 # Сколько успешных задач хранить
+  failedJobsHistoryLimit: 5 # Сколько неудачных задач хранить
+
+# --- Пример PersistentVolumeClaim (PVC) --- 
+# Это нужно создать отдельно, если его еще нет. 
+# Тип хранилища (storageClassName) зависит от вашего K8s кластера (GCP, AWS, Azure...).
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: relove-bot-telethon-pvc
+#   # namespace: your-namespace
+# spec:
+#   accessModes:
+#     - ReadWriteOnce # Обычно достаточно для одного пода CronJob
+#   resources:
+#     requests:
+#       storage: 1Gi # 1 Гб должно быть достаточно для файла сессии
+#   storageClassName: standard # Замените на ваш StorageClass 

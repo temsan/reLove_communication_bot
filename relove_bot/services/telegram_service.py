@@ -4,15 +4,17 @@ from io import BytesIO
 from typing import Optional, List, Dict, Any
 from telethon import TelegramClient
 from telethon.tl.functions.users import GetFullUserRequest
-from telethon.tl.types import User, Channel
+from telethon.tl.types import User, Channel, Message
 from relove_bot.config import settings
 
 # --- Конфиг ---
-API_ID = int(getattr(settings, 'tg_api_id', 0))
-API_HASH = getattr(settings, 'tg_api_hash', None)
-SESSION = getattr(settings, 'tg_session', 'relove_bot')
+from pydantic import SecretStr
 
-client = TelegramClient(SESSION, API_ID, API_HASH)
+API_ID = settings.tg_api_id.get_secret_value() if isinstance(settings.tg_api_id, SecretStr) else settings.tg_api_id
+API_HASH = settings.tg_api_hash.get_secret_value() if isinstance(settings.tg_api_hash, SecretStr) else settings.tg_api_hash
+SESSION = settings.tg_session.get_secret_value() if isinstance(settings.tg_session, SecretStr) else settings.tg_session
+
+client = TelegramClient(SESSION, int(API_ID), str(API_HASH))
 
 async def start_client():
     if not client.is_connected():
@@ -98,8 +100,31 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
             import base64
             img_b64 = base64.b64encode(img_bytes).decode()
             break
-    result = await llm.analyze_content(text=llm_input, image_base64=img_b64 if 'img_b64' in locals() else None, system_prompt="Ты — профессиональный психолог и эксперт по анализу личности. Проанализируй личность пользователя по тексту и фото.", max_tokens=512)
-    return result["summary"]
+    logging.warning(f"LLM INPUT for user {user_id}: {llm_input[:500]}")
+    if 'img_b64' in locals():
+        logging.warning(f"LLM IMAGE for user {user_id}: есть фото (base64 длина {len(img_b64)})")
+    try:
+        result = await llm.analyze_content(
+            text=llm_input,
+            image_base64=img_b64 if 'img_b64' in locals() else None,
+            system_prompt=(
+                "Ты — профессиональный психолог и эксперт по анализу личности. "
+                "Сделай краткий психологический анализ личности пользователя на русском языке по тексту и/или фото. "
+                "Если данных мало, анализируй только то, что есть. Не пиши никаких отказов, комментариев о невозможности анализа или просьб предоставить больше данных. Просто дай анализ."
+            ),
+            max_tokens=512
+        )
+        logging.warning(f"LLM RAW RESPONSE for user {user_id}: {result['raw_response']}")
+        logging.warning(f"LLM SUMMARY for user {user_id}: {result['summary']}")
+        return result["summary"]
+    except Exception as e:
+        # Специальный отлов ошибки баланса OpenAI/OpenRouter
+        if (hasattr(e, 'status_code') and getattr(e, 'status_code', None) == 402) or 'Insufficient credits' in str(e):
+            logging.error(f"[get_full_psychological_summary] Недостаточно кредитов для LLM/OpenAI/OpenRouter! Пополните баланс: https://openrouter.ai/settings/credits")
+        else:
+            logging.error(f"[get_full_psychological_summary] Ошибка LLM: {e}")
+        raise
+
 
 async def get_personal_channel_entity(user_id: int):
     """

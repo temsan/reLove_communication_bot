@@ -7,6 +7,8 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from ..filters.admin import IsAdminFilter
+from relove_bot.config import settings
+from relove_bot.utils.fill_profiles import fill_all_profiles
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -24,17 +26,11 @@ class BroadcastState(StatesGroup):
 async def handle_fill_profiles(message: types.Message):
     """Handles the /fill_profiles command for admins."""
     admin_id = message.from_user.id
-    logger.info(f"Admin {admin_id} initiated /fill_profiles.")
-    await message.answer("⏳ Начинаю процесс заполнения профилей... (Пока имитация)")
-
-    # TODO: Реальная логика заполнения профилей
-    # 1. Получить список всех пользователей из БД.
-    # 2. Для каждого пользователя проверить/заполнить недостающие данные (например, запросить у Telegram).
-    # 3. Сохранить обновления в БД.
-    # Возможно, эту операцию лучше выполнять в фоновом режиме (через APScheduler/Celery)
-    await asyncio.sleep(2) # Имитация работы
-
-    await message.answer("✅ Процесс заполнения профилей завершен (Имитация)." )
+    logger.info(f"Admin {admin_id} initiated fill_profiles.")
+    await message.answer("⏳ Начинаю массовое обновление профилей...")
+    channel_id = settings.our_channel_id
+    await fill_all_profiles(channel_id)
+    await message.answer("✅ Массовое обновление профилей завершено.")
 
 # --- Команда /broadcast и диалог FSM ---
 
