@@ -42,7 +42,7 @@ async def openai_psychological_summary(text: str, image_url: str = None) -> str:
     result = await llm.analyze_content(text=text, image_url=image_url, system_prompt=prompt, max_tokens=512)
     return result["summary"]
 
-async def get_full_psychological_summary(user_id: int, main_channel_id: Optional[str] = None) -> str:
+async def get_full_psychological_summary(user_id: int, main_channel_id: Optional[str] = None, tg_user=None) -> str:
     """
     Строит полный психологический портрет пользователя на основе:
     - bio (about)
@@ -52,7 +52,7 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
     Всегда анализирует фото, если оно есть.
     Возвращает итоговое summary для вставки в контекст истории.
     """
-    user = await client.get_entity(user_id)
+    user = tg_user if tg_user is not None else await client.get_entity(user_id)
     bio = getattr(user, 'about', '') or ''
     main_posts = []
     if main_channel_id:

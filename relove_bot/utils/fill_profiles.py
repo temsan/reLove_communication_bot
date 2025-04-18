@@ -254,12 +254,84 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                 logger.debug(f"Processing user {user_id}...")
                 try:
                     # Generate the summary using the service
-                    summary = await telegram_service.get_full_psychological_summary(
-                        user_id=user_id,
-                        main_channel_id=main_channel_id
-                    )
+                    # Получаем entity пользователя из Telegram один раз
+                    tg_user = None
+                    try:
+                        tg_user = await telegram_service.client.get_entity(user_id)
+                    except Exception as e:
+                        logger.warning(f"Не удалось получить entity пользователя из Telegram: {e}")
+                        tg_user = None
 
-                    # Фильтрация отказных ответов LLM
+                    # Проверяем наличие пользователя и полей в базе
+                    user = await session.get(User, user_id)
+                    user_has_summary = user and user.profile_summary and user.profile_summary.strip()
+                    user_has_gender = user and user.gender and str(user.gender) not in ('', 'unknown', 'None')
+
+                    # Если есть и summary, и gender — пропускаем
+                    if user_has_summary and user_has_gender:
+                        logger.info(f"User {user_id} уже имеет summary и gender, пропускаем.")
+                        processed_count += 1
+                        continue
+
+                    # Получаем данные для detect_gender
+                    if tg_user:
+                        first_name = getattr(tg_user, 'first_name', None)
+                        last_name = getattr(tg_user, 'last_name', None)
+                        username = getattr(tg_user, 'username', None)
+                    else:
+                        first_name = last_name = username = None
+
+                    # Нужно ли делать summary?
+                    need_summary = not user_has_summary
+                    # Нужно ли определять пол?
+                    need_gender = not user_has_gender
+
+                    summary = None
+                    gender = None
+
+                    # 1. Делаем только то, что нужно
+                    if need_summary:
+                        summary = await telegram_service.get_full_psychological_summary(
+                            user_id=user_id,
+                            main_channel_id=main_channel_id,
+                            tg_user=tg_user
+                        )
+                        # Фильтрация отказных ответов LLM
+                        refusal_phrases = [
+                            "i'm sorry, i can't help",
+                            "i'm sorry, i can't assist",
+                            "i can't help with that",
+                            "i can't assist with that",
+                            "я не могу помочь",
+                            "не могу помочь",
+                            "не могу выполнить",
+                            "не могу анализировать",
+                            "отказ",
+                            "извините, я не могу помочь с этой задачей"
+                        ]
+                        if not summary or any(phrase in summary.lower() for phrase in refusal_phrases):
+                            logger.warning(f"LLM отказался генерировать summary для user {user_id} (summary='{summary}'). Пропуск записи в БД.")
+                            failed_count += 1
+                            continue
+                        await update_user_profile_summary(session, user_id, summary)
+                        logger.info(f"Summary успешно обновлён для user {user_id}")
+                    else:
+                        summary = user.profile_summary if user else None
+
+                    if need_gender:
+                        gender = await detect_gender(user_id=user_id, first_name=first_name, last_name=last_name, username=username)
+                        user = await session.get(User, user_id)
+                        if user:
+                            if not user.markers or not isinstance(user.markers, dict):
+                                user.markers = {}
+                            user.markers['gender'] = str(gender)
+                            user.gender = gender
+                            await session.commit()
+                            logger.info(f"Gender успешно определён и записан для user {user_id}")
+                    else:
+                        gender = str(user.gender) if user else None
+
+                    processed_count += 1
                     refusal_phrases = [
                         "i'm sorry, i can't help",
                         "i'm sorry, i can't assist",
@@ -274,11 +346,14 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                     ]
                     if summary and not any(phrase in summary.lower() for phrase in refusal_phrases):
                         # Получаем пользователя из базы для передачи имени/фамилии/логина
-                        user = await session.get(User, user_id)
-                        if user:
-                            gender = await detect_gender(user_id=user_id, first_name=user.first_name, last_name=user.last_name, username=user.username)
+                        # Используем ранее полученный tg_user для определения пола
+                        if tg_user:
+                            first_name = getattr(tg_user, 'first_name', None)
+                            last_name = getattr(tg_user, 'last_name', None)
+                            username = getattr(tg_user, 'username', None)
                         else:
-                            gender = await detect_gender(user_id=user_id)
+                            first_name = last_name = username = None
+                        gender = await detect_gender(user_id=user_id, first_name=first_name, last_name=last_name, username=username)
                         await update_user_profile_summary(session, user_id, summary)
                         user = await session.get(User, user_id)
                         if user:
