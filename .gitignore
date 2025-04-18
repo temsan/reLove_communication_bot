@@ -58,6 +58,9 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
+# Telethon session files
+*.session
+
 # Flask stuff:
 instance/
 .webassets-cache
