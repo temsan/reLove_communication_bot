@@ -60,6 +60,10 @@ junit.*
 # Игнорировать папку с аватарами пользователей
 static/avatars/
 
+dashboard_progress.json
+*.session
+*.session-journal
+
 # Translations
 *.mo
 *.pot
