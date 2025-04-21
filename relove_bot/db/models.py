@@ -2,7 +2,7 @@ import datetime
 from typing import Optional, List, Dict, Any
 
 import enum
-from sqlalchemy import BigInteger, String, DateTime, Text, ForeignKey, Integer, Boolean, JSON
+from sqlalchemy import BigInteger, String, DateTime, Text, ForeignKey, Integer, Boolean, JSON, LargeBinary
 from sqlalchemy.types import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship, declarative_base
 from sqlalchemy.sql import func
@@ -29,6 +29,9 @@ class User(Base):
     gender: Mapped[Optional[GenderEnum]] = mapped_column(SQLEnum(GenderEnum, name='genderenum'), nullable=True, index=True, doc="Пол пользователя (male/female/unknown)")
     history_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, doc="Выжимка истории общения с ботом")
     profile_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, doc="Выжимка профиля (посты, фото и т.д.)") # Новое поле
+    photo_jpeg: Mapped[Optional[bytes]] = mapped_column(
+        LargeBinary, nullable=True, doc="Фото профиля (JPEG, сжато)"
+    )
     markers: Mapped[Optional[Dict[str, Any]]] = mapped_column(
         JSON, nullable=True, doc="Словарь свойство-значение для любых пользовательских маркеров и свойств"
     )

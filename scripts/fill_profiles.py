@@ -37,6 +37,15 @@ async def start_dashboard():
     print('Веб-дэшборд запущен на http://localhost:8080/dashboard')
 
 async def main():
+    # Автоматическая миграция alembic при старте
+    import subprocess
+    import os
+    if os.path.exists(os.path.join(os.path.dirname(__file__), '..', 'alembic.ini')):
+        alembic_dir = os.path.join(os.path.dirname(__file__), '..')
+        print('Автоматическая генерация и применение миграций Alembic...')
+        # Внимание: autogenerate актуален только для dev/test! В продакшене лучше вручную ревью миграций.
+        subprocess.run(['alembic', 'revision', '--autogenerate', '-m', 'auto'], cwd=alembic_dir)
+        subprocess.run(['alembic', 'upgrade', 'head'], cwd=alembic_dir)
     # Запускаем веб-дэшборд параллельно
     import asyncio
     asyncio.create_task(start_dashboard())
@@ -74,60 +83,30 @@ async def main():
             except Exception:
                 tg_user = None
             result = await service.process_user(user_id, channel_id, tg_user)
-            # --- Запись прогресса для дашборда ---
-            import json, os
-            progress_file = os.path.join(os.path.dirname(__file__), '../dashboard_progress.json')
-            # Получаем посты пользователя (до 3 последних)
-            posts = []
-            try:
-                posts = await get_user_posts_in_channel(channel_id, user_id, limit=3)
-            except Exception as e:
-                print(f'[get_posts] Ошибка при получении постов для user {user_id}: {e}')
-            user_info = {
-                'user_id': user_id,
-                'username': getattr(tg_user, 'username', None) if tg_user else None,
-                'first_name': getattr(tg_user, 'first_name', None) if tg_user else None,
-                'last_name': getattr(tg_user, 'last_name', None) if tg_user else None,
-                'gender': result.get('gender') if isinstance(result, dict) else None,
-                'registration_date': getattr(tg_user, 'date', None) if tg_user and hasattr(tg_user, 'date') else None,
-                'last_seen_date': getattr(tg_user, 'last_seen', None) if tg_user and hasattr(tg_user, 'last_seen') else None,
-                'summary': result.get('summary') if isinstance(result, dict) else None,
-                'skipped': result == 'skipped',
-                'failed': result.get('failed') if isinstance(result, dict) else False,
-                'photo': None,
-                'posts': posts
-            }
-            # Скачиваем и сохраняем фото пользователя, если оно есть
             if tg_user and getattr(tg_user, 'photo', None):
                 try:
                     from telethon.errors.rpcerrorlist import PhotoInvalidError
-                    static_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../static/avatars'))
-                    os.makedirs(static_dir, exist_ok=True)
-                    photo_path = os.path.join(static_dir, f'{user_id}.jpg')
-                    await telegram_service.client.download_profile_photo(user_id, file=photo_path)
-                    user_info['photo'] = f'/static/avatars/{user_id}.jpg'
+                    from PIL import Image
+                    import io
+                    # Скачиваем фото во временный буфер
+                    temp_buf = io.BytesIO()
+                    await telegram_service.client.download_profile_photo(user_id, file=temp_buf)
+                    temp_buf.seek(0)
+                    # Открываем изображение и сжимаем в JPEG
+                    img = Image.open(temp_buf)
+                    jpeg_buf = io.BytesIO()
+                    img.convert('RGB').save(jpeg_buf, format='JPEG', quality=80)
+                    jpeg_bytes = jpeg_buf.getvalue()
+                    # Сохраняем в БД
+                    await session.execute(
+                        f"UPDATE users SET photo_jpeg = :photo WHERE id = :uid",
+                        {"photo": jpeg_bytes, "uid": user_id}
+                    )
+                    await session.commit()
                 except PhotoInvalidError:
-                    user_info['photo'] = None
+                    pass
                 except Exception as e:
                     print(f'[photo_download] Ошибка при скачивании фото для user {user_id}: {e}')
-            # Читаем старый прогресс
-            try:
-                with open(progress_file, 'r', encoding='utf-8') as f:
-                    progress = json.load(f)
-            except Exception:
-                progress = []
-            # Обновляем или добавляем
-            updated = False
-            for idx, u in enumerate(progress):
-                if u['user_id'] == user_id:
-                    progress[idx] = user_info
-                    updated = True
-                    break
-            if not updated:
-                progress.append(user_info)
-            with open(progress_file, 'w', encoding='utf-8') as f:
-                json.dump(progress, f, ensure_ascii=False, indent=2)
-            # --- Конец записи прогресса ---
             if isinstance(result, dict) and result.get('failed'):
                 failed += 1
             elif result == 'skipped':

@@ -4,6 +4,7 @@ from relove_bot.db.repository import UserRepository
 from relove_bot.db.database import AsyncSessionFactory
 from aiogram import Bot, Dispatcher
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+import base64
 
 from .config import settings
 
@@ -19,27 +20,32 @@ async def readiness_check(request: web.Request):
     pass
 
 async def dashboard(request: web.Request):
-    import json, os
+    from aiohttp import web
+    from relove_bot.db.repository import UserRepository
+    from relove_bot.db.database import AsyncSessionFactory
     import logging
     logger = logging.getLogger("dashboard")
-    progress_file = os.path.join(os.path.dirname(__file__), '../dashboard_progress.json')
-    progress = []
-    # Автоматически создаём файл, если его нет или он повреждён
-    if not os.path.exists(progress_file):
-        with open(progress_file, 'w', encoding='utf-8') as f:
-            json.dump([], f)
-    try:
-        with open(progress_file, 'r', encoding='utf-8') as f:
-            progress = json.load(f)
-        if not isinstance(progress, list):
-            logger.warning("dashboard_progress.json не содержит список, сбрасываем...")
-            progress = []
-    except Exception as e:
-        logger.error(f"Ошибка чтения dashboard_progress.json: {e}")
+    # Получаем пользователей из БД
+    async with AsyncSessionFactory() as session:
+        repo = UserRepository(session)
+        # Получаем всех пользователей из БД
+        from relove_bot.db.models import User
+        users = await session.execute(
+            User.__table__.select()
+        )
+        user_rows = users.fetchall()
         progress = []
-        # Принудительно пересоздаём файл
-        with open(progress_file, 'w', encoding='utf-8') as f:
-            json.dump([], f)
+        for row in user_rows:
+            user = row
+            progress.append({
+                'user_id': user.id,
+                'username': user.username,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'gender': user.gender.value if user.gender else None,
+                'photo': f"data:image/jpeg;base64,{base64.b64encode(user.photo_jpeg).decode('utf-8')}" if user.photo_jpeg else None,
+                'summary': user.profile_summary,
+            })
     html = """
     <html>
     <head>
