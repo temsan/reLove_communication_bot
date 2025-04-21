@@ -129,14 +129,26 @@ async def select_users(gender: str = None, text_filter: str = None, user_id_list
             if text_filter and summary:
                 if text_filter.lower() not in summary.lower():
                     continue
-            user_dict = {
-                'id': user.id,
-                'username': user.username,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'summary': summary,
-                'gender': user_gender,
-            }
+                # Используем profile_summary как психопортрет
+                psycho = user.profile_summary if hasattr(user, 'profile_summary') else None
+                if not psycho:
+                    # Если profile_summary отсутствует — пробуем сгенерировать
+                    try:
+                        from relove_bot.services.telegram_service import get_full_psychological_summary
+                        psycho = await get_full_psychological_summary(user.id)
+                        user.profile_summary = psycho
+                        await session.commit()
+                    except Exception as e:
+                        logger.warning(f"Не удалось получить психопортрет для пользователя {user.id}: {e}")
+                        psycho = None
+                user_dict = {
+                    'id': user.id,
+                    'username': user.username,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'summary': psycho,
+                    'gender': user_gender,
+                }
             user_objs.append((user_dict, context))
         # Ранжирование
         if rank_by:
@@ -288,6 +300,15 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
 
                     summary = None
                     gender = None
+
+                    # Проверка обязательных полей
+                    missing_fields = []
+                    for field in ("first_name", "last_name", "username"):
+                        if not user.get(field):
+                            missing_fields.append(field)
+                    if missing_fields:
+                        logger.warning(f"Пропуск пользователя {user.get('id')} из-за отсутствия полей: {', '.join(missing_fields)}")
+                        continue
 
                     # 1. Делаем только то, что нужно
                     if need_summary:
