@@ -4,11 +4,12 @@ from aiogram.filters import Command, CommandStart
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
-from ..rag.llm import LLM, generate_rag_answer
+from ..rag.llm import LLM
 from ..rag.pipeline import get_user_context
 from ..db.session import SessionLocal
 from ..db.models import UserActivityLog, User
 from datetime import datetime
+from relove_bot.db.memory_index import user_memory_index
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -165,28 +166,31 @@ async def handle_admin_user_info(message: types.Message):
         await message.reply("Укажите user_id: /admin_user_info user_id=123456")
         return
     try:
-        async with SessionLocal() as session:
-            user = await session.get(User, user_id)
-            if not user:
-                await message.reply(f"Пользователь с id={user_id} не найден.")
-                return
-            context = user.context or {}
-            summary = context.get('summary')
-            gender = context.get('gender')
-            info = (
-                f"ID: {user.id}\n"
-                f"Username: @{user.username}\n"
-                f"Имя: {user.first_name or ''} {user.last_name or ''}\n"
-                f"is_active: {user.is_active}\n"
-                f"Gender: {gender}\n"
-                f"Summary: {summary or '-'}\n"
-            )
-            ctx_str = str(context)
-            if len(ctx_str) < 1500:
-                info += f"Context: {ctx_str}\n"
-            else:
-                info += f"Context: слишком длинный ({len(ctx_str)} символов)\n"
-            await message.reply(info)
+        # Сначала ищем в памяти
+        user = user_memory_index.find_by_id(user_id) if user_memory_index else None
+        if not user:
+            async with SessionLocal() as session:
+                user = await session.get(User, user_id)
+        if not user:
+            await message.reply(f"Пользователь с id={user_id} не найден.")
+            return
+        context = user.context or {}
+        summary = context.get('summary')
+        gender = context.get('gender')
+        info = (
+            f"ID: {user.id}\n"
+            f"Username: @{user.username}\n"
+            f"Имя: {user.first_name or ''} {user.last_name or ''}\n"
+            f"is_active: {user.is_active}\n"
+            f"Gender: {gender}\n"
+            f"Summary: {summary or '-'}\n"
+        )
+        ctx_str = str(context)
+        if len(ctx_str) < 1500:
+            info += f"Context: {ctx_str}\n"
+        else:
+            info += f"Context: слишком длинный ({len(ctx_str)} символов)\n"
+        await message.reply(info)
     except Exception as e:
         logging.error(f"Ошибка в handle_admin_user_info: {e}")
         await message.reply(f"Ошибка при получении информации: {e}")

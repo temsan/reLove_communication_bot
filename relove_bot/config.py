@@ -3,8 +3,7 @@ from pydantic import Field, SecretStr, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    llm_summary_model: str = Field('gpt-4.1', env='LLM_SUMMARY_MODEL')
-    llm_summary_model: str = Field('gpt-4.1', env='LLM_SUMMARY_MODEL')
+    llm_summary_model: str = Field('openai/gpt-4.1-mini', env='LLM_SUMMARY_MODEL')
     """
     Application settings loaded from environment variables.
     """

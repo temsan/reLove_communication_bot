@@ -3,7 +3,8 @@ from typing import Callable, Dict, Any, Awaitable, Union
 import datetime
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery, User as TgUser, Chat as TgChat
+from typing import Optional
+from aiogram.types import Message, CallbackQuery, User as TgUser, Chat as TgChat, TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import UserActivityLog, User, Chat

@@ -2,6 +2,7 @@ import logging
 from typing import Tuple
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.base import BaseStorage
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, BotCommandScopeDefault
@@ -18,7 +19,7 @@ def create_bot_and_dispatcher(storage: BaseStorage = None) -> Tuple[Bot, Dispatc
     :return: кортеж (bot, dispatcher)
     """
     try:
-        bot = Bot(token=settings.bot_token.get_secret_value(), parse_mode=ParseMode.HTML)
+        bot = Bot(token=settings.bot_token.get_secret_value(), default=DefaultBotProperties(parse_mode=ParseMode.HTML))
         if storage is None:
             storage = MemoryStorage()
         dp = Dispatcher(storage=storage)
