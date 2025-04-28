@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Админка reLove</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background: linear-gradient(120deg, #f8e1f6 0%, #e0e6fa 100%); }
+        .admin-header {
+            background: linear-gradient(90deg, #d72660 0%, #7f53ac 100%);
+            color: #fff;
+            border-radius: 1.5rem;
+            box-shadow: 0 4px 24px 0 rgba(215,38,96,0.10);
+            padding: 2.2rem 1.5rem 1.2rem 1.5rem;
+            margin-bottom: 2rem;
+            letter-spacing: 1px;
+        }
+        .admin-header h1 { font-weight: 800; font-size: 2.2rem; letter-spacing: 2px; }
+        .menu-btn {
+            margin: 0 0.5rem 1rem 0.5rem;
+            border-radius: 1.1rem;
+        }
+        .search-form {
+            max-width: 420px;
+            margin: 2rem auto 2rem auto;
+        }
+        .search-results {
+            margin-top: 2rem;
+        }
+    </style>
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top shadow-sm">
+  <div class="container-fluid">
+    <a class="navbar-brand fw-bold" href="/dashboard">reLove Bot</a>
+    <span class="navbar-text ms-auto">Админка</span>
+  </div>
+</nav>
+<div style="height:58px;"></div>
+<div class="container py-3">
+    <div class="admin-header mb-4">
+        <h1>Админка reLove</h1>
+        <div class="d-flex flex-wrap">
+            <a href="#" class="btn btn-outline-danger menu-btn" data-bs-toggle="modal" data-bs-target="#mailingModal">Рассылка</a>
+            <a href="#user-search" class="btn btn-outline-primary menu-btn">Поиск пользователей</a>
+        </div>
+    </div>
+    <!-- Поиск пользователей -->
+    <form class="search-form" method="get" action="/admin/search">
+        <div class="input-group">
+            <input type="text" class="form-control" name="query" placeholder="ID, имя, username, поток...">
+            <button class="btn btn-primary" type="submit">Искать</button>
+        </div>
+    </form>
+    <div class="search-results">
+        {% if users %}
+        <div class="list-group">
+            {% for user in users %}
+            <div class="list-group-item">
+                <strong>{{ user.first_name }} {{ user.last_name }}</strong> {% if user.username %}(@{{ user.username }}){% endif %} — ID: {{ user.id }}<br>
+                <span class="text-muted">Потоки: {{ user.streams|join(', ') }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% elif query %}
+        <div class="alert alert-warning">Ничего не найдено по запросу "{{ query }}"</div>
+        {% endif %}
+    </div>
+</div>
+<!-- Модальное окно рассылки -->
+<div class="modal fade" id="mailingModal" tabindex="-1" aria-labelledby="mailingModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/admin/mailing">
+        <div class="modal-header">
+          <h5 class="modal-title" id="mailingModalLabel">Создать рассылку</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="mailingText" class="form-label">Текст сообщения</label>
+            <textarea class="form-control" id="mailingText" name="message" rows="4" required></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-danger">Разослать</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<!-- Приветственное сообщение -->
+<div class="container py-3">
+  <div class="card mb-4">
+    <div class="card-header bg-info text-white">Настройка приветственного сообщения</div>
+    <div class="card-body">
+      <form method="post" action="/admin/welcome">
+        <div class="mb-3">
+          <label for="welcomeText" class="form-label">Текст приветствия для новых участников</label>
+          <textarea class="form-control" id="welcomeText" name="welcome_message" rows="3">{{ welcome_message|default('Добро пожаловать в наше сообщество!\nПожалуйста, ознакомьтесь с правилами и заполните свой профиль.') }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-info">Сохранить приветствие</button>
+      </form>
+    </div>
+  </div>
+</div>
+<!-- Приветственное сообщение -->
+<div class="container py-3">
+  <div class="card mb-4">
+    <div class="card-header bg-info text-dark">Приветственное сообщение для новых пользователей</div>
+    <div class="card-body">
+      <form method="post" action="/admin/welcome">
+        <div class="mb-3">
+          <label for="welcomeMessage" class="form-label">Текст приветствия</label>
+          <textarea class="form-control" id="welcomeMessage" name="welcome_message" rows="3">{{ welcome_message }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-info">Сохранить приветствие</button>
+      </form>
+      <div class="mt-3">
+        <b>Текущее приветствие:</b>
+        <div class="border rounded p-2 bg-light">{{ welcome_message|default('Не задано') }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Напоминания -->
+<div class="container py-3">
+  <div class="card mb-4">
+    <div class="card-header bg-warning text-dark">Создать напоминание пользователю</div>
+    <div class="card-body">
+      <form method="post" action="/admin/reminder">
+        <div class="mb-3">
+          <label for="reminderUserId" class="form-label">ID пользователя</label>
+          <input type="number" class="form-control" id="reminderUserId" name="user_id" required>
+        </div>
+        <div class="mb-3">
+          <label for="reminderText" class="form-label">Текст напоминания</label>
+          <textarea class="form-control" id="reminderText" name="reminder_message" rows="2" required></textarea>
+        </div>
+        <div class="mb-3">
+          <label for="reminderTime" class="form-label">Время отправки (timestamp)</label>
+          <input type="number" class="form-control" id="reminderTime" name="reminder_time" required>
+          <div class="form-text">Укажите время в формате UNIX timestamp (UTC).</div>
+        </div>
+        <button type="submit" class="btn btn-warning">Создать напоминание</button>
+      </form>
+    </div>
+  </div>
+</div>
+<!-- Блок статистики и автоматизации -->
+<div class="container py-3">
+  <div class="card mb-4">
+    <div class="card-header bg-secondary text-white">Статистика пользователей и автоматизация</div>
+    <div class="card-body">
+      <ul class="list-group mb-3">
+        <li class="list-group-item">Всего пользователей: <b>{{ stats.total_users }}</b></li>
+        <li class="list-group-item">Профили с саммари: <b>{{ stats.profiles_with_summary }}</b></li>
+        <li class="list-group-item">Пол пользователей:
+          <ul>
+            {% for gender, count in stats.gender_stats.items() %}
+              <li>{{ gender|default('Не определён') }}: <b>{{ count }}</b></li>
+            {% endfor %}
+          </ul>
+        </li>
+      </ul>
+      <form method="post" action="/admin/analyze_gender">
+        <button type="submit" class="btn btn-outline-secondary">Автоматически определить пол у всех</button>
+      </form>
+    </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

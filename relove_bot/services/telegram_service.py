@@ -42,7 +42,7 @@ async def openai_psychological_summary(text: str, image_url: str = None) -> str:
     result = await llm.analyze_content(text=text, image_url=image_url, system_prompt=prompt, max_tokens=512)
     return result["summary"]
 
-async def get_full_psychological_summary(user_id: int, main_channel_id: Optional[str] = None, tg_user=None) -> str:
+async def get_full_psychological_summary(user_id: int, main_channel_id: Optional[str] = None, tg_user=None, posts: Optional[list] = None) -> str:
     """
     Строит полный психологический портрет пользователя на основе:
     - bio (about)
@@ -54,56 +54,65 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
     """
     user = tg_user if tg_user is not None else await client.get_entity(user_id)
     bio = getattr(user, 'about', '') or ''
-    main_posts = []
-    if main_channel_id:
-        try:
-            main_posts = await get_user_posts_in_channel(main_channel_id, user_id)
-        except Exception as e:
-            logging.warning(f"[get_full_psychological_summary] Не удалось получить посты пользователя в основном канале: {e}")
+    # Используем posts, если переданы, иначе собираем как раньше
     personal_posts = []
     photo_summaries = []
-    try:
-        personal = await get_personal_channel_posts(user_id)
-        personal_posts = personal.get("posts", [])
-        photo_summaries = personal.get("photo_summaries", [])
-    except Exception as e:
-        logging.warning(f"[get_full_psychological_summary] Не удалось получить личные посты/фото: {e}")
+    if posts is not None:
+        main_posts = posts  # это посты из основного канала
+        try:
+            personal = await get_personal_channel_posts(user_id)
+            personal_posts = personal.get("posts", [])
+            photo_summaries = personal.get("photo_summaries", [])
+        except Exception as e:
+            logging.warning(f"[get_full_psychological_summary] Не удалось получить личные посты/фото: {e}")
+        all_posts = main_posts + personal_posts
+        posts_text = "\n".join(all_posts)
+        summary = await openai_psychological_summary(text=(bio + "\n" + posts_text), image_url=None)
+        # Если есть отдельные summary по фото — добавляем
+        if photo_summaries:
+            summary += "\n" + "\n".join(photo_summaries)
+        return summary
+    else:
+        main_posts = []
+        if main_channel_id:
+            try:
+                main_posts = await get_user_posts_in_channel(main_channel_id, user_id)
+            except Exception as e:
+                logging.warning(f"[get_full_psychological_summary] Не удалось получить посты пользователя в основном канале: {e}")
+        try:
+            personal = await get_personal_channel_posts(user_id)
+            personal_posts = personal.get("posts", [])
+            photo_summaries = personal.get("photo_summaries", [])
+        except Exception as e:
+            logging.warning(f"[get_full_psychological_summary] Не удалось получить личные посты/фото: {e}")
     # Анализируем все фото профиля (если есть)
     if not photo_summaries:
         # Если get_personal_channel_posts не дал фото — пробуем напрямую
+        bioio = BytesIO()
         async for photo in client.iter_profile_photos(user_id):
-            bioio = BytesIO()
             await client.download_media(photo, file=bioio)
             bioio.seek(0)
             img_bytes = bioio.read()
             summary = await analyze_photo_via_llm(img_bytes)
             photo_summaries.append(summary)
-    # Собираем всё для LLM
-    llm = LLM()
-    llm_input = (
-        f"Биография пользователя:\n{bio}\n"
-        f"Посты пользователя в основном канале:\n{chr(10).join(main_posts)}\n"
-        f"Посты пользователя в личном канале:\n{chr(10).join(personal_posts)}\n"
-        f"Фото профиля проанализированы автоматически."
-    )
     # Вызов LLM для получения психологического портрета (всегда с фото, если есть хотя бы одно)
     image_url = None
     if photo_summaries:
         # Для vision — используем последнее фото (можно расширить до нескольких)
         # Для полного анализа можно добавить несколько image_url — сейчас поддерживается только один
-        # Поэтому берём последнее фото пользователя
         async for photo in client.iter_profile_photos(user_id, limit=1):
             bioio = BytesIO()
             await client.download_media(photo, file=bioio)
             bioio.seek(0)
             img_bytes = bioio.read()
-            import base64
             img_b64 = base64.b64encode(img_bytes).decode()
             break
+    llm_input = bio + '\n'.join(main_posts + personal_posts)
     logging.warning(f"LLM INPUT for user {user_id}: {llm_input[:500]}")
     if 'img_b64' in locals():
         logging.warning(f"LLM IMAGE for user {user_id}: есть фото (base64 длина {len(img_b64)})")
     try:
+        llm = LLM()
         result = await llm.analyze_content(
             text=llm_input,
             image_base64=img_b64 if 'img_b64' in locals() else None,
@@ -142,7 +151,7 @@ async def get_personal_channel_entity(user_id: int):
         logging.warning(f"[get_personal_channel_entity] Ошибка получения личного канала: {e}")
         return None
 
-async def get_user_posts_in_channel(channel_id_or_username: str, user_id: int, limit: int = 100) -> List[str]:
+async def get_user_posts_in_channel(channel_id_or_username: str, user_id: int, limit: int = 1000) -> List[str]:
     posts = []
     async for msg in client.iter_messages(channel_id_or_username, from_user=user_id, limit=limit):
         if msg.text:

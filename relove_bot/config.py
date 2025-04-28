@@ -34,6 +34,7 @@ class Settings(BaseSettings):
 
     # Channel for fill_all_profiles
     our_channel_id: str = Field(..., env='OUR_CHANNEL_ID', description="Telegram channel ID для массового обновления summary")
+    discussion_channel_id: str = Field(..., env='DISCUSSION_CHANNEL_ID', description="ID канала для обсуждений/постов пользователей")
 
     # Telethon (Telegram API) settings
     tg_api_id: int = Field(..., env='TG_API_ID', description="Telegram API ID")

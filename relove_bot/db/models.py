@@ -28,13 +28,14 @@ class User(Base):
     last_seen_date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     gender: Mapped[Optional[GenderEnum]] = mapped_column(SQLEnum(GenderEnum, name='genderenum'), nullable=True, index=True, doc="Пол пользователя (male/female/unknown)")
     history_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, doc="Выжимка истории общения с ботом")
-    profile_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, doc="Выжимка профиля (посты, фото и т.д.)") # Новое поле
+    profile_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, doc="Выжимка профиля (посты, фото и т.д.)") 
     photo_jpeg: Mapped[Optional[bytes]] = mapped_column(
         LargeBinary, nullable=True, doc="Фото профиля (JPEG, сжато)"
     )
     markers: Mapped[Optional[Dict[str, Any]]] = mapped_column(
         JSON, nullable=True, doc="Словарь свойство-значение для любых пользовательских маркеров и свойств"
     )
+    streams: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True, doc="Список пройденных потоков reLove")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
