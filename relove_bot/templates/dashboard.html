@@ -10,13 +10,59 @@
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
     body {
       font-family: 'Inter', Arial, sans-serif;
-      background: #f7f8fa;
+      background: #fff;
       color: #1a1a1a;
       margin: 0;
       padding: 0;
     }
+}
+
+/* reLove фирменные карточки */
+.relove-card {
+  background: #fff;
+  border-radius: 1.6rem;
+  box-shadow: 0 2px 16px 0 rgba(127,83,172,0.09);
+  border: 2.5px solid transparent;
+  background-clip: padding-box;
+  padding: 1.4rem 1.8rem 1.3rem 1.8rem;
+  margin-bottom: 2rem;
+  color: #1a1a1a;
+  transition: box-shadow 0.2s, border 0.2s;
+  position: relative;
+}
+.relove-card.accent-1 { border-image: linear-gradient(90deg, #e94e77, #b721ff) 1; }
+.relove-card.accent-2 { border-image: linear-gradient(90deg, #36d1c4, #7f53ac) 1; }
+.relove-card.accent-3 { border-image: linear-gradient(90deg, #d72660, #ffaf7b) 1; }
+.relove-card:hover { box-shadow: 0 16px 48px 0 rgba(215,38,96,0.13); }
+
+/* Кнопки reLove */
+.relove-btn {
+  background: linear-gradient(90deg, #e94e77 0%, #b721ff 100%);
+  color: #fff;
+  border: none;
+  border-radius: 1.2rem;
+  font-weight: 600;
+  padding: 0.7em 2.1em;
+  font-size: 1.1em;
+  box-shadow: 0 2px 12px 0 rgba(127,83,172,0.09);
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.relove-btn:hover {
+  background: linear-gradient(90deg, #d72660 0%, #7f53ac 100%);
+  box-shadow: 0 8px 24px 0 rgba(233,78,119,0.13);
+}
+
+/* Акцентное сердечко */
+.relove-heart {
+  color: #e94e77;
+  font-size: 1.6em;
+  vertical-align: middle;
+  filter: drop-shadow(0 1px 4px rgba(233,78,119,0.13));
+  font-family: 'Pacifico', cursive, sans-serif;
+}
+
     .dashboard-title-bar {
-      background: linear-gradient(90deg, #e94e77 0%, #7f53ac 100%);
+      background: linear-gradient(90deg, #ff9966 0%, #b721ff 100%);
       border-radius: 2rem;
       box-shadow: 0 2px 16px 0 rgba(127,83,172,0.09);
       padding: 1.1rem 1.6rem 1.1rem 2.1rem;
@@ -27,20 +73,21 @@
       min-height: 68px;
     }
     .dashboard-title {
-      color: #fff;
-      font-size: 2.2rem;
-      font-weight: 700;
-      letter-spacing: 0.01em;
-      text-shadow: 0 1px 8px rgba(127,83,172,0.08);
-      display: flex;
-      align-items: center;
-    }
-    .dashboard-title .relove-heart {
-      margin-left: 0.5rem;
-      font-size: 2.1rem;
-      vertical-align: middle;
-      filter: drop-shadow(0 1px 4px rgba(233,78,119,0.13));
-    }
+  color: #fff;
+  font-size: 2.2rem;
+  font-family: 'Inter', Arial, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-shadow: none;
+  display: flex;
+  align-items: center;
+}
+.dashboard-title .relove-heart {
+  margin-left: 0.5rem;
+  font-size: 2.1rem;
+  vertical-align: middle;
+  filter: drop-shadow(0 1px 4px rgba(233,78,119,0.13));
+}
     .relove-tabs .nav-link.relove-tab-btn {
       border: none;
       background: none;
@@ -244,25 +291,41 @@
     }
 
 .modern-user-card {
-  background: #222;
-  color: #fff;
-  aspect-ratio: 1 / 1;
+  background: #fff;
+  color: #23232A;
+  aspect-ratio: 0.7 / 1;
   width: 100%;
   min-width: 0;
-  max-width: 210px;
+  max-width: 540px;
   min-height: 0;
-  max-height: 210px;
+  max-height: 820px;
   margin: 0 auto;
-  border-radius: 1.1rem;
+  border-radius: 2.5rem;
   overflow: hidden;
   position: relative;
-  box-shadow: none;
+  box-shadow: 0 4px 24px 0 rgba(127,83,172,0.08);
   border: none;
   padding: 0;
   display: flex;
   flex-direction: column;
   justify-content: stretch;
   align-items: stretch;
+}
+
+.modern-user-summary {
+  font-size: clamp(0.7rem, 0.9vw, 0.89rem);
+  line-height: 1.19;
+  color: #bfc3d9;
+  font-weight: 400;
+  padding: 0.7em 1em 1em 1em;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  overflow: visible;
+  text-overflow: initial;
+  min-height: 3.3em;
+  max-height: none;
+  display: block;
+}
 }
     .user-photo-bg {
       position: absolute;
@@ -581,7 +644,7 @@
         <span class="dashboard-title">Аналитика пользователей <span class="relove-heart">❤</span></span>
     </div>
     <!-- Вкладки -->
-    <ul class="nav nav-tabs mb-3 relove-tabs" id="dashboardTabs" role="tablist" style="border-radius: 1.2rem; overflow: hidden; background: linear-gradient(90deg, #f8e1f6 0%, #e0e6fa 100%);">
+    <ul class="nav nav-tabs mb-3 relove-tabs" id="dashboardTabs" role="tablist" style="border-radius: 1.2rem; overflow: hidden; background: linear-gradient(90deg, #ffe1e1 0%, #f8e1f6 100%);">
       <li class="nav-item" role="presentation">
         <button class="nav-link relove-tab-btn {% if active_tab == 'analytics' or not active_tab %}active{% endif %}" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analytics" type="button" role="tab" aria-controls="analytics" aria-selected="true">Аналитика</button>
       </li>
@@ -729,8 +792,8 @@
   <div class="tab-pane fade" id="automation" role="tabpanel" aria-labelledby="automation-tab">
     <div class="row g-4">
       <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3">
-          <div class="relove-card-title">Массовый анализ профилей</div>
+        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
+  <div class="relove-card-title">Массовый анализ профилей</div>
           <div class="card-body">
             <p class="card-text">Запустить массовый сбор и анализ профилей пользователей открытого канала.</p>
             <form method="post" action="/dashboard/auto_analyze">
@@ -743,8 +806,8 @@
         </div>
       </div>
       <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3">
-          <div class="relove-card-title">Массовое определение пола</div>
+        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
+  <div class="relove-card-title">Массовое определение пола</div>
           <div class="card-body">
             <p class="card-text">Автоматически определить пол у всех пользователей по профилю.</p>
             <form method="post" action="/dashboard/auto_gender">
@@ -757,8 +820,8 @@
         </div>
       </div>
       <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3">
-          <div class="relove-card-title">Массовое психологическое профилирование</div>
+        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
+  <div class="relove-card-title">Массовое психологическое профилирование</div>
           <div class="card-body">
             <p class="card-text">Собрать психологические портреты всех пользователей.</p>
             <form method="post" action="/dashboard/auto_psych">
@@ -771,8 +834,8 @@
         </div>
       </div>
       <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3">
-          <div class="relove-card-title">Автоматическая рассылка приветствий</div>
+        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
+  <div class="relove-card-title">Автоматическая рассылка приветствий</div>
           <div class="card-body">
             <p class="card-text">Включить/отключить автоматическую рассылку приветственных сообщений новым участникам.</p>
             <form method="post" action="/dashboard/auto_welcome">
@@ -785,8 +848,8 @@
         </div>
       </div>
       <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3">
-          <div class="relove-card-title">Шаблон приветственного сообщения</div>
+        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
+  <div class="relove-card-title">Шаблон приветственного сообщения</div>
           <div class="card-body">
             <form method="post" action="/dashboard/welcome_template">
               <div class="mb-3">
@@ -799,8 +862,8 @@
         </div>
       </div>
       <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3">
-          <div class="relove-card-title">Массовая рассылка о событиях</div>
+        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
+  <div class="relove-card-title">Массовая рассылка о событиях</div>
           <div class="card-body">
             <form method="post" action="/dashboard/broadcast_events">
               <div class="mb-3">
@@ -816,8 +879,8 @@
         </div>
       </div>
       <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3">
-          <div class="relove-card-title">Массовое создание напоминаний</div>
+        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
+  <div class="relove-card-title">Массовое создание напоминаний</div>
           <div class="card-body">
             <form method="post" action="/dashboard/auto_reminders">
               <div class="mb-3">
@@ -837,18 +900,18 @@
         </div>
       </div>
       <div class="col-12 col-lg-6">
-        <div class="card border-info mb-3">
-          <div class="card-header bg-info text-dark">Интеграция с каналами</div>
-          <div class="card-body">
-            <p>Текущие каналы и чаты для интеграции:</p>
-            <ul class="list-group mb-2">
-              {% for channel in channels %}
-              <li class="list-group-item">ID: <b>{{ channel.id }}</b> — {{ channel.title }}</li>
-              {% endfor %}
-            </ul>
-            <span class="badge bg-secondary">Статус: {{ channels_status|default('OK') }}</span>
-          </div>
-        </div>
+        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
+  <div class="relove-card-title">Интеграция с каналами</div>
+  <div class="card-body">
+    <p>Текущие каналы и чаты для интеграции:</p>
+    <ul class="list-group mb-2">
+      {% for channel in channels %}
+      <li class="list-group-item">ID: <b>{{ channel.id }}</b> — {{ channel.title }}</li>
+      {% endfor %}
+    </ul>
+    <span class="badge bg-secondary">Статус: {{ channels_status|default('OK') }}</span>
+  </div>
+</div>
       </div>
     </div>
   </div>
