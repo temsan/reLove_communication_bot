@@ -1,3 +1,4 @@
+import os
 import logging
 import re
 from io import BytesIO
@@ -42,7 +43,7 @@ async def openai_psychological_summary(text: str, image_url: str = None) -> str:
     result = await llm.analyze_content(text=text, image_url=image_url, system_prompt=prompt, max_tokens=512)
     return result["summary"]
 
-async def get_full_psychological_summary(user_id: int, main_channel_id: Optional[str] = None, tg_user=None, posts: Optional[list] = None) -> str:
+async def get_full_psychological_summary(user_id: int, main_channel_id: Optional[str] = None, tg_user=None, posts: Optional[list] = None) -> tuple[str, Optional[bytes]]:
     """
     Строит полный психологический портрет пользователя на основе:
     - bio (about)
@@ -57,6 +58,7 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
     # Используем posts, если переданы, иначе собираем как раньше
     personal_posts = []
     photo_summaries = []
+    last_photo_bytes = None
     if posts is not None:
         main_posts = posts  # это посты из основного канала
         try:
@@ -71,7 +73,14 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
         # Если есть отдельные summary по фото — добавляем
         if photo_summaries:
             summary += "\n" + "\n".join(photo_summaries)
-        return summary
+        # Получаем последнее фото профиля
+        async for photo in client.iter_profile_photos(user_id, limit=1):
+            bioio = BytesIO()
+            await client.download_media(photo, file=bioio)
+            bioio.seek(0)
+            last_photo_bytes = bioio.read()
+            break
+        return summary, last_photo_bytes
     else:
         main_posts = []
         if main_channel_id:
@@ -88,51 +97,73 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
     # Анализируем все фото профиля (если есть)
     if not photo_summaries:
         # Если get_personal_channel_posts не дал фото — пробуем напрямую
+        last_photo_bytes = None
         bioio = BytesIO()
-        async for photo in client.iter_profile_photos(user_id):
+        async for photo in client.iter_profile_photos(user_id, limit=1):
             await client.download_media(photo, file=bioio)
             bioio.seek(0)
             img_bytes = bioio.read()
             summary = await analyze_photo_via_llm(img_bytes)
             photo_summaries.append(summary)
+            last_photo_bytes = img_bytes
+            break
     # Вызов LLM для получения психологического портрета (всегда с фото, если есть хотя бы одно)
     image_url = None
     if photo_summaries:
         # Для vision — используем последнее фото (можно расширить до нескольких)
         # Для полного анализа можно добавить несколько image_url — сейчас поддерживается только один
+        last_photo_bytes = None
         async for photo in client.iter_profile_photos(user_id, limit=1):
             bioio = BytesIO()
             await client.download_media(photo, file=bioio)
             bioio.seek(0)
             img_bytes = bioio.read()
             img_b64 = base64.b64encode(img_bytes).decode()
+            last_photo_bytes = img_bytes
             break
     llm_input = bio + '\n'.join(main_posts + personal_posts)
     logging.warning(f"LLM INPUT for user {user_id}: {llm_input[:500]}")
     if 'img_b64' in locals():
         logging.warning(f"LLM IMAGE for user {user_id}: есть фото (base64 длина {len(img_b64)})")
-    try:
-        llm = LLM()
-        result = await llm.analyze_content(
-            text=llm_input,
-            image_base64=img_b64 if 'img_b64' in locals() else None,
-            system_prompt=(
-                "Ты — профессиональный психолог и эксперт по анализу личности. "
-                "Сделай краткий психологический анализ личности пользователя на русском языке по тексту и/или фото. "
-                "Если данных мало, анализируй только то, что есть. Не пиши никаких отказов, комментариев о невозможности анализа или просьб предоставить больше данных. Просто дай анализ."
-            ),
-            max_tokens=512
-        )
-        logging.warning(f"LLM RAW RESPONSE for user {user_id}: {result['raw_response']}")
-        logging.warning(f"LLM SUMMARY for user {user_id}: {result['summary']}")
-        return result["summary"]
-    except Exception as e:
-        # Специальный отлов ошибки баланса OpenAI/OpenRouter
-        if (hasattr(e, 'status_code') and getattr(e, 'status_code', None) == 402) or 'Insufficient credits' in str(e):
-            logging.error(f"[get_full_psychological_summary] Недостаточно кредитов для LLM/OpenAI/OpenRouter! Пополните баланс: https://openrouter.ai/settings/credits")
-        else:
-            logging.error(f"[get_full_psychological_summary] Ошибка LLM: {e}")
-        raise
+    # Если нет текста и фото — логируем и возвращаем None
+    if not llm_input.strip() and 'img_b64' not in locals():
+        export_dir = os.getenv('TELEGRAM_EXPORT_PATH', '.')
+        no_data_log = os.path.join(export_dir, 'users_skipped_no_data.log')
+        with open(no_data_log, 'a', encoding='utf-8') as logf:
+            logf.write(f"{user_id}\n")
+        logging.warning(f"User {user_id} пропущен: нет текста и фото для анализа.")
+        return None, None
+    # Повторные попытки для LLM
+    max_llm_attempts = 3
+    for attempt in range(1, max_llm_attempts + 1):
+        try:
+            llm = LLM()
+            result = await llm.analyze_content(
+                text=llm_input,
+                image_base64=img_b64 if 'img_b64' in locals() else None,
+                system_prompt=(
+                    "Ты — профессиональный психолог и эксперт по анализу личности. "
+                    "Сделай краткий психологический анализ личности пользователя на русском языке по тексту и/или фото. "
+                    "Если данных мало, анализируй только то, что есть. Не пиши никаких отказов, комментариев о невозможности анализа или просьб предоставить больше данных. Просто дай анализ."
+                ),
+                max_tokens=512,
+                timeout=60
+            )
+            logging.warning(f"LLM RAW RESPONSE for user {user_id}: {result['raw_response']}")
+            logging.warning(f"LLM SUMMARY for user {user_id}: {result['summary']}")
+            return result["summary"], last_photo_bytes
+        except Exception as e:
+            logging.error(f"Попытка {attempt}/{max_llm_attempts} — Ошибка LLM для user {user_id}: {e}")
+            import asyncio
+            if attempt < max_llm_attempts:
+                await asyncio.sleep(5)
+            else:
+                # Специальный отлов ошибки баланса OpenAI/OpenRouter
+                if (hasattr(e, 'status_code') and getattr(e, 'status_code', None) == 402) or 'Insufficient credits' in str(e):
+                    logging.error(f"[get_full_psychological_summary] Недостаточно кредитов для LLM/OpenAI/OpenRouter! Пополните баланс: https://openrouter.ai/settings/credits")
+                else:
+                    logging.error(f"[get_full_psychological_summary] Ошибка LLM: {e}")
+                return None
 
 
 async def get_personal_channel_entity(user_id: int):

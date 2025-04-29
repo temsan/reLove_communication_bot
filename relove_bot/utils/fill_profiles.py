@@ -1,3 +1,4 @@
+import os
 import asyncio
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -227,7 +228,18 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                 # Получаем summary, если нужно
                 if need_summary:
                     # summary теперь строится по постам из канала обсуждений
-                    summary = await telegram_service.get_full_psychological_summary(user_id, settings.discussion_channel_id, tg_user)
+                    max_llm_attempts = 3
+                    for attempt in range(1, max_llm_attempts + 1):
+                        try:
+                            summary = await telegram_service.get_full_psychological_summary(user_id, settings.discussion_channel_id, tg_user)
+                            break
+                        except Exception as e:
+                            logger.error(f"Попытка {attempt}/{max_llm_attempts} — Ошибка LLM для user {user_id}: {e}")
+                            if attempt < max_llm_attempts:
+                                import asyncio
+                                await asyncio.sleep(5)
+                            else:
+                                summary = None
                     # Фильтрация отказных ответов LLM
                     refusal_phrases = [
                         "i'm sorry, i can't help",
@@ -241,8 +253,12 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                         "отказ",
                         "извините, я не могу помочь с этой задачей"
                     ]
-                    if not summary or any(phrase in summary.lower() for phrase in refusal_phrases):
+                    if not summary or any(phrase in (summary or '').lower() for phrase in refusal_phrases):
                         logger.warning(f"LLM отказался генерировать summary для user {user_id} (summary='{summary}'). Пропуск записи в БД.")
+                        # Логируем user_id в отдельный файл, если нет данных для анализа
+                        no_data_log = os.path.join(os.getenv('TELEGRAM_EXPORT_PATH', '.'), 'users_skipped_no_data.log')
+                        with open(no_data_log, 'a', encoding='utf-8') as logf:
+                            logf.write(f"{user_id}\n")
                         failed_count += 1
                         skipped_count += 1
                         skipped_gender_summary_count += 1

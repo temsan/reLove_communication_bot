@@ -26,14 +26,32 @@ class ProfileService:
                 tg_user = await client.get_entity(user_id)
             except Exception as e:
                 logger.warning(f"Не удалось получить Telegram entity для user {user_id}: {e}")
-                tg_user = None
+                # Пробуем получить по username, если он есть в базе
+                user_in_db = await self.repo.get_by_id(user_id)
+                username = getattr(user_in_db, 'username', None) if user_in_db else None
+                if username:
+                    try:
+                        tg_user = await client.get_entity(username)
+                        logger.info(f"Удалось получить entity по username={username} для user_id={user_id}")
+                    except Exception as e2:
+                        logger.warning(f"Не удалось получить Telegram entity по username={username} для user_id={user_id}: {e2}")
+                        tg_user = None
+                else:
+                    tg_user = None
         user = await self.repo.get_by_id(user_id)
         if not user and tg_user:
+            first_name = getattr(tg_user, 'first_name', None)
+            last_name = getattr(tg_user, 'last_name', None)
+            username = getattr(tg_user, 'username', None)
+            # Пропуск, если все три поля отсутствуют
+            if not any([first_name, last_name, username]):
+                logger.warning(f"Пропуск user_id={user_id}: нет ни first_name, ни last_name, ни username. Не создаём пользователя!")
+                return
             user_data = {
                 "id": user_id,
-                "username": getattr(tg_user, 'username', None),
-                "first_name": getattr(tg_user, 'first_name', None),
-                "last_name": getattr(tg_user, 'last_name', None),
+                "username": username,
+                "first_name": first_name,
+                "last_name": last_name,
                 "is_active": True
             }
             missing_fields = self.validate_user_fields(user_data)
@@ -58,7 +76,7 @@ class ProfileService:
         posts = None
         if not user_has_summary:
             posts = await get_user_posts_in_channel(main_channel_id, user_id)
-            summary = await get_full_psychological_summary(
+            summary, last_photo_bytes = await get_full_psychological_summary(
                 user_id=user_id,
                 main_channel_id=main_channel_id,
                 tg_user=tg_user,
@@ -82,6 +100,11 @@ class ProfileService:
                 return result
             await self.repo.update_summary(user_id, summary)
             result['summary'] = summary
+            # Сохраняем последнее фото профиля, если есть
+            if last_photo_bytes:
+                user.photo_jpeg = last_photo_bytes
+                await self.repo.session.commit()
+                result['photo_saved'] = True
 
             # --- Определяем потоки через LLM по тем же постам ---
             try:

@@ -18,7 +18,7 @@ class PsychAnalysisService:
         if not user:
             return None
         # Получаем summary через существующий сервис
-        summary = await get_full_psychological_summary(user_id, main_channel_id, tg_user)
+        summary, _ = await get_full_psychological_summary(user_id, main_channel_id, tg_user)
         user.psych_profile = summary
         await self.repo.session.commit()
         return summary
