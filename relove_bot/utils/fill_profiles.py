@@ -1,17 +1,17 @@
-import os
 import asyncio
 import logging
+import os
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from relove_bot.config import settings
-from relove_bot.db.database import setup_database, close_database, get_db_session
+from relove_bot.db.database import close_database, get_db_session, setup_database
 from relove_bot.db.models import User
 from relove_bot.db.session import SessionLocal
-from relove_bot.services import telegram_service
-from relove_bot.services.telegram_service import client
-from relove_bot.utils.gender import detect_gender
 from relove_bot.rag.pipeline import aggregate_profile_summary
 from relove_bot.rag.llm import LLM
+from relove_bot.services.telegram_service import client
+from relove_bot.services import telegram_service
+from relove_bot.utils.gender import detect_gender
 
 logger = logging.getLogger(__name__)
 
@@ -211,25 +211,7 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                 user = await session.get(User, user_id)
                 user_has_summary = user and user.profile_summary and user.profile_summary.strip()
                 user_has_gender = user and user.gender and str(user.gender) not in ('', 'unknown', 'None')
-
-                # Проверяем каждое поле отдельно
-                user_has_summary = user and user.profile_summary and user.profile_summary.strip()
-                user_has_gender = user and user.gender and str(user.gender) not in ('', 'unknown', 'None')
                 user_has_streams = user and user.streams and isinstance(user.streams, list) and len(user.streams) > 0
-
-                # Нужно ли делать summary?
-                need_summary = not user_has_summary
-                # Нужно ли определять пол?
-                need_gender = not user_has_gender
-                # Нужно ли обновлять потоки?
-                need_streams = not user_has_streams
-
-                if not need_summary and not need_gender and not need_streams:
-                    logger.info(f"User {user_id} уже имеет все необходимые поля (summary, gender, streams), пропущен (ничего не обновлялось).")
-                    processed_count += 1
-                    skipped_count += 1
-                    skipped_streams_count += 1
-                    continue
 
                 # Нужно ли делать summary?
                 need_summary = not user_has_summary
@@ -238,6 +220,13 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
 
                 summary = None
                 gender = None
+                streams = []
+
+                if not need_summary and not need_gender and not user_has_streams:
+                    logger.info(f"User {user_id} уже имеет все необходимые поля (summary, gender, streams), пропущен (ничего не обновлялось).")
+                    processed_count += 1
+                    skipped_count += 1
+                    continue
 
                 # Получаем summary, если нужно
                 if need_summary:
@@ -245,7 +234,9 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                     max_llm_attempts = 3
                     for attempt in range(1, max_llm_attempts + 1):
                         try:
-                            summary, _ = await telegram_service.get_full_psychological_summary(user_id, settings.discussion_channel_id, tg_user)
+                            summary, _, streams = await telegram_service.get_full_psychological_summary(user_id, settings.discussion_channel_id, tg_user)
+                            if streams:
+                                logger.info(f"User {user_id} обнаружены потоки: {', '.join(streams)}")
                             break
                         except Exception as e:
                             logger.error(f"Попытка {attempt}/{max_llm_attempts} — Ошибка LLM для user {user_id}: {e}")
@@ -277,24 +268,13 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                     from relove_bot.utils.gender import detect_gender
                     gender = await detect_gender(tg_user)
 
-                # Определяем потоки reLove по постам пользователя
-                from relove_bot.utils.relove_streams import detect_relove_streams_by_posts
-                posts_for_streams = []
-                # main_posts и personal_posts могут быть не определены, если summary не строилось
-                if 'main_posts' in locals():
-                    posts_for_streams.extend(main_posts)
-                if 'personal_posts' in locals():
-                    posts_for_streams.extend(personal_posts)
-                if posts_for_streams:
-                    streams_dict = await detect_relove_streams_by_posts(posts_for_streams)
-                    # Используем только завершенные потоки
-                    streams = streams_dict.get('completed', [])
-                else:
-                    streams = []
+
 
                 # Обновляем профиль пользователя с учётом потоков
                 before = await session.get(User, user_id)
                 await update_user_profile_summary(session, user_id, summary, gender, streams)
+                if streams:
+                    logger.info(f"User {user_id} обновлены потоки: {', '.join(streams)}")
                 after = await session.get(User, user_id)
                 if before is None and after is not None:
                     created_count += 1

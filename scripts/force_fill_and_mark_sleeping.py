@@ -3,24 +3,33 @@
 Скрипт для извлечения user_id из экспортов Telegram и работы с профилями пользователей.
 Использует Telethon, SQLAlchemy и PIL для обработки фото.
 """
-import os
-import sys
-import json
-import logging
+
 import asyncio
 import io
-from typing import Set, Optional
-from PIL import Image
+import json
+import logging
+import os
+import sys
+from typing import Optional, Set
+
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from PIL import Image
 from tqdm import tqdm
 
 # Добавляем корень проекта в PYTHONPATH для корректного импорта
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from telethon import TelegramClient
-from telethon.errors.rpcerrorlist import PeerIdInvalidError, FloodWaitError
+from relove_bot.config import settings, reload_settings
+from relove_bot.db.models import User
+from relove_bot.db.session import SessionLocal
 from relove_bot.services.telegram_service import client
+from relove_bot.utils.custom_logging import setup_logging
+from relove_bot.utils.fill_profiles import fill_all_profiles
+from sqlalchemy import select
+from telethon import TelegramClient
+from telethon.errors.rpcerrorlist import FloodWaitError, PeerIdInvalidError
+from telethon.tl.functions.photos import GetUserPhotosRequest
 
 async def safe_get_entity(client, identifier, max_retries=3):
     for _ in range(max_retries):
@@ -36,14 +45,6 @@ async def safe_get_entity(client, identifier, max_retries=3):
             logger.warning(f'Ошибка получения entity для {identifier}: {e}')
             return None
     return None
-
-from telethon.tl.functions.photos import GetUserPhotosRequest
-from sqlalchemy import select
-from relove_bot.db.session import SessionLocal
-from relove_bot.db.models import User
-from relove_bot.utils.custom_logging import setup_logging
-from relove_bot.config import settings, reload_settings
-from relove_bot.utils.fill_profiles import fill_all_profiles
 
 load_dotenv(override=True)
 reload_settings()

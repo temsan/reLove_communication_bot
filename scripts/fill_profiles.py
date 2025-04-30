@@ -29,11 +29,7 @@ from relove_bot.utils.custom_logging import setup_logging
 from relove_bot.config import settings, reload_settings
 from relove_bot.db.models import User
 from relove_bot.services import telegram_service
-from relove_bot.utils.fill_profiles import fill_all_profiles
 from relove_bot.db.database import get_db_session, setup_database, close_database
-from relove_bot.services import telegram_service
-import asyncio
-
 from relove_bot.utils.fill_profiles import fill_all_profiles
 
 async def main():

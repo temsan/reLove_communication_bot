@@ -1,15 +1,18 @@
-import os
+import asyncio
+import base64
 import logging
+import os
 import re
 from io import BytesIO
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
+
 from telethon import TelegramClient
 from telethon.tl.functions.users import GetFullUserRequest
-from telethon.tl.types import User, Channel, Message
-from relove_bot.config import settings
+from telethon.tl.types import Channel, Message, User
 
-# --- Конфиг ---
 from pydantic import SecretStr
+from relove_bot.config import settings
+from relove_bot.rag.llm import LLM
 
 API_ID = settings.tg_api_id.get_secret_value() if isinstance(settings.tg_api_id, SecretStr) else settings.tg_api_id
 API_HASH = settings.tg_api_hash.get_secret_value() if isinstance(settings.tg_api_hash, SecretStr) else settings.tg_api_hash
@@ -43,7 +46,7 @@ async def openai_psychological_summary(text: str, image_url: str = None) -> str:
     result = await llm.analyze_content(text=text, image_url=image_url, system_prompt=prompt, max_tokens=512)
     return result["summary"]
 
-async def get_full_psychological_summary(user_id: int, main_channel_id: Optional[str] = None, tg_user=None, posts: Optional[list] = None) -> tuple[str, Optional[bytes]]:
+async def get_full_psychological_summary(user_id: int, main_channel_id: Optional[str] = None, tg_user=None, posts: Optional[list] = None) -> tuple[str, bytes, list]:
     """
     Строит полный психологический портрет пользователя на основе:
     - bio (about)
@@ -132,7 +135,13 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
         with open(no_data_log, 'a', encoding='utf-8') as logf:
             logf.write(f"{user_id}\n")
         logging.warning(f"User {user_id} пропущен: нет текста и фото для анализа.")
-        return None, None
+        return None, None, []
+    
+    # Определяем потоки reLove на основе постов
+    from relove_bot.utils.relove_streams import detect_relove_streams_by_posts
+    streams_result = await detect_relove_streams_by_posts(main_posts + personal_posts)
+    streams = streams_result.get('completed', [])
+    
     # Повторные попытки для LLM
     max_llm_attempts = 3
     for attempt in range(1, max_llm_attempts + 1):
@@ -157,7 +166,7 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
                 return None
             logging.warning(f"LLM RAW RESPONSE for user {user_id}: {result['raw_response']}")
             logging.warning(f"LLM SUMMARY for user {user_id}: {result['summary']}")
-            return result["summary"], last_photo_bytes
+            return result["summary"], last_photo_bytes, streams
         except Exception as e:
             logging.error(f"Попытка {attempt}/{max_llm_attempts} — Ошибка LLM для user {user_id}: {e}")
             import asyncio
