@@ -18,7 +18,8 @@ class LLM:
         model: str = None,
         max_tokens: int = 512,
         temperature: float = 0.4,
-        system_prompt: str = "Сделай краткое информативное summary для следующего текста или изображения."
+        system_prompt: str = "Сделай краткое информативное summary для следующего текста или изображения.",
+        timeout: int = 60
     ) -> dict:
         """
         Универсальный анализ: текст, изображение или оба сразу.

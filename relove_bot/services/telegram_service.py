@@ -138,17 +138,23 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
     for attempt in range(1, max_llm_attempts + 1):
         try:
             llm = LLM()
-            result = await llm.analyze_content(
-                text=llm_input,
-                image_base64=img_b64 if 'img_b64' in locals() else None,
-                system_prompt=(
-                    "Ты — профессиональный психолог и эксперт по анализу личности. "
-                    "Сделай краткий психологический анализ личности пользователя на русском языке по тексту и/или фото. "
-                    "Если данных мало, анализируй только то, что есть. Не пиши никаких отказов, комментариев о невозможности анализа или просьб предоставить больше данных. Просто дай анализ."
-                ),
-                max_tokens=512,
-                timeout=60
-            )
+            try:
+                result = await asyncio.wait_for(
+                    llm.analyze_content(
+                        text=llm_input,
+                        image_base64=img_b64 if 'img_b64' in locals() else None,
+                        system_prompt=(
+                            "Ты — профессиональный психолог и эксперт по анализу личности. "
+                            "Сделай краткий психологический анализ личности пользователя на русском языке по тексту и/или фото. "
+                            "Если данных мало, анализируй только то, что есть. Не пиши никаких отказов, комментариев о невозможности анализа или просьб предоставить больше данных. Просто дай анализ."
+                        ),
+                        max_tokens=512
+                    ),
+                    timeout=60
+                )
+            except asyncio.TimeoutError:
+                logging.error(f"Таймаут при обработке LLM для user {user_id}")
+                return None
             logging.warning(f"LLM RAW RESPONSE for user {user_id}: {result['raw_response']}")
             logging.warning(f"LLM SUMMARY for user {user_id}: {result['summary']}")
             return result["summary"], last_photo_bytes

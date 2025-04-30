@@ -212,10 +212,20 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                 user_has_summary = user and user.profile_summary and user.profile_summary.strip()
                 user_has_gender = user and user.gender and str(user.gender) not in ('', 'unknown', 'None')
 
-                # Если есть и summary, и gender, и заполнены потоки — пропускаем
+                # Проверяем каждое поле отдельно
+                user_has_summary = user and user.profile_summary and user.profile_summary.strip()
+                user_has_gender = user and user.gender and str(user.gender) not in ('', 'unknown', 'None')
                 user_has_streams = user and user.streams and isinstance(user.streams, list) and len(user.streams) > 0
-                if user_has_summary and user_has_gender and user_has_streams:
-                    logger.info(f"User {user_id} уже имеет summary, gender и потоки, пропущен (ничего не обновлялось).")
+
+                # Нужно ли делать summary?
+                need_summary = not user_has_summary
+                # Нужно ли определять пол?
+                need_gender = not user_has_gender
+                # Нужно ли обновлять потоки?
+                need_streams = not user_has_streams
+
+                if not need_summary and not need_gender and not need_streams:
+                    logger.info(f"User {user_id} уже имеет все необходимые поля (summary, gender, streams), пропущен (ничего не обновлялось).")
                     processed_count += 1
                     skipped_count += 1
                     skipped_streams_count += 1
@@ -275,7 +285,12 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                     posts_for_streams.extend(main_posts)
                 if 'personal_posts' in locals():
                     posts_for_streams.extend(personal_posts)
-                streams = await detect_relove_streams_by_posts(posts_for_streams) if posts_for_streams else []
+                if posts_for_streams:
+                    streams_dict = await detect_relove_streams_by_posts(posts_for_streams)
+                    # Используем только завершенные потоки
+                    streams = streams_dict.get('completed', [])
+                else:
+                    streams = []
 
                 # Обновляем профиль пользователя с учётом потоков
                 before = await session.get(User, user_id)
