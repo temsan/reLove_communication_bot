@@ -1332,12 +1332,32 @@ function renderGenderChart(male, female, unknown) {
             labels: ['Мужчины', 'Женщины', 'Не указано'],
             datasets: [{
                 data: [male, female, unknown],
-                backgroundColor: ['#0d6efd', '#ffc107', '#adb5bd']
+                backgroundColor: [
+                    '#e94e77', // розовый reLove
+                    '#b721ff', // фиолетовый reLove
+                    '#36d1c4'  // мятный reLove
+                ],
+                borderColor: [
+                    '#fff0f8',
+                    '#f3e6ff',
+                    '#e0fffa'
+                ],
+                borderWidth: 3,
+                hoverOffset: 16,
             }]
         },
         options: {
             responsive: true,
-            plugins: { legend: { position: 'bottom' } }
+            plugins: {
+                legend: { position: 'bottom', labels: { color: '#b721ff', font: { size: 16, weight: 'bold' } } },
+                tooltip: {
+                    backgroundColor: '#fff0f8',
+                    titleColor: '#e94e77',
+                    bodyColor: '#1a1a1a',
+                    borderColor: '#b721ff',
+                    borderWidth: 2
+                }
+            }
         }
     });
 }
@@ -1351,13 +1371,45 @@ function renderStreamsChart(labels, counts) {
             datasets: [{
                 label: 'Пользователей',
                 data: counts,
-                backgroundColor: '#198754'
+                backgroundColor: [
+                    '#e94e77', // розовый
+                    '#b721ff', // фиолетовый
+                    '#36d1c4', // мятный
+                    '#ffd6ec', // светло-розовый
+                    '#7f53ac', // тёмно-фиолетовый
+                    '#ffaf7b'  // персиковый
+                ],
+                borderRadius: 8,
+                borderSkipped: false,
+                borderColor: '#fff0f8',
+                borderWidth: 2,
+                hoverBackgroundColor: '#b721ff',
+                hoverBorderColor: '#e94e77',
             }]
         },
         options: {
             responsive: true,
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true } }
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#fff0f8',
+                    titleColor: '#e94e77',
+                    bodyColor: '#1a1a1a',
+                    borderColor: '#b721ff',
+                    borderWidth: 2
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: '#ffd6ec' },
+                    ticks: { color: '#b721ff', font: { size: 15 } }
+                },
+                x: {
+                    grid: { color: '#f3e6ff' },
+                    ticks: { color: '#e94e77', font: { size: 15 } }
+                }
+            }
         }
     });
 }

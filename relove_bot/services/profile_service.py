@@ -54,6 +54,11 @@ class ProfileService:
                 "last_name": last_name,
                 "is_active": True
             }
+            logger.info(f"Пробуем создать пользователя с данными: {user_data}")
+            # Требуем хотя бы одно из: first_name или username
+            if not (first_name or username):
+                logger.warning(f"Пропуск user_id={user_id}: отсутствуют и first_name, и username. Не создаём пользователя!")
+                return
             missing_fields = self.validate_user_fields(user_data)
             if missing_fields:
                 logger.warning(f"Отсутствуют обязательные поля для пользователя {user_id}: {', '.join(missing_fields)}. Пропускаем создание пользователя.")
