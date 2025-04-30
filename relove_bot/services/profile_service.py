@@ -121,10 +121,8 @@ class ProfileService:
                 )
                 streams_str = await llm_service.analyze_text(prompt, system_prompt="Определи потоки пользователя", max_tokens=16)
                 streams = [s.strip().capitalize() for s in streams_str.split(',') if s.strip()]
-                if hasattr(user, 'markers') and isinstance(user.markers, dict):
-                    user.markers['streams'] = streams
-                elif hasattr(user, 'streams'):
-                    user.streams = streams
+                # Сохраняем потоки в поле streams модели User
+                user.streams = streams
                 await self.repo.session.commit()
                 result['streams'] = streams
             except Exception as e:

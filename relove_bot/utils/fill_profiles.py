@@ -119,10 +119,14 @@ async def update_user_profile_summary(session: AsyncSession, user_id: int, summa
         if gender is None:
             from relove_bot.utils.gender import detect_gender
             gender = await detect_gender(tg_user) if tg_user else 'unknown'
+        
+        # Если first_name пустой, используем username или 'Unknown'
+        final_first_name = first_name or username or 'Unknown'
+        
         new_user = User(
             id=user_id,
             username=username,
-            first_name=first_name,
+            first_name=final_first_name,
             last_name=last_name,
             is_active=True,
             markers={"gender": gender},
@@ -231,7 +235,7 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                     max_llm_attempts = 3
                     for attempt in range(1, max_llm_attempts + 1):
                         try:
-                            summary = await telegram_service.get_full_psychological_summary(user_id, settings.discussion_channel_id, tg_user)
+                            summary, _ = await telegram_service.get_full_psychological_summary(user_id, settings.discussion_channel_id, tg_user)
                             break
                         except Exception as e:
                             logger.error(f"Попытка {attempt}/{max_llm_attempts} — Ошибка LLM для user {user_id}: {e}")
@@ -253,16 +257,10 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                         "отказ",
                         "извините, я не могу помочь с этой задачей"
                     ]
-                    if not summary or any(phrase in (summary or '').lower() for phrase in refusal_phrases):
-                        logger.warning(f"LLM отказался генерировать summary для user {user_id} (summary='{summary}'). Пропуск записи в БД.")
-                        # Логируем user_id в отдельный файл, если нет данных для анализа
-                        no_data_log = os.path.join(os.getenv('TELEGRAM_EXPORT_PATH', '.'), 'users_skipped_no_data.log')
-                        with open(no_data_log, 'a', encoding='utf-8') as logf:
-                            logf.write(f"{user_id}\n")
-                        failed_count += 1
-                        skipped_count += 1
-                        skipped_gender_summary_count += 1
-                        continue
+                    if not summary or not isinstance(summary, str) or any(phrase in summary.lower() for phrase in refusal_phrases):
+                        logger.warning(f"LLM отказался генерировать summary для user {user_id} (summary='{summary}'). Summary не будет обновлен.")
+                        summary = None
+                        # Продолжаем процесс обновления других полей
 
                 # Определяем пол, если нужно
                 if need_gender:
@@ -292,6 +290,12 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
                 else:
                     logger.warning(f"User {user_id} не был создан/обновлён! Проверьте логи.")
                 processed_count += 1
+                
+                if summary and not any(phrase in summary.lower() for phrase in refusal_phrases):
+                    # Получаем пользователя из базы для передачи имени/фамилии/логина
+                    # Используем ранее полученный tg_user для определения пола
+                    if tg_user:
+                        first_name = getattr(tg_user, 'first_name', None)
                 
                 if summary and not any(phrase in summary.lower() for phrase in refusal_phrases):
                     # Получаем пользователя из базы для передачи имени/фамилии/логина

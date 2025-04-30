@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from telethon import TelegramClient
 from telethon.errors.rpcerrorlist import PeerIdInvalidError, FloodWaitError
+from relove_bot.services.telegram_service import client
 
 async def safe_get_entity(client, identifier, max_retries=3):
     for _ in range(max_retries):
@@ -28,6 +29,9 @@ async def safe_get_entity(client, identifier, max_retries=3):
         except FloodWaitError as e:
             logger.warning(f'FloodWaitError: ждем {e.seconds} секунд для {identifier}')
             await asyncio.sleep(e.seconds)
+        except PeerIdInvalidError:
+            logger.warning(f'PeerIdInvalidError: не удалось найти сущность для {identifier}')
+            return None
         except Exception as e:
             logger.warning(f'Ошибка получения entity для {identifier}: {e}')
             return None
@@ -46,8 +50,9 @@ reload_settings()
 setup_logging()
 logger = logging.getLogger(__name__)
 
-EXPORT_DIR = r'C:\Users\temsan\Downloads\Telegram Desktop\ChatExport_2025-04-29'
-
+# Используем путь из переменной окружения TELEGRAM_EXPORT_PATH
+EXPORT_DIR = os.getenv('TELEGRAM_EXPORT_PATH')
+logger.info(f"Используем путь к экспорту Telegram: {EXPORT_DIR}")
 
 BATCH_SIZE = 10  # Количество пользователей для обработки в одном пакете
 API_DELAY = 1    # Задержка между запросами к API в секундах
@@ -60,9 +65,16 @@ def extract_user_ids() -> Set[int]:
     user_ids: Set[int] = set()
     global user_id_to_username
     user_id_to_username = {}
+    
+    # Проверка существования директории
+    if not os.path.exists(EXPORT_DIR):
+        logger.error(f"Директория экспорта не существует: {EXPORT_DIR}")
+        return user_ids
+        
     if not os.path.exists(result_json) and not os.path.exists(messages_html):
         logger.error(f"В директории {EXPORT_DIR} не найдено ни result.json, ни messages.html! Проверьте путь и экспорт Telegram.")
         raise FileNotFoundError(f"Нет файлов result.json и messages.html в {EXPORT_DIR}")
+        
     # Извлечение из result.json (приоритетно)
     if os.path.exists(result_json):
         try:
@@ -86,9 +98,6 @@ def extract_user_ids() -> Set[int]:
             logger.info(f'User IDs из result.json: {len(user_ids)}')
         except Exception as e:
             logger.error(f"Ошибка при чтении result.json: {e}")
-            with open(result_json, encoding='utf-8') as f2:
-                lines = [next(f2) for _ in range(10)]
-                logger.warning(f"Первые строки result.json: {''.join(lines)}")
     # Если не нашли в result.json, пробуем messages.html
     if not user_ids and os.path.exists(messages_html):
         try:
@@ -108,13 +117,6 @@ def extract_user_ids() -> Set[int]:
     if not user_ids:
         logger.error('user_id не извлечены ни из result.json, ни из messages.html! Проверьте структуру экспортов Telegram.')
     return user_ids
-
-def get_telegram_client() -> TelegramClient:
-    """Создаёт и возвращает TelegramClient."""
-    api_id = int(os.getenv('TG_API_ID'))
-    api_hash = os.getenv('TG_API_HASH')
-    session = os.getenv('TG_SESSION', 'relove_bot')
-    return TelegramClient(session, api_id, api_hash)
 
 async def fetch_user_photo(client: TelegramClient, user_id: int) -> Optional[bytes]:
     """
@@ -167,109 +169,116 @@ async def fetch_user_photo(client: TelegramClient, user_id: int) -> Optional[byt
 async def fill_json_users(user_ids_from_json):
     # Логируем пользователей без данных для анализа
     no_data_log = os.path.join(EXPORT_DIR, 'users_skipped_no_data.log')
-    async with SessionLocal() as session:
-        result = await session.execute(select(User.id))
-        user_ids_in_db = set(row[0] for row in result.all())
-        new_ids = user_ids_from_json - user_ids_in_db
-        update_ids = user_ids_from_json & user_ids_in_db
+    
+    # Проверяем подключение к БД
+    try:
+        async with SessionLocal() as session:
+            # Проверка подключения
+            logger.info("Подключение к БД успешно установлено")
+            
+            result = await session.execute(select(User.id))
+            user_ids_in_db = set(row[0] for row in result.all())
+            new_ids = user_ids_from_json - user_ids_in_db
+            update_ids = user_ids_from_json & user_ids_in_db
+            
+            logger.info(f"Новых ID: {len(new_ids)}, ID для обновления: {len(update_ids)}")
 
-        client = get_telegram_client()
-        await client.start()
+            await client.start()
 
-        # Добавляем новых пользователей только из result.json
-        total = len(new_ids)
-        processed = 0
-        skipped = 0
-        with tqdm(total=total, desc='Обработка пользователей', ncols=100) as pbar:
-            for idx, uid in enumerate(new_ids, 1):
-                logger.info(f"Пробуем получить entity по user_id={uid} (type={type(uid)})")
-                entity = await safe_get_entity(client, uid)
-                if entity is None:
-                    logger.warning(f"Не удалось получить entity по user_id={uid}, type={type(uid)}")
-                    with open('not_found_user_ids.txt', 'a', encoding='utf-8') as f:
-                        f.write(f'{uid}\n')
-                    username_candidate = user_id_to_username.get(uid)
-                    if username_candidate:
-                        logger.info(f"Пробуем получить entity по username={username_candidate} для user_id={uid}")
-                        entity = await safe_get_entity(client, username_candidate)
-                        if entity:
-                            logger.info(f"Удалось получить entity по username={username_candidate} для user_id={uid}")
-                            with open('found_by_username_user_ids.txt', 'a', encoding='utf-8') as f:
-                                f.write(f'{uid}\t{username_candidate}\n')
+            # Добавляем новых пользователей только из result.json
+            total = len(new_ids)
+            processed = 0
+            skipped = 0
+            with tqdm(total=total, desc='Обработка пользователей', ncols=100) as pbar:
+                for idx, uid in enumerate(new_ids, 1):
+                    logger.info(f"Пробуем получить entity по user_id={uid} (type={type(uid)})")
+                    entity = await safe_get_entity(client, uid)
+                    if entity is None:
+                        logger.warning(f"Не удалось получить entity по user_id={uid}, type={type(uid)}")
+                        with open('not_found_user_ids.txt', 'a', encoding='utf-8') as f:
+                            f.write(f'{uid}\n')
+                        username_candidate = user_id_to_username.get(uid)
+                        if username_candidate:
+                            logger.info(f"Пробуем получить entity по username={username_candidate} для user_id={uid}")
+                            entity = await safe_get_entity(client, username_candidate)
+                            if entity:
+                                logger.info(f"Удалось получить entity по username={username_candidate} для user_id={uid}")
+                                with open('found_by_username_user_ids.txt', 'a', encoding='utf-8') as f:
+                                    f.write(f'{uid}\t{username_candidate}\n')
+                            else:
+                                logger.warning(f"Не удалось получить entity по username={username_candidate} для user_id={uid}")
+                                with open('not_found_by_username_user_ids.txt', 'a', encoding='utf-8') as f:
+                                    f.write(f'{uid}\t{username_candidate}\n')
+                                # Продолжаем обработку текущего пользователя, даже если не удалось получить entity по username
+                                continue
                         else:
-                            logger.warning(f"Не удалось получить entity по username={username_candidate} для user_id={uid}")
-                            with open('not_found_by_username_user_ids.txt', 'a', encoding='utf-8') as f:
-                                f.write(f'{uid}\t{username_candidate}\n')
-                            skipped += 1
-                            status = f'SKIP (username fail)'
-                            pbar.set_postfix({'OK': processed, 'SKIP': skipped})
-                            pbar.update(1)
+                            logger.warning(f"Не удалось получить entity для user_id={uid} (нет username)")
+                            # Продолжаем обработку текущего пользователя, даже если не удалось получить entity
                             continue
                     else:
-                        logger.warning(f"Не удалось получить entity для user_id={uid} (нет username)")
+                        with open('found_by_id_user_ids.txt', 'a', encoding='utf-8') as f:
+                            f.write(f'{uid}\n')
+                    username = getattr(entity, 'username', None)
+                    first_name = getattr(entity, 'first_name', None)
+                    last_name = getattr(entity, 'last_name', None)
+                    # Сначала получаем фото
+                    photo_bytes = await fetch_user_photo(client, uid)
+                    # Проверяем наличие хотя бы одного не пустого поля
+                    has_data = any([username, first_name, last_name, photo_bytes])
+                    if not has_data:
+                        logger.warning(f"Пропускаем пользователя {uid} - нет данных для создания")
                         skipped += 1
-                        status = f'SKIP (ValueError)'
-                        pbar.set_postfix({'OK': processed, 'SKIP': skipped})
-                        pbar.update(1)
+                        status = 'SKIP (no data)'
                         continue
-                else:
-                    with open('found_by_id_user_ids.txt', 'a', encoding='utf-8') as f:
-                        f.write(f'{uid}\n')
-                username = getattr(entity, 'username', None)
-                first_name = getattr(entity, 'first_name', None)
-                last_name = getattr(entity, 'last_name', None)
-                # Пропуск, если все три поля отсутствуют
-                if not any([first_name, last_name, username]):
-                    logger.warning(f"Пропуск user_id={uid}: нет ни first_name, ни last_name, ни username. Не добавляем в БД!")
-                    with open('skipped_null_fields_user_ids.txt', 'a', encoding='utf-8') as f:
-                        f.write(f'{uid}\n')
-                    skipped += 1
-                    status = 'SKIP (no fields)'
+                    processed += 1
+                    status = 'OK'
+                    markers = {'from_json': True}
+                    # Если first_name пустой, используем username или 'Unknown'
+                    final_first_name = first_name or username or 'Unknown'
+                    
+                    session.add(User(
+                        id=uid,
+                        username=username or '',  # Заменяем None на пустую строку
+                        first_name=final_first_name,  # Гарантируем, что first_name не пустой
+                        last_name=last_name or '',    # Заменяем None на пустую строку
+                        is_active=True,
+                        photo_jpeg=photo_bytes,
+                        markers=markers,
+                        streams=[]  # Инициализируем пустой список потоков
+                    ))
                     pbar.set_postfix({'OK': processed, 'SKIP': skipped})
                     pbar.update(1)
-                    continue
-                photo_bytes = await fetch_user_photo(client, uid)
-                processed += 1
-                status = 'OK'
-                markers = {'from_json': True}
-                session.add(User(
-                    id=uid,
-                    username=username,
-                    first_name=first_name,
-                    last_name=last_name,
-                    is_active=True,
-                    photo_jpeg=photo_bytes,
-                    markers=markers
-                ))
-                pbar.set_postfix({'OK': processed, 'SKIP': skipped})
-                pbar.update(1)
-        print(f"Итого новых пользователей: {total}, успешно добавлено: {processed}, пропущено: {skipped}")
-        logger.info(f"Итого новых пользователей: {total}, успешно добавлено: {processed}, пропущено: {skipped}")
+            print(f"Итого новых пользователей: {total}, успешно добавлено: {processed}, пропущено: {skipped}")
+            logger.info(f"Итого новых пользователей: {total}, успешно добавлено: {processed}, пропущено: {skipped}")
 
-        # Обновляем существующих пользователей из result.json
-        for uid in update_ids:
-            user = await session.get(User, uid)
-            if user:
-                if not user.markers or not isinstance(user.markers, dict):
-                    user.markers = {}
-                user.markers['from_json'] = True
-                try:
-                    entity = await client.get_entity(uid)
-                    user.username = getattr(entity, 'username', user.username)
-                    user.first_name = getattr(entity, 'first_name', user.first_name)
-                    user.last_name = getattr(entity, 'last_name', user.last_name)
-                    if user.photo_jpeg is None:
-                        photo_bytes = await fetch_user_photo(client, uid)
-                        if photo_bytes:
-                            user.photo_jpeg = photo_bytes
-                except PeerIdInvalidError:
-                    continue
+            # Обновляем существующих пользователей из result.json
+            for uid in update_ids:
+                user = await session.get(User, uid)
+                if user:
+                    if not user.markers or not isinstance(user.markers, dict):
+                        user.markers = {}
+                    user.markers['from_json'] = True
+                    try:
+                        entity = await client.get_entity(uid)
+                        user.username = getattr(entity, 'username', user.username)
+                        user.first_name = getattr(entity, 'first_name', user.first_name)
+                        user.last_name = getattr(entity, 'last_name', user.last_name)
+                        if user.photo_jpeg is None:
+                            photo_bytes = await fetch_user_photo(client, uid)
+                            if photo_bytes:
+                                user.photo_jpeg = photo_bytes
+                    except PeerIdInvalidError:
+                        continue
 
-        await session.commit()
-        await client.disconnect()
-        print(f"Добавлено новых: {len(new_ids)}. Обновлено: {len(update_ids)}. Данные пользователей из result.json актуализированы.")
+            await session.commit()
+            await client.disconnect()
+            print(f"Добавлено новых: {len(new_ids)}. Обновлено: {len(update_ids)}. Данные пользователей из result.json актуализированы.")
 
-    await fill_all_profiles(settings.our_channel_id)
+        await fill_all_profiles(settings.our_channel_id)
+    except Exception as e:
+        logger.error(f"Ошибка при работе с базой данных: {e}")
+        with open(no_data_log, "a", encoding="utf-8") as ef:
+            ef.write(f"Ошибка при работе с базой данных: {e}\n")
 
 if __name__ == '__main__':
     user_ids = extract_user_ids()
