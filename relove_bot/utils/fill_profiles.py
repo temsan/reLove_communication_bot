@@ -56,8 +56,8 @@ async def select_users(gender: str = None, text_filter: str = None, user_id_list
                 if not psycho:
                     # Если profile_summary отсутствует — пробуем сгенерировать
                     try:
-                        from relove_bot.services.telegram_service import get_full_psychological_summary
-                        psycho = await get_full_psychological_summary(user.id)
+                        telegram_service = TelegramService()
+                        psycho = await telegram_service.get_full_psychological_summary(user.id)
                         user.profile_summary = psycho
                         await session.commit()
                     except Exception as e:
@@ -89,63 +89,60 @@ async def select_users(gender: str = None, text_filter: str = None, user_id_list
 # --- Новая асинхронная джоба для массового обновления summary ---
 
 async def update_user_profile_summary(session: AsyncSession, user_id: int, summary: str, gender: str = None, streams: list = None):
-    """Обновляет или создаёт profile_summary и gender для пользователя."""
-    from relove_bot.db.models import User
-    user_obj = await session.get(User, user_id)
-    if user_obj:
-        user_obj.profile_summary = summary
-        if gender is not None:
-            user_obj.gender = gender
+    """
+    Обновляет или создает профиль пользователя с новым summary и gender.
+    
+    Args:
+        session: Асинхронная сессия базы данных
+        user_id: ID пользователя
+        summary: Новый summary профиля
+        gender: Новый пол пользователя (опционально)
+        streams: Список интересов пользователя (опционально)
+    """
+    try:
+        # Получаем клиента
+        client = await get_client()
+        
+        # Проверяем, существует ли пользователь
+        user = await session.get(User, user_id)
+        if not user:
+            # Если пользователя нет, создаем нового
+            user = User(id=user_id)
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+        
+        # Получаем данные пользователя из Telegram
+        entity = await client.get_entity(user_id)
+        username = getattr(entity, 'username', None)
+        first_name = getattr(entity, 'first_name', None)
+        last_name = getattr(entity, 'last_name', None)
+        
+        # Обновляем поля
+        user.profile_summary = summary
+        if gender:
+            user.gender = gender
         if streams:
-            # Сохраняем только в основное поле streams, если оно есть
-            if hasattr(user_obj, 'streams'):
-                user_obj.streams = streams
+            user.interests = streams
+        if username:
+            user.username = username
+        if first_name:
+            user.first_name = first_name
+        if last_name:
+            user.last_name = last_name
+        
         await session.commit()
         logger.info(f"Successfully updated profile_summary and gender for user {user_id}")
-    else:
-        # Пытаемся получить данные пользователя из Telegram
-        from relove_bot.services import telegram_service
-        tg_user = None
-        try:
-            client = await get_client()
-            tg_user = await client.get_entity(user_id)
-            username = getattr(tg_user, 'username', None)
-            first_name = getattr(tg_user, 'first_name', None)
-            last_name = getattr(tg_user, 'last_name', None)
-        except Exception as e:
-            logger.warning(f"Could not fetch Telegram user info for user {user_id}: {e}")
-            username = None
-            first_name = None
-            last_name = None
-        if gender is None:
-            from relove_bot.utils.gender import detect_gender
-            gender = await detect_gender(tg_user) if tg_user else 'unknown'
-        
-        # Если first_name пустой, используем username или 'Unknown'
-        final_first_name = first_name or username or 'Unknown'
-        
-        new_user = User(
-            id=user_id,
-            username=username,
-            first_name=final_first_name,
-            last_name=last_name,
-            is_active=True,
-            markers={"gender": gender},
-            profile_summary=summary,
-            gender=gender
-        )
-        session.add(new_user)
-        await session.commit()
-        logger.info(f"Created new user {user_id} and set profile_summary and gender = {gender}.")
+    except Exception as e:
+        logger.error(f"Failed to update user profile for user {user_id}: {e}")
+        raise
 
-async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATCH_SIZE, batch_delay: int = DEFAULT_BATCH_DELAY_SECONDS):
+async def fill_all_profiles(main_channel_id: str):
     """
     Fetches users from the specified main channel, generates their full psychological summary
     using Telethon and LLM, and updates the profile_summary in the database.
-
-    Processes users in batches to avoid rate limiting and improve stability.
     """
-    logger.info(f"Starting profile filling process for channel: {main_channel_id} with batch size {batch_size}")
+    logger.info(f"Starting profile filling process for channel: {main_channel_id}")
 
     # 1. Initialize Database
     db_initialized = await setup_database()
@@ -162,156 +159,104 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
         await close_database()
         return
 
-    # 3. Get users from the channel
     user_ids = []
     try:
         logger.info(f"Fetching participants from channel {main_channel_id}...")
-        user_ids = await telegram_service.get_channel_users(main_channel_id)
+        user_ids = await telegram_service.get_channel_users(main_channel_id, batch_size=200)
         logger.info(f"Found {len(user_ids)} participants in channel {main_channel_id}.")
     except Exception as e:
         logger.error(f"Failed to get users from channel {main_channel_id}: {e}")
-        # Decide whether to proceed without channel users or stop
-        # For now, we stop if we can't get users from the main channel
-        await close_database()
-        # await telegram_service.client.disconnect() # Consider disconnecting client
         return
 
-    if not user_ids:
-        logger.warning(f"No users found in channel {main_channel_id}. Exiting.")
-        await close_database()
-        return
-
-    # 4. Process users in batches
-    total_users = len(user_ids)
-    processed_count = 0
-    failed_count = 0
-    logger.info(f"Starting processing of {total_users} users in batches of {batch_size}...")
-
+    processed = 0
     created_count = 0
     updated_count = 0
     skipped_count = 0
-    skipped_streams_count = 0
     skipped_gender_summary_count = 0
-    for user_id in user_ids:
-        logger.info(f"Processing user {user_id}...")
-        async for session in get_db_session():
-            if session is None:
-                logger.error("Failed to get DB session for user. Skipping user.")
-                failed_count += 1
-                break
 
+    async with get_db_session() as session:
+        for user_id in user_ids:
             try:
-                # Получаем entity пользователя из Telegram один раз
-                tg_user = None
-                try:
-                    tg_user = await telegram_service.client.get_entity(user_id)
-                except Exception as e:
-                    logger.warning(f"Не удалось получить entity пользователя из Telegram: {e}")
-                    tg_user = None
-
-                # Проверяем наличие пользователя и полей в базе
+                # Получаем пользователя из базы
                 user = await session.get(User, user_id)
-                user_has_summary = user and user.profile_summary and user.profile_summary.strip()
-                user_has_gender = user and user.gender and str(user.gender) not in ('', 'unknown', 'None')
-                user_has_streams = user and user.streams and isinstance(user.streams, list) and len(user.streams) > 0
+                if not user:
+                    logger.info(f"User {user_id} не найден в базе, создаём новый профиль")
+                    user = User(id=user_id)
+                    session.add(user)
+                    await session.commit()
+                    await session.refresh(user)
 
-                # Нужно ли делать summary?
-                need_summary = not user_has_summary
-                # Нужно ли определять пол?
-                need_gender = not user_has_gender
+                # Проверяем наличие необходимых полей
+                user_has_summary = user.profile_summary and user.profile_summary.strip()
+                user_has_gender = user.gender and str(user.gender) not in ('', 'unknown', 'None')
+                user_has_streams = user.interests and isinstance(user.interests, list) and len(user.interests) > 0
 
-                summary = None
-                gender = None
-                streams = []
+                # Нужно ли обновлять профиль?
+                need_update = not (user_has_summary and user_has_gender and user_has_streams)
 
-                if not need_summary and not need_gender and not user_has_streams:
-                    logger.info(f"User {user_id} уже имеет все необходимые поля (summary, gender, streams), пропущен (ничего не обновлялось).")
-                    processed_count += 1
+                if not need_update:
+                    logger.info(f"User {user_id} уже имеет все необходимые поля, пропущен")
                     skipped_count += 1
                     continue
 
-                # Получаем summary, если нужно
-                if need_summary:
-                    # summary теперь строится по постам из канала обсуждений
-                    max_llm_attempts = 3
-                    for attempt in range(1, max_llm_attempts + 1):
-                        try:
-                            summary, _, streams = await telegram_service.get_full_psychological_summary(user_id, settings.discussion_channel_id, tg_user)
-                            if streams:
-                                logger.info(f"User {user_id} обнаружены потоки: {', '.join(streams)}")
-                            break
-                        except Exception as e:
-                            logger.error(f"Попытка {attempt}/{max_llm_attempts} — Ошибка LLM для user {user_id}: {e}")
-                            if attempt < max_llm_attempts:
-                                import asyncio
-                                await asyncio.sleep(5)
-                            else:
-                                summary = None
-                    # Фильтрация отказных ответов LLM
-                    refusal_phrases = [
-                        "i'm sorry, i can't help",
-                        "i'm sorry, i can't assist",
-                        "i can't help with that",
-                        "i can't assist with that",
-                        "я не могу помочь",
-                        "не могу помочь",
-                        "не могу выполнить",
-                        "не могу анализировать",
-                        "отказ",
-                        "извините, я не могу помочь с этой задачей"
-                    ]
-                    if not summary or not isinstance(summary, str) or any(phrase in summary.lower() for phrase in refusal_phrases):
-                        logger.warning(f"LLM отказался генерировать summary для user {user_id} (summary='{summary}'). Summary не будет обновлен.")
+                # Получаем данные из Telegram
+                try:
+                    entity = await client.get_entity(user_id)
+                    username = getattr(entity, 'username', None)
+                    first_name = getattr(entity, 'first_name', None)
+                    last_name = getattr(entity, 'last_name', None)
+                except Exception as e:
+                    logger.warning(f"Не удалось получить данные пользователя из Telegram: {e}")
+                    username = None
+                    first_name = None
+                    last_name = None
+
+                # Генерируем summary если нужно
+                if not user_has_summary:
+                    try:
+                        summary = await telegram_service.get_full_psychological_summary(user_id, settings.discussion_channel_id)
+                        if summary:
+                            logger.info(f"Сгенерирован summary для user {user_id}")
+                        else:
+                            logger.warning(f"Не удалось сгенерировать summary для user {user_id}")
+                            skipped_gender_summary_count += 1
+                    except Exception as e:
+                        logger.error(f"Ошибка при генерации summary для user {user_id}: {e}")
                         summary = None
-                        # Продолжаем процесс обновления других полей
+                        skipped_gender_summary_count += 1
 
-                # Определяем пол, если нужно
-                if need_gender:
-                    from relove_bot.utils.gender import detect_gender
-                    gender = await detect_gender(tg_user)
+                # Определяем пол если нужно
+                if not user_has_gender:
+                    try:
+                        gender = await detect_gender(user_id)
+                        if not gender:
+                            logger.warning(f"Не удалось определить пол для user {user_id}")
+                            skipped_gender_summary_count += 1
+                    except Exception as e:
+                        logger.error(f"Ошибка при определении пола для user {user_id}: {e}")
+                        gender = None
+                        skipped_gender_summary_count += 1
 
-
-
-                # Обновляем профиль пользователя с учётом потоков
-                before = await session.get(User, user_id)
-                await update_user_profile_summary(session, user_id, summary, gender, streams)
-                if streams:
-                    logger.info(f"User {user_id} обновлены потоки: {', '.join(streams)}")
-                after = await session.get(User, user_id)
-                if before is None and after is not None:
-                    created_count += 1
-                    logger.info(f"User {user_id} был создан в базе данных.")
-                elif before is not None and after is not None:
+                # Обновляем профиль
+                try:
+                    await update_user_profile_summary(session, user_id, summary, gender)
                     updated_count += 1
-                    logger.info(f"User {user_id} был обновлён в базе данных.")
-                else:
-                    logger.warning(f"User {user_id} не был создан/обновлён! Проверьте логи.")
-                processed_count += 1
-                
-                if summary and not any(phrase in summary.lower() for phrase in refusal_phrases):
-                    # Получаем пользователя из базы для передачи имени/фамилии/логина
-                    # Используем ранее полученный tg_user для определения пола
-                    if tg_user:
-                        first_name = getattr(tg_user, 'first_name', None)
-                
-                if summary and not any(phrase in summary.lower() for phrase in refusal_phrases):
-                    # Получаем пользователя из базы для передачи имени/фамилии/логина
-                    # Используем ранее полученный tg_user для определения пола
-                    if tg_user:
-                        first_name = getattr(tg_user, 'first_name', None)
+                    logger.info(f"Обновлен профиль для user {user_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка при обновлении профиля для user {user_id}: {e}")
+
+                processed += 1
+                logger.info(f"Processed {processed}/{len(user_ids)} users")
+
             except Exception as e:
                 logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
-                failed_count += 1
-                # Continue to the next user even if one fails
-        # End of session block for the batch
+                continue
 
-
-    logger.info(f"Profile filling completed: {processed_count} processed, {failed_count} failed.")
+    logger.info(f"Profile filling completed: {processed} processed.")
     logger.info(f"Создано новых пользователей: {created_count}")
     logger.info(f"Обновлено пользователей: {updated_count}")
-    logger.info(f"Пропущено (уже всё заполнено): {skipped_count}, из них с заполненными streams: {skipped_streams_count}, с отказом LLM/gender/summary: {skipped_gender_summary_count}")
-
-    # 5. Clean up
+    logger.info(f"Пропущено пользователей: {skipped_count}")
+    logger.info(f"Пропущено пользователей из-за отсутствия gender/summary: {skipped_gender_summary_count}")
     await close_database()
     # Consider disconnecting client if the script is meant to be short-lived
     # await telegram_service.client.disconnect()
