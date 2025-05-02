@@ -22,7 +22,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, index=True, autoincrement=False, doc="Telegram User ID")
     username: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    first_name: Mapped[str] = mapped_column(String)
+    first_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     last_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     registration_date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

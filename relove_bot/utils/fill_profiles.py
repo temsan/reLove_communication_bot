@@ -9,7 +9,7 @@ from relove_bot.db.models import User
 from relove_bot.db.session import SessionLocal
 from relove_bot.rag.pipeline import aggregate_profile_summary
 from relove_bot.rag.llm import LLM
-from relove_bot.services.telegram_service import client
+from relove_bot.services.telegram_service import get_client
 from relove_bot.services import telegram_service
 from relove_bot.utils.gender import detect_gender
 
@@ -88,7 +88,7 @@ async def select_users(gender: str = None, text_filter: str = None, user_id_list
 
 # --- Новая асинхронная джоба для массового обновления summary ---
 
-async def update_user_profile_summary(session: AsyncSession, user_id: int, summary: str, gender: str = None, streams: str = None):
+async def update_user_profile_summary(session: AsyncSession, user_id: int, summary: str, gender: str = None, streams: list = None):
     """Обновляет или создаёт profile_summary и gender для пользователя."""
     from relove_bot.db.models import User
     user_obj = await session.get(User, user_id)
@@ -107,7 +107,8 @@ async def update_user_profile_summary(session: AsyncSession, user_id: int, summa
         from relove_bot.services import telegram_service
         tg_user = None
         try:
-            tg_user = await telegram_service.client.get_entity(user_id)
+            client = await get_client()
+            tg_user = await client.get_entity(user_id)
             username = getattr(tg_user, 'username', None)
             first_name = getattr(tg_user, 'first_name', None)
             last_name = getattr(tg_user, 'last_name', None)
@@ -154,6 +155,7 @@ async def fill_all_profiles(main_channel_id: str, batch_size: int = DEFAULT_BATC
 
     # 2. Initialize Telethon Client
     try:
+        client = await get_client()
         await telegram_service.start_client()
     except Exception as e:
         logger.critical(f"Failed to start Telethon client: {e}. Cannot proceed.")

@@ -18,11 +18,20 @@ API_ID = settings.tg_api_id.get_secret_value() if isinstance(settings.tg_api_id,
 API_HASH = settings.tg_api_hash.get_secret_value() if isinstance(settings.tg_api_hash, SecretStr) else settings.tg_api_hash
 SESSION = settings.tg_session.get_secret_value() if isinstance(settings.tg_session, SecretStr) else settings.tg_session
 
-client = TelegramClient(SESSION, int(API_ID), str(API_HASH))
+_client = None
+
+async def get_client():
+    global _client
+    if _client is None:
+        _client = TelegramClient(SESSION, int(API_ID), str(API_HASH))
+    return _client
 
 async def start_client():
-    if not client.is_connected():
-        await client.start()
+    global _client
+    if _client is None:
+        _client = await get_client()
+    if not _client.is_connected():
+        await _client.start()
         logging.info("Telethon client started")
 
 import base64
@@ -56,6 +65,7 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
     Всегда анализирует фото, если оно есть.
     Возвращает итоговое summary для вставки в контекст истории.
     """
+    client = await get_client()
     user = tg_user if tg_user is not None else await client.get_entity(user_id)
     bio = getattr(user, 'about', '') or ''
     # Используем posts, если переданы, иначе собираем как раньше
@@ -186,9 +196,10 @@ async def get_personal_channel_entity(user_id: int):
     Прямое получение entity личного канала пользователя через GetFullUserRequest.personal_channel_id.
     Возвращает entity канала или None, если не найден.
     """
+    client = await get_client()
     try:
-        full = await client(GetFullUserRequest(user_id))
-        pc_id = getattr(full.full_user, 'personal_channel_id', None)
+        full_user = await client(GetFullUserRequest(user_id))
+        pc_id = getattr(full_user.full_user, 'personal_channel_id', None)
         if pc_id:
             entity = await client.get_entity(pc_id)
             return entity
@@ -198,6 +209,7 @@ async def get_personal_channel_entity(user_id: int):
         return None
 
 async def get_user_posts_in_channel(channel_id_or_username: str, user_id: int, limit: int = 1000) -> List[str]:
+    client = await get_client()
     posts = []
     async for msg in client.iter_messages(channel_id_or_username, from_user=user_id, limit=limit):
         if msg.text:
@@ -208,9 +220,10 @@ async def get_personal_channel_id(user_id: int) -> Optional[int]:
     """
     Получает ID личного канала пользователя через GetFullUserRequest (если привязан).
     """
+    client = await get_client()
     try:
-        full = await client(GetFullUserRequest(user_id))
-        pc_id = getattr(full.full_user, 'personal_channel_id', None)
+        full_user = await client(GetFullUserRequest(user_id))
+        pc_id = getattr(full_user.full_user, 'personal_channel_id', None)
         return pc_id
     except Exception as e:
         logging.warning(f"[get_personal_channel_id] Ошибка получения personal_channel_id: {e}")
@@ -220,6 +233,7 @@ async def get_personal_channel_posts(user_id: int, limit: int = 100) -> Dict[str
     """
     Получает посты из личного канала пользователя (через personal_channel_id или fallback по username/bio).
     """
+    client = await get_client()
     posts = []
     channel_link = None
     # 1. Пробуем через personal_channel_id
@@ -269,7 +283,11 @@ async def get_personal_channel_posts(user_id: int, limit: int = 100) -> Dict[str
         photo_summaries.append(summary)
     return {"posts": posts, "photo_summaries": photo_summaries}
 
-async def get_channel_users(channel_id_or_username: str) -> List[int]:
+async def get_channel_users(channel_id_or_username: str):
+    """
+    Получает список ID пользователей из канала.
+    """
+    client = await get_client()
     users = set()
     async for user in client.iter_participants(channel_id_or_username):
         users.add(user.id)

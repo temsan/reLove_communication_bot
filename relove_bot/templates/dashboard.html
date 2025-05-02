@@ -1438,9 +1438,6 @@ async function fetchDashboardData() {
     } catch (e) { /* ignore */ }
 }
 document.addEventListener('DOMContentLoaded', function() {
-    // Первичная отрисовка (данные с сервера)
-    renderGenderChart({{ male_count }}, {{ female_count }}, {{ unknown_count }});
-    renderStreamsChart({{ stream_labels|tojson }}, {{ stream_counts|tojson }});
     // Первичная загрузка данных пользователей и графиков
     fetchDashboardData();
     // Периодическое обновление
