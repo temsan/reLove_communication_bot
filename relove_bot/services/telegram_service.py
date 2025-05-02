@@ -36,6 +36,9 @@ async def start_client():
 
 import base64
 from relove_bot.rag.llm import LLM
+import logging
+
+logger = logging.getLogger(__name__)
 
 async def analyze_photo_via_llm(photo_bytes: bytes) -> str:
     """
@@ -283,12 +286,47 @@ async def get_personal_channel_posts(user_id: int, limit: int = 100) -> Dict[str
         photo_summaries.append(summary)
     return {"posts": posts, "photo_summaries": photo_summaries}
 
-async def get_channel_users(channel_id_or_username: str):
+async def get_channel_users(channel_id_or_username: str, batch_size: int = 200):
     """
-    Получает список ID пользователей из канала.
+    Получает список ID пользователей из канала с пагинацией.
+    Args:
+        channel_id_or_username: ID или username канала
+        batch_size: размер пакета для получения участников (максимум 200)
+    Returns:
+        Список ID пользователей
     """
     client = await get_client()
     users = set()
-    async for user in client.iter_participants(channel_id_or_username):
-        users.add(user.id)
+    
+    try:
+        logger.info(f"Начинаем получение участников из канала {channel_id_or_username}")
+        
+        # Получаем участников пакетами
+        while True:
+            try:
+                logger.info(f"Получаем пакет участников (batch_size={batch_size})")
+                async for user in client.iter_participants(
+                    channel_id_or_username,
+                    limit=batch_size
+                ):
+                    users.add(user.id)
+                
+                logger.info(f"Получено {len(users)} участников")
+                
+                # Если получили меньше чем batch_size, значит это последний пакет
+                if len(users) < batch_size:
+                    logger.info(f"Получен последний пакет участников")
+                    break
+                
+                # Добавляем небольшую задержку между запросами
+                await asyncio.sleep(1)
+                
+            except Exception as e:
+                logger.error(f"Ошибка при получении участников: {e}")
+                break
+    
+    except Exception as e:
+        logger.error(f"Ошибка при получении участников: {e}")
+    
+    logger.info(f"Получено {len(users)} уникальных пользователей из канала")
     return list(users)

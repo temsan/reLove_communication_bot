@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from relove_bot.config import settings, reload_settings
 from relove_bot.db.models import User
 from relove_bot.db.session import SessionLocal
-from relove_bot.services.telegram_service import client
+from relove_bot.services.telegram_service import get_client
 from relove_bot.utils.custom_logging import setup_logging
 from relove_bot.utils.fill_profiles import fill_all_profiles
 from sqlalchemy import select
@@ -31,7 +31,8 @@ from telethon import TelegramClient
 from telethon.errors.rpcerrorlist import FloodWaitError, PeerIdInvalidError
 from telethon.tl.functions.photos import GetUserPhotosRequest
 
-async def safe_get_entity(client, identifier, max_retries=3):
+async def safe_get_entity(identifier, max_retries=3):
+    client = await get_client()
     for _ in range(max_retries):
         try:
             return await client.get_entity(identifier)
@@ -119,19 +120,30 @@ def extract_user_ids() -> Set[int]:
         logger.error('user_id не извлечены ни из result.json, ни из messages.html! Проверьте структуру экспортов Telegram.')
     return user_ids
 
-async def fetch_user_photo(client: TelegramClient, user_id: int) -> Optional[bytes]:
+async def fetch_user_photo(user_id: int) -> Optional[bytes]:
     """
     Получение фотографии профиля пользователя с обработкой ошибок и задержкой.
     Args:
-        client: TelegramClient объект
         user_id: ID пользователя
     Returns:
         bytes фотографии в формате JPEG или None если фото недоступно
     """
     errors_log = os.path.join(EXPORT_DIR, 'errors_skipped_user_ids.txt')
+    client = await get_client()
     try:
-        await asyncio.sleep(API_DELAY)
-        photos = await client(GetUserPhotosRequest(user_id=user_id, offset=0, max_id=0, limit=1))
+        # Получаем entity пользователя
+        user = await safe_get_entity(client, user_id)
+        if not user:
+            logger.warning(f"Не удалось получить entity пользователя {user_id}")
+            return None
+
+        # Получаем фото профиля
+        photos = await client(GetUserPhotosRequest(
+            user_id=user_id,
+            offset=0,
+            max_id=0,
+            limit=1
+        ))
         if not photos.photos:
             logger.debug(f"Пользователь {user_id} не имеет фотографии профиля")
             return None
@@ -149,6 +161,7 @@ async def fetch_user_photo(client: TelegramClient, user_id: int) -> Optional[byt
         wait_time = e.seconds
         logger.warning(f"Превышен лимит запросов API Telegram. Ожидание {wait_time} секунд")
         await asyncio.sleep(wait_time)
+        return await fetch_user_photo(user_id)
         return await fetch_user_photo(client, user_id)
     except (Image.UnidentifiedImageError, TypeError) as e:
         logger.error(f"Ошибка при получении фото для {user_id}: {e}")
@@ -168,6 +181,19 @@ async def fetch_user_photo(client: TelegramClient, user_id: int) -> Optional[byt
         return None
 
 async def fill_json_users(user_ids_from_json):
+    """
+    Заполняет профили пользователей из JSON экспорта Telegram.
+    Args:
+        user_ids_from_json: список ID пользователей из JSON
+    """
+    if not user_ids_from_json:
+        logger.error("Список user_ids_from_json пуст!")
+        return
+
+    # Инициализируем клиент
+    client = await get_client()
+    await client.start()
+
     # Логируем пользователей без данных для анализа
     no_data_log = os.path.join(EXPORT_DIR, 'users_skipped_no_data.log')
     
@@ -265,7 +291,7 @@ async def fill_json_users(user_ids_from_json):
                         user.first_name = getattr(entity, 'first_name', user.first_name)
                         user.last_name = getattr(entity, 'last_name', user.last_name)
                         if user.photo_jpeg is None:
-                            photo_bytes = await fetch_user_photo(client, uid)
+                            photo_bytes = await fetch_user_photo(uid)
                             if photo_bytes:
                                 user.photo_jpeg = photo_bytes
                     except PeerIdInvalidError:
