@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     admin_ids: Set[int] = Field(default_factory=set, env='ADMIN_IDS', description="Set of Telegram User IDs for admins")
 
     # Database URL for SQLAlchemy
-    db_url: str = Field(..., env='db_url', description="SQLAlchemy database URL")
+    db_url: str = Field(..., env='DB_URL', description="SQLAlchemy database URL")
 
     # OpenRouter settings
     openai_api_key: SecretStr = Field(..., env='OPENROUTER_API_KEY', description="OpenRouter API key")

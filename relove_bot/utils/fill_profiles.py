@@ -240,6 +240,8 @@ async def fill_all_profiles(channel_id_or_username: str, generator=None, batch_s
         batch_size: размер пакета для получения участников (максимум 200)
     """
     global created_count, updated_count, skipped_count, skipped_gender_summary_count, processed
+    session = None
+    client = None
     
     try:
         # Инициализируем базу данных
@@ -248,117 +250,59 @@ async def fill_all_profiles(channel_id_or_username: str, generator=None, batch_s
         # Подключаемся к клиенту
         client = await get_bot_client()
         logger.info("Подключено к Telegram клиенту")
-        try:
-            # Инициализируем сессию базы данных
-            session = get_db_session()
-            logger.info("Инициализирована сессия базы данных")
-            
-            # Получаем общее количество участников
-            total_count = await get_channel_participants_count(channel_id_or_username)
-            logger.info(f"Всего участников в канале: {total_count}")
-            
-            # Обрабатываем пользователей по батчам
-            async for user_id in get_channel_users(channel_id_or_username, batch_size):
-                try:
-                    # Получаем полную информацию о пользователе
-                    user_info = await get_user_info(user_id)
-                    if not user_info:
-                        skipped_count += 1
-                        continue
-
-                    # Получаем summary и gender
-                    summary, gender = await process_user(user_id, generator)
-                    if not summary or not gender:
-                        skipped_gender_summary_count += 1
-                        continue
-
-                    # Обновляем или создаем профиль пользователя
-                    await update_user_profile_summary(
-                        session,
-                        user_id,
-                        summary,
-                        gender,
-                        get_user_streams(user_id)
-                    )
-                    
-                    processed += 1
-                    
-                    # Делаем паузу между пользователями
-                    await asyncio.sleep(0.5)
-
-                    # Получаем полную информацию о пользователе
-                    full_user = await get_full_user(user_id)
-                    
-                    # Получаем пол и summary пользователя
-                    gender = await get_user_gender(full_user, client=client)
-                    summary = await get_user_profile_summary(user_id)
-                    
-                    # Если у пользователя нет summary, генерируем его
-                    if not summary:
-                        if generator:
-                            try:
-                                summary = await generator.generate_summary(user_id)
-                                if summary:
-                                    await update_user_profile_summary(
-                                        session,
-                                        user_id,
-                                        summary,
-                                        gender,
-                                        get_user_streams(user_id)
-                                    )
-                                    processed += 1
-                                    await asyncio.sleep(0.5)
-                            except Exception as e:
-                                logger.error(f"Ошибка при генерации summary для пользователя {user_id}: {e}")
-                                continue
-                            # Генерируем summary с помощью модели
-                            prompt = f"Создай краткое описание профиля для пользователя {full_user.username if full_user.username else 'без никнейма'}.\n" \
-                                   f"Пол: {gender}\n" \
-                                   f"Интересы: {', '.join(get_user_streams(user_id)) if get_user_streams(user_id) else 'не указаны'}\n" \
-                                   f"Описание должно быть кратким и информативным."
-                            summary = generator(prompt)
-                        else:
-                            skipped_gender_summary_count += 1
-                            continue
-                    
-                    # Обновляем или создаем профиль пользователя
-                    await update_user_profile_summary(
-                        session,
-                        user_id,
-                        summary,
-                        gender,
-                        get_user_streams(user_id)
-                    )
-                    
-                    processed += 1
-                    
-                    # Делаем паузу между пользователями
-                    await asyncio.sleep(0.5)
-                    
-                except Exception as e:
-                    logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
+        
+        # Инициализируем сессию базы данных
+        session = get_db_session()
+        logger.info("Инициализирована сессия базы данных")
+        
+        # Получаем общее количество участников
+        total_count = await get_channel_participants_count(channel_id_or_username)
+        logger.info(f"Всего участников в канале: {total_count}")
+        
+        # Обрабатываем пользователей по батчам
+        async for user_id in get_channel_users(channel_id_or_username, batch_size):
+            try:
+                # Получаем полную информацию о пользователе
+                user_info = await get_user_info(user_id)
+                if not user_info:
+                    skipped_count += 1
                     continue
 
-            except Exception as e:
-                logger.error(f"Ошибка при получении участников: {e}")
-            finally:
-                # Закрываем сессию
-                await session.close()
+                # Получаем summary и gender
+                summary, gender = await process_user(user_id, generator)
+                if not summary or not gender:
+                    skipped_gender_summary_count += 1
+                    continue
 
-        except Exception as e:
-            logger.error(f"Ошибка при инициализации сессии: {e}")
-        finally:
-            # Закрываем клиент
-            await client.disconnect()
+                # Обновляем или создаем профиль пользователя
+                await update_user_profile_summary(
+                    session,
+                    user_id,
+                    summary,
+                    gender,
+                    get_user_streams(user_id)
+                )
+                
+                processed += 1
+                
+                # Делаем паузу между пользователями
+                await asyncio.sleep(0.5)
+                
+            except Exception as e:
+                logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
+                continue
+                
+        return processed
 
     except Exception as e:
         logger.error(f"Ошибка при заполнении профилей: {e}")
         raise
+        
     finally:
         # Закрываем соединения в обратном порядке
-        await close_database()
         if session:
             await session.close()
         if client:
             await client.disconnect()
+        await close_database()
         logger.info("Очистка завершена.")

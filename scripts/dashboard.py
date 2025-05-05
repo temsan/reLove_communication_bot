@@ -11,7 +11,7 @@ async def start_dashboard():
     app = create_app(bot, dp)
     runner = aiohttp_web.AppRunner(app)
     await runner.setup()
-    site = aiohttp_web.TCPSite(runner, '0.0.0.0', 8000)
+    site = aiohttp_web.TCPSite(runner, '0.0.0.0', 8080)
     await site.start()
     print('Веб-дэшборд запущен на http://localhost:8080/dashboard')
     await asyncio.Event().wait()
