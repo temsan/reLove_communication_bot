@@ -3,12 +3,15 @@ from pydantic import Field, SecretStr, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    llm_summary_model: str = Field('openai/gpt-4.1-mini', env='LLM_SUMMARY_MODEL')
+    # Model configuration
+    model_provider: Literal['openai', 'huggingface', 'local'] = Field('openai', env='MODEL_PROVIDER', description="Provider for LLM model (openai, huggingface, local)")
+    model_name: str = Field('gemma-3-27b-it', env='MODEL_NAME', description="Model name for OpenAI or HuggingFace")
+    model_path: str = Field('google/gemma-3-27b-it:free', env='MODEL_PATH', description="Path for local model")
     """
     Application settings loaded from environment variables.
     """
     # Load settings from .env and ignore extra variables
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+    model_config = SettingsConfigDict(env_file='.env.temp', env_file_encoding='utf-8', extra='ignore')
 
     bot_token: SecretStr = Field(..., env='BOT_TOKEN', description="Telegram Bot Token")
     log_level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] = Field("INFO", env='LOG_LEVEL', description="Logging level")
@@ -26,11 +29,14 @@ class Settings(BaseSettings):
     admin_ids: Set[int] = Field(default_factory=set, env='ADMIN_IDS', description="Set of Telegram User IDs for admins")
 
     # Database URL for SQLAlchemy
-    db_url: str = Field(..., env='DB_DSN', description="SQLAlchemy database URL (e.g., postgresql+asyncpg://user:pass@host:port/db)")
+    db_url: str = Field(..., env='db_url', description="SQLAlchemy database URL")
 
-    # OpenAI / OpenRouter settings
-    openai_api_key: SecretStr = Field(..., env='OPENAI_API_KEY', description="OpenAI или OpenRouter API key")
-    openai_api_base: str = Field(..., env='OPENAI_API_BASE', description="Base URL для OpenAI API (OpenRouter.ai)")
+    # OpenRouter settings
+    openai_api_key: SecretStr = Field(..., env='OPENROUTER_API_KEY', description="OpenRouter API key")
+    openai_api_base: str = Field(..., env='OPENROUTER_API_BASE', description="Base URL для OpenRouter API")
+    
+    # Hugging Face settings
+    hugging_face_token: Optional[SecretStr] = Field(None, env='HUGGING_FACE_TOKEN', description="Hugging Face API token")
 
     # Channel for fill_all_profiles
     our_channel_id: str = Field(..., env='OUR_CHANNEL_ID', description="Telegram channel ID для массового обновления summary")
@@ -40,7 +46,7 @@ class Settings(BaseSettings):
     tg_api_id: int = Field(..., env='TG_API_ID', description="Telegram API ID")
     tg_api_hash: SecretStr = Field(..., env='TG_API_HASH', description="Telegram API hash")
     tg_session: str = Field(..., env='TG_SESSION', description="Telethon session name")
-
+    tg_bot_token: SecretStr = Field(..., env='TG_BOT_TOKEN', description="Telegram Bot Token")
     @field_validator('webhook_host', 'webhook_secret', mode='before')
     @classmethod
     def empty_str_to_none(cls, v):

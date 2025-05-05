@@ -1,10 +1,12 @@
 import logging
+import sys
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
 from ..config import settings
+from .models import Base
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +31,8 @@ async def setup_database():
             settings.db_url,
             echo=False, # Установить в True для отладки SQL-запросов
             pool_pre_ping=True, # Проверять соединение перед использованием
-            pool_size=10, # Настроить размер пула под нагрузку
-            max_overflow=20,
+            pool_size=50, # Увеличиваем размер пула для лучшей производительности
+            max_overflow=100, # Увеличиваем максимальное количество дополнительных соединений
         )
 
         # Создаем фабрику сессий
@@ -49,7 +51,7 @@ async def setup_database():
         async with async_engine.begin() as conn:
             logger.info("Creating database tables if they don't exist...")
             # Импортируем модели здесь, чтобы избежать циклических зависимостей
-            from . import models # noqa
+            from .models import Base
             await conn.run_sync(Base.metadata.create_all)
             logger.info("Table creation check complete.")
 
@@ -58,30 +60,52 @@ async def setup_database():
         logger.exception(f"Failed to initialize database: {e}")
         return False
 
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+def get_engine():
+    """
+    Возвращает экземпляр engine.
+    
+    Returns:
+        Engine: Экземпляр SQLAlchemy engine.
+    """
+    if async_engine is None:
+        raise ValueError("Database engine is not initialized. Call setup_database() first.")
+    return async_engine
+
+def get_db_session():
     """Dependency (or context manager) to get a DB session."""
     if AsyncSessionFactory is None:
         logger.error("Database is not initialized. Cannot get session.")
-        yield None # Или вызвать исключение
-        return
+        return None
 
-    async with AsyncSessionFactory() as session:
+    return AsyncSessionFactory()
+
+database = sys.modules[__name__]
+
+async def safe_db_operation(func):
+    """Decorator for safe database operations."""
+    async def wrapper(*args, **kwargs):
+        session = get_db_session()
+        if session is None:
+            logger.error("Database session is not available.")
+            raise Exception("Database session is not available.")
         try:
-            yield session
-        except Exception:
-            logger.exception("Session rollback because of exception")
-            await session.rollback()
+            return await func(*args, session=session, **kwargs)
+        except Exception as e:
+            logger.error(f"Database operation error: {e}")
             raise
-        finally:
-            await session.close()
+    return wrapper
 
 async def close_database():
     """Closes the database engine connection."""
     global async_engine
     if async_engine:
         logger.info("Closing database engine connections...")
-        await async_engine.dispose()
-        async_engine = None
-        logger.info("Database connections closed.")
+        try:
+            await async_engine.dispose()
+            async_engine = None
+            logger.info("Database engine connections closed.")
+        except Exception as e:
+            logger.error(f"Error closing database engine: {e}")
+            raise
     else:
          logger.info("Database engine was not initialized, skipping close.") 

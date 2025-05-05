@@ -10,3 +10,7 @@ engine = create_async_engine(
     future=True,
 )
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+def get_session():
+    """Получает асинхронную сессию базы данных"""
+    return SessionLocal()

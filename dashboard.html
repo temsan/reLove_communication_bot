@@ -119,7 +119,7 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      min-height: 200px;
+      min-height: 300px;
     }
     .modern-user-card:hover {
       box-shadow: 0 6px 20px 0 rgba(127,83,172,0.09);
@@ -127,21 +127,27 @@
     }
     .modern-user-photo-wrap {
       width: 100%;
-      height: 110px;
+      height: 250px;
       background: #f5f5fa;
       display: flex;
       align-items: center;
       justify-content: center;
       border-bottom: 1px solid #f1f1f4;
+      overflow: hidden;
+      position: relative;
     }
     .modern-user-photo {
-      width: 70%;
-      height: 70%;
+      width: 100%;
+      height: 100%;
       object-fit: cover;
       border-radius: 0.6rem;
       background: #f4f4f7;
       border: none;
       box-shadow: 0 1px 4px 0 rgba(127,83,172,0.03);
+      transition: transform 0.3s ease;
+    }
+    .modern-user-photo-wrap:hover .modern-user-photo {
+      transform: scale(1.1);
     }
     .modern-user-photo--empty {
       background: #f4f4f7;
@@ -191,11 +197,16 @@
       justify-content: flex-end;
       align-items: flex-start;
       gap: 0.03em;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(transparent, rgba(0,0,0,0.5));
     }
     .modern-user-name {
-      font-size: 0.93em;
+      font-size: 0.75em;
       font-weight: 500;
-      color: #181828;
+      color: #fff;
       margin-bottom: 0.03em;
       letter-spacing: 0.01em;
       white-space: nowrap;
@@ -266,8 +277,6 @@
       word-break: break-word;
       display: -webkit-box;
       -webkit-line-clamp: 3;
-      -ms-line-clamp: 3;
-      line-clamp: 3;
       -webkit-box-orient: vertical;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -327,7 +336,8 @@
   max-height: none;
   display: block;
 }
-    .user-photo-bg {
+
+.user-photo-bg {
       position: absolute;
       inset: 0;
       background-size: cover;
@@ -646,16 +656,16 @@
     <!-- Вкладки -->
     <ul class="nav nav-tabs mb-3 relove-tabs" id="dashboardTabs" role="tablist" style="border-radius: 1.2rem; overflow: hidden; background: linear-gradient(90deg, #ffe1e1 0%, #f8e1f6 100%);">
       <li class="nav-item" role="presentation">
-        <button class="nav-link relove-tab-btn {% if active_tab == 'analytics' or not active_tab %}active{% endif %}" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analytics" type="button" role="tab" aria-controls="analytics" aria-selected="true">Аналитика</button>
+        <button class="nav-link relove-tab-btn active" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analytics" type="button" role="tab" aria-controls="analytics" aria-selected="true">Аналитика</button>
       </li>
       <li class="nav-item" role="presentation">
-        <button class="nav-link relove-tab-btn {% if active_tab == 'users' %}active{% endif %}" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab" aria-controls="users" aria-selected="false">Пользователи</button>
+        <button class="nav-link relove-tab-btn " id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab" aria-controls="users" aria-selected="false">Пользователи</button>
       </li>
       <li class="nav-item" role="presentation">
-        <button class="nav-link relove-tab-btn {% if active_tab == 'mailing' %}active{% endif %}" id="mailing-tab" data-bs-toggle="tab" data-bs-target="#mailing" type="button" role="tab" aria-controls="mailing" aria-selected="false">Рассылка</button>
+        <button class="nav-link relove-tab-btn " id="mailing-tab" data-bs-toggle="tab" data-bs-target="#mailing" type="button" role="tab" aria-controls="mailing" aria-selected="false">Рассылка</button>
       </li>
       <li class="nav-item" role="presentation">
-        <button class="nav-link relove-tab-btn {% if active_tab == 'automation' %}active{% endif %}" id="automation-tab" data-bs-toggle="tab" data-bs-target="#automation" type="button" role="tab" aria-controls="automation" aria-selected="false">Автоматизация</button>
+        <button class="nav-link relove-tab-btn " id="automation-tab" data-bs-toggle="tab" data-bs-target="#automation" type="button" role="tab" aria-controls="automation" aria-selected="false">Автоматизация</button>
       </li>
     </ul>
     <div class="tab-content" id="dashboardTabsContent">
@@ -666,7 +676,7 @@
         <div class="card relove-card relove-metric text-center">
           <div class="card-body">
             <div class="relove-metric-icon">❤️</div>
-            <div class="relove-metric-value">{{ total_users }}</div>
+            <div class="relove-metric-value">467</div>
             <div class="relove-metric-label">Пользователей</div>
           </div>
         </div>
@@ -675,7 +685,7 @@
         <div class="card relove-card relove-metric text-center">
           <div class="card-body">
             <div class="relove-metric-icon">♂️</div>
-            <div class="relove-metric-value">{{ male_count }}</div>
+            <div class="relove-metric-value">290</div>
             <div class="relove-metric-label">Мужчин</div>
           </div>
         </div>
@@ -684,7 +694,7 @@
         <div class="card relove-card relove-metric text-center">
           <div class="card-body">
             <div class="relove-metric-icon">♀️</div>
-            <div class="relove-metric-value">{{ female_count }}</div>
+            <div class="relove-metric-value">177</div>
             <div class="relove-metric-label">Женщин</div>
           </div>
         </div>
@@ -693,7 +703,7 @@
         <div class="card relove-card relove-metric text-center">
           <div class="card-body">
             <div class="relove-metric-icon">❓</div>
-            <div class="relove-metric-value">{{ unknown_count }}</div>
+            <div class="relove-metric-value">0</div>
             <div class="relove-metric-label">Не указано</div>
           </div>
         </div>
@@ -771,9 +781,15 @@
           <div class="mb-3">
             <label for="streamsSelect" class="form-label">Потоки</label>
             <select multiple class="form-select" id="streamsSelect" name="streams">
-              {% for stream in stream_labels %}
-              <option value="{{ stream }}">{{ stream }}</option>
-              {% endfor %}
+              
+              <option value="Женский">Женский</option>
+              
+              <option value="Мужской">Мужской</option>
+              
+              <option value="Смешанный">Смешанный</option>
+              
+              <option value="Путь героя">Путь героя</option>
+              
             </select>
             <div class="form-text">Можно выбрать несколько потоков (Ctrl/Command + клик)</div>
           </div>
@@ -800,7 +816,7 @@
               <button type="submit" class="btn btn-primary">Запустить анализ профилей</button>
             </form>
             <div class="mt-2">
-              <span class="badge bg-secondary">Статус: {{ auto_analyze_status|default('Не запущено') }}</span>
+              <span class="badge bg-secondary">Статус: Не запущено</span>
             </div>
           </div>
         </div>
@@ -814,7 +830,7 @@
               <button type="submit" class="btn btn-info">Запустить определение пола</button>
             </form>
             <div class="mt-2">
-              <span class="badge bg-secondary">Статус: {{ auto_gender_status|default('Не запущено') }}</span>
+              <span class="badge bg-secondary">Статус: Не запущено</span>
             </div>
           </div>
         </div>
@@ -828,7 +844,7 @@
               <button type="submit" class="btn btn-warning">Запустить профилирование</button>
             </form>
             <div class="mt-2">
-              <span class="badge bg-secondary">Статус: {{ auto_psych_status|default('Не запущено') }}</span>
+              <span class="badge bg-secondary">Статус: Не запущено</span>
             </div>
           </div>
         </div>
@@ -842,7 +858,7 @@
               <button type="submit" class="btn btn-success">Запустить рассылку приветствий</button>
             </form>
             <div class="mt-2">
-              <span class="badge bg-secondary">Статус: {{ auto_welcome_status|default('Не запущено') }}</span>
+              <span class="badge bg-secondary">Статус: Не запущено</span>
             </div>
           </div>
         </div>
@@ -854,7 +870,7 @@
             <form method="post" action="/dashboard/welcome_template">
               <div class="mb-3">
                 <label for="welcomeTemplate" class="form-label">Текст приветствия</label>
-                <textarea class="form-control" id="welcomeTemplate" name="welcome_template" rows="3">{{ welcome_template }}</textarea>
+                <textarea class="form-control" id="welcomeTemplate" name="welcome_template" rows="3"></textarea>
               </div>
               <button type="submit" class="btn btn-secondary">Сохранить шаблон</button>
             </form>
@@ -873,7 +889,7 @@
               <button type="submit" class="btn btn-danger">Разослать всем</button>
             </form>
             <div class="mt-2">
-              <span class="badge bg-secondary">Статус: {{ broadcast_events_status|default('Не запущено') }}</span>
+              <span class="badge bg-secondary">Статус: Не запущено</span>
             </div>
           </div>
         </div>
@@ -894,7 +910,7 @@
               <button type="submit" class="btn btn-dark">Создать напоминания</button>
             </form>
             <div class="mt-2">
-              <span class="badge bg-secondary">Статус: {{ auto_reminders_status|default('Не запущено') }}</span>
+              <span class="badge bg-secondary">Статус: Не запущено</span>
             </div>
           </div>
         </div>
@@ -905,11 +921,9 @@
   <div class="card-body">
     <p>Текущие каналы и чаты для интеграции:</p>
     <ul class="list-group mb-2">
-      {% for channel in channels %}
-      <li class="list-group-item">ID: <b>{{ channel.id }}</b> — {{ channel.title }}</li>
-      {% endfor %}
+      
     </ul>
-    <span class="badge bg-secondary">Статус: {{ channels_status|default('OK') }}</span>
+    <span class="badge bg-secondary">Статус: OK</span>
   </div>
 </div>
       </div>
@@ -930,7 +944,7 @@
                   <button type="submit" class="btn btn-primary">Запустить анализ профилей</button>
                 </form>
                 <div class="mt-2">
-                  <span class="badge bg-secondary">Статус: {{ auto_analyze_status|default('Не запущено') }}</span>
+                  <span class="badge bg-secondary">Статус: Не запущено</span>
                 </div>
               </div>
             </div>
@@ -944,7 +958,7 @@
                   <button type="submit" class="btn btn-info">Запустить определение пола</button>
                 </form>
                 <div class="mt-2">
-                  <span class="badge bg-secondary">Статус: {{ auto_gender_status|default('Не запущено') }}</span>
+                  <span class="badge bg-secondary">Статус: Не запущено</span>
                 </div>
               </div>
             </div>
@@ -958,7 +972,7 @@
                   <button type="submit" class="btn btn-warning">Запустить профилирование</button>
                 </form>
                 <div class="mt-2">
-                  <span class="badge bg-secondary">Статус: {{ auto_psych_status|default('Не запущено') }}</span>
+                  <span class="badge bg-secondary">Статус: Не запущено</span>
                 </div>
               </div>
             </div>
@@ -972,7 +986,7 @@
                   <button type="submit" class="btn btn-success">Запустить рассылку приветствий</button>
                 </form>
                 <div class="mt-2">
-                  <span class="badge bg-secondary">Статус: {{ auto_welcome_status|default('Не запущено') }}</span>
+                  <span class="badge bg-secondary">Статус: Не запущено</span>
                 </div>
               </div>
             </div>
@@ -984,7 +998,7 @@
                 <form method="post" action="/dashboard/welcome_template">
                   <div class="mb-3">
                     <label for="welcomeTemplate" class="form-label">Текст приветствия</label>
-                    <textarea class="form-control" id="welcomeTemplate" name="welcome_template" rows="3">{{ welcome_template }}</textarea>
+                    <textarea class="form-control" id="welcomeTemplate" name="welcome_template" rows="3"></textarea>
                   </div>
                   <button type="submit" class="btn btn-secondary">Сохранить шаблон</button>
                 </form>
@@ -1003,7 +1017,7 @@
                   <button type="submit" class="btn btn-danger">Разослать всем</button>
                 </form>
                 <div class="mt-2">
-                  <span class="badge bg-secondary">Статус: {{ broadcast_events_status|default('Не запущено') }}</span>
+                  <span class="badge bg-secondary">Статус: Не запущено</span>
                 </div>
               </div>
             </div>
@@ -1024,7 +1038,7 @@
                   <button type="submit" class="btn btn-dark">Создать напоминания</button>
                 </form>
                 <div class="mt-2">
-                  <span class="badge bg-secondary">Статус: {{ auto_reminders_status|default('Не запущено') }}</span>
+                  <span class="badge bg-secondary">Статус: Не запущено</span>
                 </div>
               </div>
             </div>
@@ -1035,11 +1049,9 @@
               <div class="card-body">
                 <p>Текущие каналы и чаты для интеграции:</p>
                 <ul class="list-group mb-2">
-                  {% for channel in channels %}
-                  <li class="list-group-item">ID: <b>{{ channel.id }}</b> — {{ channel.title }}</li>
-                  {% endfor %}
+                  
                 </ul>
-                <span class="badge bg-secondary">Статус: {{ channels_status|default('OK') }}</span>
+                <span class="badge bg-secondary">Статус: OK</span>
               </div>
         </div>
       </div>
@@ -1053,7 +1065,7 @@
                 <div class="card relove-card relove-metric text-center">
                     <div class="card-body">
                         <div class="relove-metric-icon">❤️</div>
-                        <div class="relove-metric-value">{{ total_users }}</div>
+                        <div class="relove-metric-value">467</div>
                         <div class="relove-metric-label">Пользователей</div>
                     </div>
                 </div>
@@ -1062,7 +1074,7 @@
                 <div class="card relove-card relove-metric text-center">
                     <div class="card-body">
                         <div class="relove-metric-icon">♂️</div>
-                        <div class="relove-metric-value">{{ male_count }}</div>
+                        <div class="relove-metric-value">290</div>
                         <div class="relove-metric-label">Мужчин</div>
                     </div>
                 </div>
@@ -1071,7 +1083,7 @@
                 <div class="card relove-card relove-metric text-center">
                     <div class="card-body">
                         <div class="relove-metric-icon">♀️</div>
-                        <div class="relove-metric-value">{{ female_count }}</div>
+                        <div class="relove-metric-value">177</div>
                         <div class="relove-metric-label">Женщин</div>
                     </div>
                 </div>
@@ -1080,7 +1092,7 @@
                 <div class="card relove-card relove-metric text-center">
                     <div class="card-body">
                         <div class="relove-metric-icon">❓</div>
-                        <div class="relove-metric-value">{{ unknown_count }}</div>
+                        <div class="relove-metric-value">0</div>
                         <div class="relove-metric-label">Не указано</div>
                     </div>
                 </div>
@@ -1301,9 +1313,15 @@
               <div class="mb-3">
                 <label for="streamsSelect" class="form-label">Потоки</label>
                 <select multiple class="form-select" id="streamsSelect" name="streams">
-                  {% for stream in stream_labels %}
-                  <option value="{{ stream }}">{{ stream }}</option>
-                  {% endfor %}
+                  
+                  <option value="Женский">Женский</option>
+                  
+                  <option value="Мужской">Мужской</option>
+                  
+                  <option value="Смешанный">Смешанный</option>
+                  
+                  <option value="Путь героя">Путь героя</option>
+                  
                 </select>
                 <div class="form-text">Можно выбрать несколько потоков (Ctrl/Command + клик)</div>
               </div>

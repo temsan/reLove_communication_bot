@@ -156,3 +156,4 @@ cython_debug/
 *.session
 *.session-journal
 *.json
+telethon_src/

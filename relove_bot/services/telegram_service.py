@@ -3,19 +3,20 @@ import base64
 import logging
 import os
 import re
-from io import BytesIO
-from typing import Any, Dict, List, Optional
-
+import sys
+from typing import Optional, Any, Dict, List
 from telethon import TelegramClient
 from telethon.tl.functions.users import GetFullUserRequest
-from telethon.tl.types import Channel, Message, User
+from telethon.tl.functions.channels import GetParticipantRequest, GetParticipantsRequest, GetFullChannelRequest
+from telethon.tl.types import ChannelParticipantsSearch, Channel, Message, User
+from tqdm.asyncio import tqdm
 
 from pydantic import SecretStr
 from relove_bot.config import settings
 from relove_bot.rag.llm import LLM
 
-API_ID = settings.tg_api_id.get_secret_value() if isinstance(settings.tg_api_id, SecretStr) else settings.tg_api_id
-API_HASH = settings.tg_api_hash.get_secret_value() if isinstance(settings.tg_api_hash, SecretStr) else settings.tg_api_hash
+API_ID = settings.tg_api_id
+API_HASH = settings.tg_api_hash if not isinstance(settings.tg_api_hash, SecretStr) else settings.tg_api_hash.get_secret_value()
 SESSION = settings.tg_session.get_secret_value() if isinstance(settings.tg_session, SecretStr) else settings.tg_session
 
 _client = None
@@ -24,6 +25,13 @@ async def get_client():
     global _client
     if _client is None:
         _client = TelegramClient(SESSION, int(API_ID), str(API_HASH))
+    return _client
+
+async def get_bot_client():
+    global _client
+    if _client is None:
+        _client = TelegramClient('user_session', int(settings.tg_api_id), str(settings.tg_api_hash.get_secret_value()))
+        await _client.start()
     return _client
 
 async def start_client():
@@ -40,13 +48,20 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Экспортируем сервис как объект
+telegram_service = sys.modules[__name__]
+
 async def analyze_photo_via_llm(photo_bytes: bytes) -> str:
     """
     Отправляет фото в OpenAI Vision (через LLM.analyze_content) и возвращает summary.
     """
     img_b64 = base64.b64encode(photo_bytes).decode()
     llm = LLM()
-    result = await llm.analyze_content(image_base64=img_b64, system_prompt="Опиши психологические черты пользователя по фото профиля.", max_tokens=256)
+    result = await llm.analyze_content(
+        image_base64=img_b64,
+        system_prompt="Кратко опиши психологические черты пользователя по фото профиля.",
+        max_tokens=128
+    )
     return result["summary"]
 
 async def openai_psychological_summary(text: str, image_url: str = None) -> str:
@@ -54,8 +69,13 @@ async def openai_psychological_summary(text: str, image_url: str = None) -> str:
     Отправляет текст и/или фото в LLM.analyze_content и возвращает психологический портрет пользователя.
     """
     llm = LLM()
-    prompt = "Ты — профессиональный психолог и эксперт по анализу личности. Проанализируй личность пользователя по представленному тексту и/или фото."
-    result = await llm.analyze_content(text=text, image_url=image_url, system_prompt=prompt, max_tokens=512)
+    prompt = "Ты — профессиональный психолог. Проанализируй личность пользователя по представленному тексту и/или фото. Дай краткий, информативный портрет."
+    result = await llm.analyze_content(
+        text=text,
+        image_url=image_url,
+        system_prompt=prompt,
+        max_tokens=256
+    )
     return result["summary"]
 
 async def get_full_psychological_summary(user_id: int, main_channel_id: Optional[str] = None, tg_user=None, posts: Optional[list] = None) -> tuple[str, bytes, list]:
@@ -71,60 +91,37 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
     client = await get_client()
     user = tg_user if tg_user is not None else await client.get_entity(user_id)
     bio = getattr(user, 'about', '') or ''
-    # Используем posts, если переданы, иначе собираем как раньше
-    personal_posts = []
-    photo_summaries = []
-    last_photo_bytes = None
-    if posts is not None:
-        main_posts = posts  # это посты из основного канала
-        try:
-            personal = await get_personal_channel_posts(user_id)
-            personal_posts = personal.get("posts", [])
-            photo_summaries = personal.get("photo_summaries", [])
-        except Exception as e:
-            logging.warning(f"[get_full_psychological_summary] Не удалось получить личные посты/фото: {e}")
-        all_posts = main_posts + personal_posts
-        posts_text = "\n".join(all_posts)
-        summary = await openai_psychological_summary(text=(bio + "\n" + posts_text), image_url=None)
-        # Если есть отдельные summary по фото — добавляем
-        if photo_summaries:
-            summary += "\n" + "\n".join(photo_summaries)
-        # Получаем последнее фото профиля
-        async for photo in client.iter_profile_photos(user_id, limit=1):
-            bioio = BytesIO()
-            await client.download_media(photo, file=bioio)
-            bioio.seek(0)
-            last_photo_bytes = bioio.read()
-            break
-        return summary, last_photo_bytes
-    else:
+    
+    # Получаем все посты сразу, если они не переданы
+    if posts is None:
         main_posts = []
         if main_channel_id:
             try:
                 main_posts = await get_user_posts_in_channel(main_channel_id, user_id)
             except Exception as e:
                 logging.warning(f"[get_full_psychological_summary] Не удалось получить посты пользователя в основном канале: {e}")
+        
         try:
             personal = await get_personal_channel_posts(user_id)
             personal_posts = personal.get("posts", [])
             photo_summaries = personal.get("photo_summaries", [])
         except Exception as e:
             logging.warning(f"[get_full_psychological_summary] Не удалось получить личные посты/фото: {e}")
-    # Анализируем все фото профиля (если есть)
-    if not photo_summaries:
-        # Если get_personal_channel_posts не дал фото — пробуем напрямую
-        last_photo_bytes = None
-        bioio = BytesIO()
-        async for photo in client.iter_profile_photos(user_id, limit=1):
-            await client.download_media(photo, file=bioio)
-            bioio.seek(0)
-            img_bytes = bioio.read()
-            summary = await analyze_photo_via_llm(img_bytes)
-            photo_summaries.append(summary)
-            last_photo_bytes = img_bytes
-            break
-    # Вызов LLM для получения психологического портрета (всегда с фото, если есть хотя бы одно)
-    image_url = None
+            personal_posts = []
+            photo_summaries = []
+    else:
+        main_posts = posts
+        personal_posts = []
+        photo_summaries = []
+
+    # Формируем текст для анализа
+    all_posts = main_posts + personal_posts
+    posts_text = "\n".join(all_posts)
+    
+    # Генерируем summary
+    summary = await openai_psychological_summary(text=(bio + "\n" + posts_text), image_url=None)
+    
+    # Добавляем summary по фото, если есть
     if photo_summaries:
         # Для vision — используем последнее фото (можно расширить до нескольких)
         # Для полного анализа можно добавить несколько image_url — сейчас поддерживается только один
@@ -232,42 +229,39 @@ async def get_personal_channel_id(user_id: int) -> Optional[int]:
         logging.warning(f"[get_personal_channel_id] Ошибка получения personal_channel_id: {e}")
         return None
 
-async def get_personal_channel_posts(user_id: int, limit: int = 100) -> Dict[str, Any]:
+async def get_personal_channel_posts(user_id: int, limit: int = 100):
     """
     Получает посты из личного канала пользователя (через personal_channel_id или fallback по username/bio).
     """
     client = await get_client()
+    user = await client.get_entity(user_id)
     posts = []
     channel_link = None
-    # 1. Пробуем через personal_channel_id
-    pc_id = await get_personal_channel_id(user_id)
-    if pc_id:
-        channel_link = pc_id
-    else:
-        # 2. Fallback: username пользователя
-        user = await client.get_entity(user_id)
-        if getattr(user, 'username', None):
-            candidate = user.username
-            try:
-                entity = await client.get_entity(candidate)
-                if hasattr(entity, 'broadcast') or hasattr(entity, 'megagroup'):
-                    channel_link = candidate
-            except Exception as e:
-                logging.info(f"[get_personal_channel_posts] Не удалось получить канал по username {candidate}: {e}")
-        # 3. Fallback: ищем ссылку на канал в bio
-        if not channel_link:
-            bio = getattr(user, 'about', '') or ''
-            match = re.search(r'(t\.me\/(\w+))|(@\w+)', bio)
+
+    # 1. Прямое получение через personal_channel_id
+    try:
+        entity = await get_personal_channel_entity(user_id)
+        if entity:
+            channel_link = entity.username
+    except Exception as e:
+        logging.info(f"[get_personal_channel_posts] Не удалось получить личный канал через personal_channel_id: {e}")
+
+    # 2. Если не нашли через personal_channel_id, ищем в bio
+    if not channel_link:
+        bio = getattr(user, 'about', '') or ''
+        if bio:
+            # Ищем @username или t.me/username
+            match = re.search(r'(@\w+)|(t\.me/\w+)', bio)
             if match:
-                username = match.group(2) or (match.group(0)[1:] if match.group(0).startswith('@') else None)
-                if username:
-                    try:
-                        entity = await client.get_entity(username)
-                        if hasattr(entity, 'broadcast') or hasattr(entity, 'megagroup'):
-                            channel_link = username
-                    except Exception as e:
-                        logging.info(f"[get_personal_channel_posts] Не удалось получить канал по ссылке из bio {username}: {e}")
-    # Получаем посты
+                username = match.group(1)[1:] if match.group(1) else match.group(2).split('/')[-1]
+                try:
+                    entity = await client.get_entity(username)
+                    if hasattr(entity, 'broadcast') or hasattr(entity, 'megagroup'):
+                        channel_link = username
+                except Exception as e:
+                    logging.info(f"[get_personal_channel_posts] Не удалось получить канал по username {username}: {e}")
+
+    # Получаем посты только если нашли канал
     if channel_link:
         try:
             async for msg in client.iter_messages(channel_link, limit=limit):
@@ -275,58 +269,165 @@ async def get_personal_channel_posts(user_id: int, limit: int = 100) -> Dict[str
                     posts.append(msg.text)
         except Exception as e:
             logging.warning(f"[get_personal_channel_posts] Не удалось получить посты из {channel_link}: {e}")
+
     # Фото профиля -> анализ через LLM
     photo_summaries = []
-    async for photo in client.iter_profile_photos(user_id):
+    # Получаем только последнее фото профиля
+    async for photo in client.iter_profile_photos(user_id, limit=1):
         bio = BytesIO()
         await client.download_media(photo, file=bio)
         bio.seek(0)
         img_bytes = bio.read()
         summary = await analyze_photo_via_llm(img_bytes)
         photo_summaries.append(summary)
+        break
+
     return {"posts": posts, "photo_summaries": photo_summaries}
+
+async def get_user_profile_summary(user_id: int) -> str:
+    """
+    Получает психологический портрет пользователя.
+    
+    Args:
+        user_id: ID пользователя
+    
+    Returns:
+        Строка с психологическим портретом
+    """
+    try:
+        client = await get_bot_client()
+        
+        user = await client.get_entity(user_id)
+        if user:
+            return await get_full_psychological_summary(user_id, tg_user=user)
+        return None
+    finally:
+        if client:
+            await client.disconnect()
+
+from relove_bot.db.models import GenderEnum
+
+async def get_user_gender(user_id: int, client=None) -> GenderEnum:
+    """
+    Определяет пол пользователя.
+    
+    Args:
+        user_id: ID пользователя
+        client: Существующий клиент Telethon (опционально)
+    
+    Returns:
+        Перечисление GenderEnum с полом (male, female, unknown)
+    """
+    try:
+        if not client:
+            client = await get_bot_client()
+        
+        user_info = await get_full_user(user_id, client=client)
+        if user_info:
+            gender = await detect_gender(user_info, client=client)
+            return GenderEnum(gender)
+        return GenderEnum.unknown
+    except Exception as e:
+        logger.error(f"Ошибка при определении пола пользователя {user_id}: {e}")
+        return GenderEnum.unknown
+
+async def get_channel_participants_count(channel_id_or_username: str):
+    """
+    Получает общее количество участников в канале.
+    
+    Args:
+        channel_id_or_username: ID или username канала
+    
+    Returns:
+        Количество участников в канале
+    """
+    try:
+        client = await get_bot_client()
+        
+        # Получаем информацию о канале
+        channel = await client.get_entity(channel_id_or_username)
+        
+        # Получаем полную информацию о канале
+        full_channel = await client(GetFullChannelRequest(channel))
+        
+        # Возвращаем количество участников
+        return full_channel.full_chat.participants_count
+    except Exception as e:
+        logger.error(f"Ошибка при получении количества участников канала: {e}")
+        raise
+    finally:
+        if client:
+            await client.disconnect()
+
+async def get_full_user(user_id: int, client=None):
+    """
+    Получает полную информацию о пользователе через GetFullUserRequest.
+    
+    Args:
+        user_id: ID пользователя
+        client: Существующий клиент Telethon (опционально)
+    
+    Returns:
+        Объект User с информацией о пользователе
+    """
+    try:
+        if not client:
+            client = await get_bot_client()
+        full_user = await client(GetFullUserRequest(user_id))
+        
+        # Возвращаем объект User
+        return full_user.users[0]
+    except Exception as e:
+        logger.error(f"Ошибка при получении полной информации о пользователе {user_id}: {e}")
+        raise
 
 async def get_channel_users(channel_id_or_username: str, batch_size: int = 200):
     """
-    Получает список ID пользователей из канала с пагинацией.
+    Асинхронно получает всех пользователей из канала порциями.
+    
     Args:
         channel_id_or_username: ID или username канала
         batch_size: размер пакета для получения участников (максимум 200)
+    
     Returns:
-        Список ID пользователей
+        Асинхронный генератор, который возвращает ID пользователей
     """
-    client = await get_client()
-    users = set()
-    
     try:
-        logger.info(f"Начинаем получение участников из канала {channel_id_or_username}")
+        client = await get_bot_client()
         
-        # Получаем участников пакетами
-        while True:
-            try:
-                logger.info(f"Получаем пакет участников (batch_size={batch_size})")
-                async for user in client.iter_participants(
-                    channel_id_or_username,
-                    limit=batch_size
-                ):
-                    users.add(user.id)
+        # Получаем информацию о канале
+        channel = await client.get_entity(channel_id_or_username)
+        logger.info(f"Получена информация о канале: {channel}")
+        
+        # Инициализируем параметры пагинации
+        offset = 0
+        total_count = await get_channel_participants_count(channel)
+        
+        while offset < total_count:
+            # Получаем участников с текущим смещением
+            participants = await client(GetParticipantsRequest(
+                channel=channel,
+                filter=ChannelParticipantsSearch(''),
+                offset=offset,
+                limit=batch_size,
+                hash=0
+            ))
+            
+            # Обрабатываем полученных пользователей
+            for user in participants.users:
+                yield user.id
                 
-                logger.info(f"Получено {len(users)} участников")
-                
-                # Если получили меньше чем batch_size, значит это последний пакет
-                if len(users) < batch_size:
-                    logger.info(f"Получен последний пакет участников")
-                    break
-                
-                # Добавляем небольшую задержку между запросами
-                await asyncio.sleep(1)
-                
-            except Exception as e:
-                logger.error(f"Ошибка при получении участников: {e}")
-                break
-    
+                # Делаем паузу между пользователями
+                await asyncio.sleep(0.5)
+            
+            # Обновляем смещение
+            offset += batch_size
+            
+            # Делаем паузу между батчами
+            await asyncio.sleep(1.0)
     except Exception as e:
-        logger.error(f"Ошибка при получении участников: {e}")
-    
-    logger.info(f"Получено {len(users)} уникальных пользователей из канала")
-    return list(users)
+        logger.error(f"Ошибка при получении пользователей из канала: {e}")
+        raise
+    finally:
+        if client:
+            await client.disconnect()

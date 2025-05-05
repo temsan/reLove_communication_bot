@@ -1,19 +1,38 @@
 import asyncio
 import logging
-import os
+from typing import Optional
+from tqdm.asyncio import tqdm
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy.orm import sessionmaker
 
-from relove_bot.config import settings
-from relove_bot.db.database import close_database, get_db_session, setup_database
 from relove_bot.db.models import User
-from relove_bot.db.session import SessionLocal
-from relove_bot.rag.pipeline import aggregate_profile_summary
-from relove_bot.rag.llm import LLM
-from relove_bot.services.telegram_service import get_client
-from relove_bot.services import telegram_service
-from relove_bot.utils.gender import detect_gender
+from relove_bot.db.database import get_db_session, setup_database, get_engine
+from relove_bot.services.telegram_service import get_channel_users, get_channel_participants_count, get_client, get_full_user, get_user_gender, get_user_profile_summary, get_bot_client
+from relove_bot.utils.gender import detect_gender as get_user_gender
+from relove_bot.utils.interests import get_user_streams
+from relove_bot.utils.custom_logging import setup_logging
 
 logger = logging.getLogger(__name__)
+
+# Настройка логирования
+setup_logging()
+
+# Глобальные счетчики
+created_count = 0
+updated_count = 0
+skipped_count = 0
+skipped_gender_summary_count = 0
+processed = 0
+
+# --- Новая асинхронная джоба для инициализации базы данных ---
+async def initialize_database():
+    """Инициализирует базу данных."""
+    await setup_database()
+    engine = get_engine()
+    logging.getLogger('httpx').setLevel(logging.ERROR)
+    logging.getLogger('sqlalchemy').setLevel(logging.ERROR)
+    return engine
 
 # --- Константы для батчинга ---
 DEFAULT_BATCH_SIZE = 50
@@ -31,60 +50,53 @@ async def select_users(gender: str = None, text_filter: str = None, user_id_list
     - limit: макс. количество результатов
     Возвращает список словарей: [{id, username, summary, gender, ...}]
     """
-    async with SessionLocal() as session:
-        users = (await session.execute(User.__table__.select())).fetchall()
-        user_objs = []
-        for row in users:
-            user_id = row.id if hasattr(row, 'id') else row[0]
-            if user_id_list and user_id not in user_id_list:
-                continue
-            user = await session.get(User, user_id)
-            if not user:
-                continue
-            context = user.context or {}
-            summary = context.get('summary')
-            user_gender = context.get('gender')
-            # Фильтр по полу
-            if gender and user_gender != gender:
-                continue
-            # Фильтр по тексту
-            if text_filter and summary:
-                if text_filter.lower() not in summary.lower():
-                    continue
-                # Используем profile_summary как психопортрет
-                psycho = user.profile_summary if hasattr(user, 'profile_summary') else None
-                if not psycho:
-                    # Если profile_summary отсутствует — пробуем сгенерировать
-                    try:
-                        telegram_service = TelegramService()
-                        psycho = await telegram_service.get_full_psychological_summary(user.id)
-                        user.profile_summary = psycho
-                        await session.commit()
-                    except Exception as e:
-                        logger.warning(f"Не удалось получить психопортрет для пользователя {user.id}: {e}")
-                        psycho = None
-                user_dict = {
-                    'id': user.id,
-                    'username': user.username,
-                    'first_name': user.first_name,
-                    'last_name': user.last_name,
-                    'summary': psycho,
-                    'gender': user_gender,
-                }
-            user_objs.append((user_dict, context))
-        # Ранжирование
+    try:
+        # Инициализируем базу данных
+        await setup_database()
+        
+        # Инициализируем сессию базы данных
+        session = get_db_session()
+        
+        # Формируем базовый запрос
+        query = select(User)
+        
+        # Применяем фильтры
+        if gender:
+            query = query.where(User.gender == gender)
+        if text_filter:
+            query = query.where(User.profile_summary.ilike(f'%{text_filter}%'))
+        if user_id_list:
+            query = query.where(User.id.in_(user_id_list))
+        
+        # Применяем сортировку
         if rank_by:
-            def get_rank_val(u):
-                val = u[1].get(rank_by)
-                try:
-                    return float(val)
-                except (TypeError, ValueError):
-                    return str(val or "")
-            user_objs.sort(key=get_rank_val, reverse=True)
-        # Ограничение по количеству
-        user_objs = user_objs[:limit]
-        # Только словари
-        return [u[0] for u in user_objs]
+            if rank_by == 'context':
+                query = query.order_by(User.context.desc())
+            else:
+                query = query.order_by(getattr(User, rank_by).desc())
+        
+        # Применяем лимит
+        query = query.limit(limit)
+        
+        # Выполняем запрос
+        result = await session.execute(query)
+        users = result.scalars().all()
+        
+        # Формируем результат
+        result_list = []
+        for user in users:
+            result_list.append({
+                'id': user.id,
+                'username': user.username,
+                'summary': user.profile_summary,
+                'gender': user.gender,
+                'context': user.context
+            })
+        
+        return result_list
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении запроса: {e}")
+        raise
 
 # --- Новая асинхронная джоба для массового обновления summary ---
 
@@ -100,173 +112,253 @@ async def update_user_profile_summary(session: AsyncSession, user_id: int, summa
         streams: Список интересов пользователя (опционально)
     """
     try:
-        # Получаем клиента
-        client = await get_client()
+        # Проверяем существование пользователя
+        stmt = select(User).where(User.id == user_id)
+        result = await session.execute(stmt)
+        user = result.scalar_one_or_none()
         
-        # Проверяем, существует ли пользователь
-        user = await session.get(User, user_id)
-        if not user:
-            # Если пользователя нет, создаем нового
-            user = User(id=user_id)
-            session.add(user)
+        if user:
+            # Обновляем существующий профиль
+            user.profile_summary = summary
+            if gender:
+                user.gender = gender
+            if streams:
+                user.interests = streams
             await session.commit()
-            await session.refresh(user)
-        
-        # Получаем данные пользователя из Telegram
-        entity = await client.get_entity(user_id)
-        username = getattr(entity, 'username', None)
-        first_name = getattr(entity, 'first_name', None)
-        last_name = getattr(entity, 'last_name', None)
-        
-        # Обновляем поля
-        user.profile_summary = summary
-        if gender:
-            user.gender = gender
-        if streams:
-            user.interests = streams
-        if username:
-            user.username = username
-        if first_name:
-            user.first_name = first_name
-        if last_name:
-            user.last_name = last_name
-        
-        await session.commit()
-        logger.info(f"Successfully updated profile_summary and gender for user {user_id}")
+        else:
+            # Создаем новый профиль
+            new_user = User(
+                id=user_id,
+                profile_summary=summary,
+                gender=gender if gender else 'unknown',
+                interests=streams if streams else []
+            )
+            session.add(new_user)
+            await session.commit()
     except Exception as e:
-        logger.error(f"Failed to update user profile for user {user_id}: {e}")
+        logger.error(f"Ошибка при обновлении профиля пользователя {user_id}: {e}")
+        await session.rollback()
         raise
 
-async def fill_all_profiles(main_channel_id: str):
+async def get_user_photo_jpeg(user_id: int) -> Optional[bytes]:
     """
-    Fetches users from the specified main channel, generates their full psychological summary
-    using Telethon and LLM, and updates the profile_summary in the database.
+    Получает фото пользователя в формате JPEG.
+    
+    Args:
+        user_id: ID пользователя
+    
+    Returns:
+        Байты JPEG-изображения или None, если фото не найдено
     """
-    logger.info(f"Starting profile filling process for channel: {main_channel_id}")
-
-    # 1. Initialize Database
-    db_initialized = await setup_database()
-    if not db_initialized:
-        logger.critical("Database initialization failed. Cannot proceed.")
-        return
-
-    # 2. Initialize Telethon Client
     try:
-        client = await get_client()
-        await telegram_service.start_client()
+        client = await get_bot_client()
+        
+        # Скачиваем фото напрямую
+        photo = await client.download_profile_photo(user_id, bytes)
+        
+        return photo
     except Exception as e:
-        logger.critical(f"Failed to start Telethon client: {e}. Cannot proceed.")
-        await close_database()
-        return
+        logger.error(f"Ошибка при получении фото пользователя {user_id}: {e}")
+        return None
 
-    user_ids = []
+async def process_user(user_id: int, generator=None):
+    """
+    Обрабатывает профиль пользователя.
+    
+    Args:
+        user_id (int): ID пользователя для обработки
+        generator: Pipeline для генерации текста (опционально)
+    """
+    global processed
+    processed += 1
+    
     try:
-        logger.info(f"Fetching participants from channel {main_channel_id}...")
-        user_ids = await telegram_service.get_channel_users(main_channel_id, batch_size=200)
-        logger.info(f"Found {len(user_ids)} participants in channel {main_channel_id}.")
+        # Получаем информацию о пользователе
+        full_user = await get_full_user(user_id)
+        user = full_user.user
+        
+        # Получаем пол пользователя
+        gender = await get_user_gender(user)
+        
+        # Получаем интересы
+        streams = await get_user_streams(user)
+        
+        # Генерируем summary с помощью локальной модели
+        if generator:
+            prompt = f"Generate profile summary for user {user.username}: {user.first_name} {user.last_name if user.last_name else ''}"
+            summary = generator(prompt)[0]['generated_text']
+        else:
+            summary = await get_user_profile_summary(user)
+        
+        # Обновляем профиль
+        async with get_db_session() as session:
+            await update_user_profile_summary(
+                session,
+                user_id,
+                summary,
+                gender,
+                streams
+            )
+            await session.commit()
+            
+            global updated_count
+            updated_count += 1
+            logger.info(f"Updated profile for user {user_id}")
+            
+        # Проверяем и обновляем базовый профиль
+        async with get_db_session() as session:
+            # Получаем пользователя из базы данных
+            stmt = select(User).where(User.id == user_id)
+            result = await session.execute(stmt)
+            user = result.scalar_one_or_none()
+            
+            if user:
+                # Обновляем существующий профиль
+                user.profile_summary = base_profile["profile_summary"]
+                await session.commit()
     except Exception as e:
-        logger.error(f"Failed to get users from channel {main_channel_id}: {e}")
-        return
+        logger.error(f"Error processing user {user_id}: {str(e)}")
+        skipped_count += 1
 
-    processed = 0
-    created_count = 0
-    updated_count = 0
-    skipped_count = 0
-    skipped_gender_summary_count = 0
+async def close_database():
+    """
+    Закрывает соединение с базой данных.
+    """
+    try:
+        engine = get_engine()
+        if engine:
+            await engine.dispose()
+    except Exception as e:
+        logger.error(f"Ошибка при закрытии соединения с базой данных: {e}")
 
-    async with get_db_session() as session:
-        for user_id in user_ids:
-            try:
-                # Получаем пользователя из базы
-                user = await session.get(User, user_id)
-                if not user:
-                    logger.info(f"User {user_id} не найден в базе, создаём новый профиль")
-                    user = User(id=user_id)
-                    session.add(user)
-                    await session.commit()
-                    await session.refresh(user)
+async def fill_all_profiles(channel_id_or_username: str, generator=None, batch_size: int = 200):
+    """
+    Заполняет профили всех пользователей из канала.
+    
+    Args:
+        channel_id_or_username: ID или username канала
+        batch_size: размер пакета для получения участников (максимум 200)
+    """
+    global created_count, updated_count, skipped_count, skipped_gender_summary_count, processed
+    
+    try:
+        # Инициализируем базу данных
+        await setup_database()
+        
+        # Подключаемся к клиенту
+        client = await get_bot_client()
+        logger.info("Подключено к Telegram клиенту")
+        try:
+            # Инициализируем сессию базы данных
+            session = get_db_session()
+            logger.info("Инициализирована сессия базы данных")
+            
+            # Получаем общее количество участников
+            total_count = await get_channel_participants_count(channel_id_or_username)
+            logger.info(f"Всего участников в канале: {total_count}")
+            
+            # Обрабатываем пользователей по батчам
+            async for user_id in get_channel_users(channel_id_or_username, batch_size):
+                try:
+                    # Получаем полную информацию о пользователе
+                    user_info = await get_user_info(user_id)
+                    if not user_info:
+                        skipped_count += 1
+                        continue
 
-                # Проверяем наличие необходимых полей
-                user_has_summary = user.profile_summary and user.profile_summary.strip()
-                user_has_gender = user.gender and str(user.gender) not in ('', 'unknown', 'None')
-                user_has_streams = user.interests and isinstance(user.interests, list) and len(user.interests) > 0
+                    # Получаем summary и gender
+                    summary, gender = await process_user(user_id, generator)
+                    if not summary or not gender:
+                        skipped_gender_summary_count += 1
+                        continue
 
-                # Нужно ли обновлять профиль?
-                need_update = not (user_has_summary and user_has_gender and user_has_streams)
+                    # Обновляем или создаем профиль пользователя
+                    await update_user_profile_summary(
+                        session,
+                        user_id,
+                        summary,
+                        gender,
+                        get_user_streams(user_id)
+                    )
+                    
+                    processed += 1
+                    
+                    # Делаем паузу между пользователями
+                    await asyncio.sleep(0.5)
 
-                if not need_update:
-                    logger.info(f"User {user_id} уже имеет все необходимые поля, пропущен")
-                    skipped_count += 1
+                    # Получаем полную информацию о пользователе
+                    full_user = await get_full_user(user_id)
+                    
+                    # Получаем пол и summary пользователя
+                    gender = await get_user_gender(full_user, client=client)
+                    summary = await get_user_profile_summary(user_id)
+                    
+                    # Если у пользователя нет summary, генерируем его
+                    if not summary:
+                        if generator:
+                            try:
+                                summary = await generator.generate_summary(user_id)
+                                if summary:
+                                    await update_user_profile_summary(
+                                        session,
+                                        user_id,
+                                        summary,
+                                        gender,
+                                        get_user_streams(user_id)
+                                    )
+                                    processed += 1
+                                    await asyncio.sleep(0.5)
+                            except Exception as e:
+                                logger.error(f"Ошибка при генерации summary для пользователя {user_id}: {e}")
+                                continue
+                            # Генерируем summary с помощью модели
+                            prompt = f"Создай краткое описание профиля для пользователя {full_user.username if full_user.username else 'без никнейма'}.\n" \
+                                   f"Пол: {gender}\n" \
+                                   f"Интересы: {', '.join(get_user_streams(user_id)) if get_user_streams(user_id) else 'не указаны'}\n" \
+                                   f"Описание должно быть кратким и информативным."
+                            summary = generator(prompt)
+                        else:
+                            skipped_gender_summary_count += 1
+                            continue
+                    
+                    # Обновляем или создаем профиль пользователя
+                    await update_user_profile_summary(
+                        session,
+                        user_id,
+                        summary,
+                        gender,
+                        get_user_streams(user_id)
+                    )
+                    
+                    processed += 1
+                    
+                    # Делаем паузу между пользователями
+                    await asyncio.sleep(0.5)
+                    
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
                     continue
 
-                # Получаем данные из Telegram
-                try:
-                    entity = await client.get_entity(user_id)
-                    username = getattr(entity, 'username', None)
-                    first_name = getattr(entity, 'first_name', None)
-                    last_name = getattr(entity, 'last_name', None)
-                except Exception as e:
-                    logger.warning(f"Не удалось получить данные пользователя из Telegram: {e}")
-                    username = None
-                    first_name = None
-                    last_name = None
-
-                # Генерируем summary если нужно
-                if not user_has_summary:
-                    try:
-                        summary = await telegram_service.get_full_psychological_summary(user_id, settings.discussion_channel_id)
-                        if summary:
-                            logger.info(f"Сгенерирован summary для user {user_id}")
-                        else:
-                            logger.warning(f"Не удалось сгенерировать summary для user {user_id}")
-                            skipped_gender_summary_count += 1
-                    except Exception as e:
-                        logger.error(f"Ошибка при генерации summary для user {user_id}: {e}")
-                        summary = None
-                        skipped_gender_summary_count += 1
-
-                # Определяем пол если нужно
-                if not user_has_gender:
-                    try:
-                        gender = await detect_gender(user_id)
-                        if not gender:
-                            logger.warning(f"Не удалось определить пол для user {user_id}")
-                            skipped_gender_summary_count += 1
-                    except Exception as e:
-                        logger.error(f"Ошибка при определении пола для user {user_id}: {e}")
-                        gender = None
-                        skipped_gender_summary_count += 1
-
-                # Обновляем профиль
-                try:
-                    await update_user_profile_summary(session, user_id, summary, gender)
-                    updated_count += 1
-                    logger.info(f"Обновлен профиль для user {user_id}")
-                except Exception as e:
-                    logger.error(f"Ошибка при обновлении профиля для user {user_id}: {e}")
-
-                processed += 1
-                logger.info(f"Processed {processed}/{len(user_ids)} users")
-
             except Exception as e:
-                logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
-                continue
+                logger.error(f"Ошибка при получении участников: {e}")
+            finally:
+                # Закрываем сессию
+                await session.close()
 
-    logger.info(f"Profile filling completed: {processed} processed.")
-    logger.info(f"Создано новых пользователей: {created_count}")
-    logger.info(f"Обновлено пользователей: {updated_count}")
-    logger.info(f"Пропущено пользователей: {skipped_count}")
-    logger.info(f"Пропущено пользователей из-за отсутствия gender/summary: {skipped_gender_summary_count}")
-    await close_database()
-    # Consider disconnecting client if the script is meant to be short-lived
-    # await telegram_service.client.disconnect()
-    logger.info("Cleanup finished.")
+        except Exception as e:
+            logger.error(f"Ошибка при инициализации сессии: {e}")
+        finally:
+            # Закрываем клиент
+            await client.disconnect()
 
-# Старый fill_profiles оставляем для CLI-использования (можно вызвать select_users внутри него)
-
-if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="Fill/refresh profile summaries and gender for all users.")
-    parser.add_argument('--only-female', action='store_true', help='Process only female users')
-    args = parser.parse_args()
-    asyncio.run(fill_all_profiles(settings.our_channel_id))
+    except Exception as e:
+        logger.error(f"Ошибка при заполнении профилей: {e}")
+        raise
+    finally:
+        # Закрываем соединения в обратном порядке
+        await close_database()
+        if session:
+            await session.close()
+        if client:
+            await client.disconnect()
+        logger.info("Очистка завершена.")
