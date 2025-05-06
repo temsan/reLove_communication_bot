@@ -1,17 +1,18 @@
-from typing import Literal, Optional, Set
+from typing import Literal, Optional, Set, List
 from pydantic import Field, SecretStr, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # Model configuration
     model_provider: Literal['openai', 'huggingface', 'local'] = Field('openai', env='MODEL_PROVIDER', description="Provider for LLM model (openai, huggingface, local)")
-    model_name: str = Field('gemma-3-27b-it', env='MODEL_NAME', description="Model name for OpenAI or HuggingFace")
-    model_path: str = Field('google/gemma-3-27b-it:free', env='MODEL_PATH', description="Path for local model")
+    model_name: str = Field('google/gemini-2.0-flash-exp:free', env='MODEL_NAME', description="Model name (e.g., 'google/gemini-2.0-flash-exp:free' for OpenRouter)")
     """
     Application settings loaded from environment variables.
     """
     # Load settings from .env and ignore extra variables
     model_config = SettingsConfigDict(env_file='.env.temp', env_file_encoding='utf-8', extra='ignore')
+
+    llm_attempts: int = Field(1, env='LLM_ATTEMPTS', description="Number of attempts to run LLM")
 
     bot_token: SecretStr = Field(..., env='BOT_TOKEN', description="Telegram Bot Token")
     log_level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] = Field("INFO", env='LOG_LEVEL', description="Logging level")
@@ -47,6 +48,12 @@ class Settings(BaseSettings):
     tg_api_hash: SecretStr = Field(..., env='TG_API_HASH', description="Telegram API hash")
     tg_session: str = Field(..., env='TG_SESSION', description="Telethon session name")
     tg_bot_token: SecretStr = Field(..., env='TG_BOT_TOKEN', description="Telegram Bot Token")
+
+    # reLove streams configuration
+    relove_streams: List[str] = Field(
+        default_factory=lambda: ["Мужской", "Женский", "Смешанный", "Путь Героя"],
+        description="Список доступных потоков reLove"
+    )
     @field_validator('webhook_host', 'webhook_secret', mode='before')
     @classmethod
     def empty_str_to_none(cls, v):

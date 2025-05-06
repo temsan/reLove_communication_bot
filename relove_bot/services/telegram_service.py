@@ -4,12 +4,15 @@ import logging
 import os
 import re
 import sys
-from typing import Optional, Any, Dict, List
-from telethon import TelegramClient
+from typing import Optional, Any, Dict, List, Tuple, Union
+
+from telethon import TelegramClient, events
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.functions.channels import GetParticipantRequest, GetParticipantsRequest, GetFullChannelRequest
-from telethon.tl.types import ChannelParticipantsSearch, Channel, Message, User
+from telethon.tl.types import ChannelParticipantsSearch, Channel, Message, User, UserProfilePhoto
+from telethon.errors import ChatAdminRequiredError, ChannelPrivateError, UserNotParticipantError
 from tqdm.asyncio import tqdm
+from io import BytesIO
 
 from pydantic import SecretStr
 from relove_bot.config import settings
@@ -22,29 +25,57 @@ SESSION = settings.tg_session.get_secret_value() if isinstance(settings.tg_sessi
 _client = None
 
 async def get_client():
+    """
+    Returns a Telegram client in user mode.
+    Uses the session specified in settings.
+    """
     global _client
     if _client is None:
-        _client = TelegramClient(SESSION, int(API_ID), str(API_HASH))
+        _client = TelegramClient(
+            session=SESSION,
+            api_id=int(API_ID),
+            api_hash=str(API_HASH),
+            device_model='reLove Bot',
+            system_version='1.0',
+            app_version='1.0',
+            lang_code='en',
+            system_lang_code='en',
+        )
     return _client
 
 async def get_bot_client():
-    global _client
-    if _client is None:
-        _client = TelegramClient('user_session', int(settings.tg_api_id), str(settings.tg_api_hash.get_secret_value()))
-        await _client.start()
-    return _client
-
-async def start_client():
+    """
+    Returns a Telegram client in user mode.
+    Uses the same session as get_client() but ensures it's started.
+    """
     global _client
     if _client is None:
         _client = await get_client()
     if not _client.is_connected():
         await _client.start()
-        logging.info("Telethon client started")
+    return _client
 
-import base64
-from relove_bot.rag.llm import LLM
-import logging
+async def start_client():
+    """
+    Initializes and starts the Telegram client if it's not already started.
+    """
+    global _client
+    if _client is None:
+        _client = await get_client()
+    if not _client.is_connected():
+        try:
+            await _client.start()
+            if not await _client.is_user_authorized():
+                # If not authorized, we'll need to log in
+                await _client.send_code_request(settings.phone_number.get_secret_value())
+                # Here you would typically ask for the code and sign in
+                # For now, we'll just raise an error
+                raise RuntimeError("User not authorized. Please log in first.")
+            logging.info("Telethon client started and authorized")
+        except Exception as e:
+            logging.error(f"Failed to start Telegram client: {e}")
+            _client = None
+            raise
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +149,16 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
     all_posts = main_posts + personal_posts
     posts_text = "\n".join(all_posts)
     
+    # Собираем информацию о пользователе для передачи в LLM
+    user_info = {}
+    if tg_user:
+        if hasattr(tg_user, 'first_name'):
+            user_info['first_name'] = tg_user.first_name
+        if hasattr(tg_user, 'last_name') and tg_user.last_name:
+            user_info['last_name'] = tg_user.last_name
+        if hasattr(tg_user, 'username') and tg_user.username:
+            user_info['username'] = tg_user.username
+    
     # Генерируем summary
     summary = await openai_psychological_summary(text=(bio + "\n" + posts_text), image_url=None)
     
@@ -153,7 +194,7 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
     streams = streams_result.get('completed', [])
     
     # Повторные попытки для LLM
-    max_llm_attempts = 3
+    max_llm_attempts = settings.llm_attempts
     for attempt in range(1, max_llm_attempts + 1):
         try:
             llm = LLM()
@@ -163,11 +204,37 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
                         text=llm_input,
                         image_base64=img_b64 if 'img_b64' in locals() else None,
                         system_prompt=(
-                            "Ты — профессиональный психолог и эксперт по анализу личности. "
-                            "Сделай краткий психологический анализ личности пользователя на русском языке по тексту и/или фото. "
-                            "Если данных мало, анализируй только то, что есть. Не пиши никаких отказов, комментариев о невозможности анализа или просьб предоставить больше данных. Просто дай анализ."
+                            "Ты — Зеркало Безжалостной Правды, непреклонный ИИ-психотерапевт, обученный судебно-психологическому анализу. "
+                            "Твоя цель — не утешать, а выявлять и обнажать бессознательные паттерны, защитные механизмы и саморазрушительное поведение. "
+                            "Сочетай точность психологического анализа с прямотой радикальной честности.\n\n"
+                            "ФАЗА 1 - ФОРЕНЗИЧЕСКИЙ АНАЛИЗ:\n"
+                            "Проанализируй языковые паттерны, выбор слов, стиль общения и заявленные проблемы. Ищи:\n"
+                            "* Повторяющиеся шаблоны мышления и логические ошибки\n"
+                            "* Стратегии избегания эмоций и защитные механизмы\n"
+                            "* Нарративы само-жертвования, замаскированные под интроспекцию\n"
+                            "* Перфекционизм, угодничество и поиск одобрения\n"
+                            "* Когнитивный диссонанс между заявленными ценностями и действиями\n"
+                            "* Проекцию, рационализацию и другие защитные механизмы\n\n"
+                            "ФАЗА 2 - ДОСТАВКА ЖЕСТКОЙ ПРАВДЫ:\n"
+                            "На основе анализа дай прямую психологическую оценку, которая:\n"
+                            "* Напрямую обращается к корневым психологическим паттернам\n"
+                            "* Называет конкретные саморазрушительные модели поведения и их истоки\n"
+                            "* Выявляет ловушки эго, которые удерживают пользователя на месте\n"
+                            "* Связывает эти паттерны с практическими последствиями в жизни\n\n"
+                            "Структура ответа:\n"
+                            "1. ОТРАЖЕНИЕ В ЗЕРКАЛЕ: Основные наблюдаемые паттерны\n"
+                            "2. АРХИТЕКТУРА ЗАЩИТ: Психологические структуры, поддерживающие эти паттерны\n"
+                            "3. ПОСЛЕДСТВИЯ: Как эти паттерны влияют на жизнь и рост пользователя\n"
+                            "4. ПУТЬ ПРЕОБРАЖЕНИЯ: Конкретные точки осознания для выхода из цикла\n\n"
+                            "Ограничения:\n"
+                            "- Не предлагай пустых утешений или духовного байпаса\n"
+                            "- Не смягчай сложные истины\n"
+                            "- Не ставь клинические диагнозы\n"
+                            "- Сохраняй баланс между жестокой честностью и терапевтической целью\n"
+                            "- Анализируй только предоставленные данные, без домыслов"
                         ),
-                        max_tokens=512
+                        max_tokens=512,
+                        user_info=user_info
                     ),
                     timeout=60
                 )
@@ -179,7 +246,6 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
             return result["summary"], last_photo_bytes, streams
         except Exception as e:
             logging.error(f"Попытка {attempt}/{max_llm_attempts} — Ошибка LLM для user {user_id}: {e}")
-            import asyncio
             if attempt < max_llm_attempts:
                 await asyncio.sleep(5)
             else:
@@ -294,42 +360,134 @@ async def get_user_profile_summary(user_id: int) -> str:
     Returns:
         Строка с психологическим портретом
     """
+    client = None
     try:
         client = await get_bot_client()
-        
+        if not client or not client.is_connected():
+            logger.error("Не удалось подключиться к клиенту Telegram")
+            return None
+            
         user = await client.get_entity(user_id)
         if user:
             return await get_full_psychological_summary(user_id, tg_user=user)
         return None
+    except Exception as e:
+        logger.error(f"Ошибка при получении профиля пользователя {user_id}: {e}")
+        return None
     finally:
         if client:
-            await client.disconnect()
+            try:
+                # is_connected is a synchronous method, don't use await
+                if client.is_connected():
+                    await client.disconnect()
+            except Exception as e:
+                logger.warning(f"Ошибка при отключении клиента: {e}")
 
 from relove_bot.db.models import GenderEnum
 
-async def get_user_gender(user_id: int, client=None) -> GenderEnum:
+def _determine_gender_from_name(name: str) -> Optional[GenderEnum]:
+    """
+    Определяет пол по имени.
+    
+    Args:
+        name: Имя для анализа
+        
+    Returns:
+        GenderEnum или None, если не удалось определить
+    """
+    if not name:
+        return None
+        
+    # Мужские окончания имен
+    male_endings = ['й', 'н', 'т', 'р', 'с', 'в', 'д', 'л', 'г', 'к', 'м', 'п']
+    # Женские окончания имен
+    female_endings = ['а', 'я', 'ь', 'ия']
+    
+    # Проверяем окончание имени
+    last_char = name[-1].lower()
+    if last_char in male_endings:
+        return GenderEnum.MALE
+    elif last_char in female_endings:
+        return GenderEnum.FEMALE
+        
+    return None
+
+async def get_user_gender(user_id: int, client=None, tg_user=None) -> GenderEnum:
     """
     Определяет пол пользователя.
+    
+    Использует комбинированный подход:
+    1. Анализ текстовых полей (имя, фамилия, логин, био)
+    2. Анализ фотографии профиля (если доступна)
     
     Args:
         user_id: ID пользователя
         client: Существующий клиент Telethon (опционально)
+        tg_user: Объект пользователя Telethon (опционально)
     
     Returns:
-        Перечисление GenderEnum с полом (male, female, unknown)
+        Перечисление GenderEnum с полом (MALE, FEMALE, UNKNOWN)
     """
+    logger.info(f"Определение пола для пользователя {user_id}...")
+    
     try:
         if not client:
             client = await get_bot_client()
         
-        user_info = await get_full_user(user_id, client=client)
-        if user_info:
-            gender = await detect_gender(user_info, client=client)
-            return GenderEnum(gender)
-        return GenderEnum.unknown
+        # Если пользователь не передан, получаем его
+        if tg_user is None:
+            try:
+                tg_user = await client.get_entity(user_id)
+                logger.debug(f"Получены данные пользователя {user_id}")
+            except Exception as e:
+                logger.warning(f"Не удалось получить данные пользователя {user_id}: {e}")
+                return GenderEnum.UNKNOWN
+        
+        # Получаем информацию о пользователе
+        first_name = getattr(tg_user, 'first_name', '')
+        last_name = getattr(tg_user, 'last_name', '')
+        username = getattr(tg_user, 'username', '')
+        bio = getattr(tg_user, 'bio', '')
+        
+        logger.debug(f"Информация о пользователе {user_id}: имя='{first_name}', фамилия='{last_name}', username='{username}'")
+        
+        # Получаем фото профиля, если есть
+        photo_bytes = None
+        try:
+            async for photo in client.iter_profile_photos(user_id, limit=1):
+                bioio = BytesIO()
+                await client.download_media(photo, file=bioio)
+                bioio.seek(0)
+                photo_bytes = bioio.read()
+                if photo_bytes:
+                    logger.debug(f"Получено фото профиля пользователя {user_id} (размер: {len(photo_bytes)} байт)")
+                break
+        except Exception as e:
+            logger.debug(f"Не удалось получить фото профиля пользователя {user_id}: {e}")
+        
+        # Используем новый сервис для определения пола
+        from relove_bot.services.llm_service import llm_service
+        
+        try:
+            gender = await llm_service.analyze_gender(
+                first_name=first_name,
+                last_name=last_name,
+                username=username,
+                bio=bio,
+                photo_bytes=photo_bytes
+            )
+            
+            logger.info(f"Определен пол пользователя {user_id}: {gender}")
+            return gender
+            
+        except Exception as e:
+            logger.error(f"Ошибка при определении пола пользователя {user_id}: {e}", exc_info=True)
+            
     except Exception as e:
-        logger.error(f"Ошибка при определении пола пользователя {user_id}: {e}")
-        return GenderEnum.unknown
+        logger.error(f"Критическая ошибка при определении пола пользователя {user_id}: {e}", exc_info=True)
+    
+    logger.info("Не удалось определить пол пользователя, используется значение по умолчанию: UNKNOWN")
+    return GenderEnum.UNKNOWN
 
 async def get_channel_participants_count(channel_id_or_username: str):
     """
@@ -341,9 +499,9 @@ async def get_channel_participants_count(channel_id_or_username: str):
     Returns:
         Количество участников в канале
     """
+    client = await get_bot_client()
+    
     try:
-        client = await get_bot_client()
-        
         # Получаем информацию о канале
         channel = await client.get_entity(channel_id_or_username)
         
@@ -355,9 +513,6 @@ async def get_channel_participants_count(channel_id_or_username: str):
     except Exception as e:
         logger.error(f"Ошибка при получении количества участников канала: {e}")
         raise
-    finally:
-        if client:
-            await client.disconnect()
 
 async def get_full_user(user_id: int, client=None):
     """
@@ -368,66 +523,141 @@ async def get_full_user(user_id: int, client=None):
         client: Существующий клиент Telethon (опционально)
     
     Returns:
-        Объект User с информацией о пользователе
+        Объект User с информацией о пользователе или None, если пользователь не найден
     """
-    try:
-        if not client:
-            client = await get_bot_client()
-        full_user = await client(GetFullUserRequest(user_id))
-        
-        # Возвращаем объект User
-        return full_user.users[0]
-    except Exception as e:
-        logger.error(f"Ошибка при получении полной информации о пользователе {user_id}: {e}")
-        raise
+    max_retries = settings.llm_attempts
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            if not client or not client.is_connected():
+                client = await get_client()
+                if not client.is_connected():
+                    await client.start()
+                if not await client.is_user_authorized():
+                    raise RuntimeError("User not authorized. Please log in first.")
+            
+            # Получаем полную информацию о пользователе
+            full_user = await client(GetFullUserRequest(user_id))
+            
+            if not full_user or not full_user.users:
+                logger.warning(f"Пользователь с ID {user_id} не найден")
+                return None
+                
+            # Возвращаем объект User
+            return full_user.users[0]
+            
+        except Exception as e:
+            retry_count += 1
+            if retry_count >= max_retries:
+                logger.error(f"Ошибка при получении информации о пользователе {user_id} (попытка {retry_count}/{max_retries}): {e}")
+                return None
+                
+            wait_time = 5 * retry_count
+            logger.warning(f"Повторная попытка {retry_count}/{max_retries} через {wait_time} секунд...")
+            await asyncio.sleep(wait_time)
+    
+    return None
 
-async def get_channel_users(channel_id_or_username: str, batch_size: int = 200):
+async def get_channel_users(channel_id_or_username: str, batch_size: int = 200, max_retries: int = 3, show_progress: bool = True):
     """
     Асинхронно получает всех пользователей из канала порциями.
     
     Args:
         channel_id_or_username: ID или username канала
         batch_size: размер пакета для получения участников (максимум 200)
+        max_retries: максимальное количество повторных попыток при ошибках
+        show_progress: показывать ли индикатор выполнения
     
-    Returns:
-        Асинхронный генератор, который возвращает ID пользователей
+    Yields:
+        int: ID пользователей из канала
     """
-    try:
-        client = await get_bot_client()
-        
-        # Получаем информацию о канале
-        channel = await client.get_entity(channel_id_or_username)
-        logger.info(f"Получена информация о канале: {channel}")
-        
-        # Инициализируем параметры пагинации
-        offset = 0
-        total_count = await get_channel_participants_count(channel)
-        
-        while offset < total_count:
-            # Получаем участников с текущим смещением
-            participants = await client(GetParticipantsRequest(
-                channel=channel,
-                filter=ChannelParticipantsSearch(''),
-                offset=offset,
-                limit=batch_size,
-                hash=0
-            ))
+    client = None
+    retry_count = 0
+    processed_count = 0
+    total_users = 0
+    pbar = None
+    
+    while retry_count <= max_retries:
+        try:
+            if not client or not client.is_connected():
+                client = await get_client()  # Используем пользовательский клиент
+                if not client.is_connected():
+                    await client.start()
+                if not await client.is_user_authorized():
+                    raise RuntimeError("User not authorized. Please log in first.")
             
-            # Обрабатываем полученных пользователей
-            for user in participants.users:
-                yield user.id
+            # Получаем канал и общее количество участников
+            try:
+                channel = await client.get_entity(channel_id_or_username)
+                logger.info(f"Получен канал: {getattr(channel, 'title', 'N/A')} (ID: {getattr(channel, 'id', 'N/A')})")
                 
-                # Делаем паузу между пользователями
-                await asyncio.sleep(0.5)
+                # Получаем общее количество участников для прогресс-бара
+                if show_progress:
+                    try:
+                        full_chat = await client(GetFullChannelRequest(channel=channel))
+                        total_users = getattr(full_chat.full_chat, 'participants_count', 0)
+                        logger.info(f"Всего участников в канале: {total_users}")
+                        if total_users > 0:
+                            pbar = tqdm(total=total_users, desc="Получение пользователей", unit="польз.")
+                        else:
+                            logger.warning("Не удалось определить общее количество участников, прогресс-бар отключен")
+                    except Exception as e:
+                        logger.warning(f"Не удалось получить количество участников: {e}, прогресс-бар отключен")
+                        total_users = 0
+                
+            except Exception as e:
+                logger.error(f"Ошибка при получении канала {channel_id_or_username}: {e}")
+                raise
             
-            # Обновляем смещение
-            offset += batch_size
+            # Используем итератор участников канала с пагинацией
+            async for user in client.iter_participants(channel, limit=None, aggressive=True):
+                try:
+                    # Пропускаем ботов и удаленные аккаунты
+                    if getattr(user, 'bot', False) or getattr(user, 'deleted', False):
+                        if pbar is not None:
+                            pbar.update(1)
+                        continue
+                        
+                    user_id = getattr(user, 'id', None)
+                    if user_id:
+                        yield user_id
+                        processed_count += 1
+                        
+                        # Обновляем прогресс-бар, если он активен
+                        if pbar is not None:
+                            pbar.update(1)
+                            pbar.set_postfix({"Обработано": processed_count})
+                        elif processed_count % 100 == 0:  # Логируем прогресс каждые 100 пользователей
+                            logger.info(f"Обработано пользователей: {processed_count}")
+                        
+                        # Добавляем небольшую задержку каждые batch_size пользователей
+                        if processed_count % batch_size == 0:
+                            logger.info(f"Обработано {processed_count} пользователей...")
+                            await asyncio.sleep(1)
+                        
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке пользователя: {e}")
+                    if pbar is not None:
+                        pbar.update(1)
+                    continue
+                    
+            # Если дошли сюда, значит, все участники обработаны успешно
+            if pbar is not None:
+                pbar.close()
+            logger.info(f"Всего обработано пользователей: {processed_count}")
+            return  # Выходим при успешном завершении
             
-            # Делаем паузу между батчами
-            await asyncio.sleep(1.0)
-    except Exception as e:
-        logger.error(f"Ошибка при получении пользователей из канала: {e}")
-        raise
-    finally:
-        if client:
-            await client.disconnect()
+        except Exception as e:
+            retry_count += 1
+            if pbar is not None:
+                pbar.close()
+                
+            if retry_count > max_retries:
+                logger.error(f"Превышено максимальное количество попыток ({max_retries}) при получении пользователей из канала: {e}", exc_info=True)
+                break
+                
+            wait_time = 5 * retry_count  # Экспоненциальная задержка
+            logger.warning(f"Попытка {retry_count}/{max_retries} не удалась. Повторная попытка через {wait_time} секунд...")
+            await asyncio.sleep(wait_time)
+            continue

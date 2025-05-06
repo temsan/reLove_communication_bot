@@ -1,5 +1,10 @@
+import asyncio
 import logging
+import json
+import re
+from typing import List, Dict, Any, Optional
 from relove_bot.services.llm_service import LLMService
+from relove_bot.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -30,29 +35,85 @@ async def detect_relove_streams_by_posts(posts: list) -> dict:
     """
     if not posts:
         return {'interest': [], 'completed': []}
+    
     try:
-        posts_text = '\n'.join(posts)
-        prompt = (
-            "В reLove есть потоки: Мужской, Женский, Смешанный, Путь Героя.\n"
-            "Проанализируй посты пользователя.\n"
-            "1. Сначала укажи, какие потоки из этого списка хоть как-то упоминались пользователем или к ним проявлен интерес.\n"
-            "2. Затем отдельно укажи, какие потоки пользователь явно проходил (есть прямые или косвенные признаки завершения/участия).\n"
-            "Ответ верни в формате JSON: {\"interest\": [...], \"completed\": [...]}\n"
-            "Посты пользователя:\n" + posts_text
-        )
+        posts_text = '\n'.join(str(p) for p in posts if p)
+        
+        # Получаем список доступных потоков из настроек
+        valid_streams = settings.relove_streams
+        
+        # Создаем структурированный запрос с четким описанием формата вывода
+        system_prompt = f"""Ты помощник, который анализирует посты пользователя и определяет его взаимодействие с потоками reLove. 
+Отвечай ТОЛЬКО в формате JSON с полями:
+- interest: список потоков, которые упоминались или к которым проявлен интерес
+- completed: список потоков, которые пользователь явно проходил
+
+Доступные потоки: {valid_streams}
+
+Пример ответа:
+{{
+  "interest": ["{valid_streams[1]}"],
+  "completed": ["{valid_streams[0]}"]
+}}"""
+        
+        prompt = f"""Проанализируй посты пользователя и определи:
+1. Какие потоки reLove упоминались или к ним проявлен интерес
+2. Какие потоки пользователь явно проходил (есть признаки завершения/участия)
+
+Посты пользователя:
+{posts_text}
+
+Ответ в формате JSON:"""
+        
         llm = LLMService()
-        result_str = await llm.analyze_text(prompt, system_prompt="Определи потоки пользователя", max_tokens=64)
+        
+        # Получаем структурированный ответ
+        result_str = await llm.analyze_text(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            max_tokens=128
+        )
+        
+        # Обрабатываем ответ
         import json
+        
         try:
-            result = json.loads(result_str)
-            interest = [s.strip().capitalize() for s in result.get('interest', []) if s.strip()]
-            completed = [s.strip().capitalize() for s in result.get('completed', []) if s.strip()]
-        except Exception as e:
-            logger.warning(f"Не удалось распарсить JSON от LLM: {e}. Ответ: {result_str}")
-            interest = []
-            completed = []
-        logger.info(f"Потоки по постам: интерес={interest}, прохождение={completed}")
-        return {'interest': interest, 'completed': completed}
+            # Парсим JSON из ответа
+            if isinstance(result_str, dict):
+                result = result_str
+            else:
+                # Пытаемся извлечь JSON из текстового ответа
+                import re
+                json_match = re.search(r'\{.*\}', result_str, re.DOTALL)
+                if json_match:
+                    result = json.loads(json_match.group(0))
+                else:
+                    result = json.loads(result_str)
+            
+            # Нормализуем результаты
+            def normalize_streams(streams):
+                if not isinstance(streams, list):
+                    if isinstance(streams, str):
+                        streams = [s.strip() for s in streams.split(',')]
+                    else:
+                        streams = []
+                return [s.strip().capitalize() for s in streams if s and isinstance(s, str) and s.strip()]
+            
+            interest = normalize_streams(result.get('interest', []))
+            completed = normalize_streams(result.get('completed', []))
+            
+            # Фильтруем только допустимые потоки
+            valid_streams = settings.relove_streams
+            interest = [s for s in interest if s in valid_streams]
+            completed = [s for s in completed if s in valid_streams]
+            
+            logger.info(f"Потоки по постам: интерес={interest}, прохождение={completed}")
+            return {'interest': interest, 'completed': completed}
+            
+        except (json.JSONDecodeError, AttributeError) as e:
+            logger.warning(f"Не удалось распарсить ответ от LLM: {e}. Ответ: {result_str}")
+            return {'interest': [], 'completed': []}
+            
     except Exception as e:
-        logger.warning(f"Не удалось определить потоки reLove по постам: {e}")
+        logger.warning(f"Не удалось определить потоки reLove по постам: {e}", exc_info=True)
         return {'interest': [], 'completed': []}
