@@ -12,7 +12,8 @@ class GenderAnalysisService:
     async def analyze_and_save_gender(self, user_id, tg_user=None):
         if tg_user is None:
             try:
-                tg_user = await client.get_entity(user_id)
+                logger.debug(f'Attempting to get entity for user_id: {user_id}')
+                tg_user = await client.get_entity(int(user_id))
             except Exception as e:
                 # Можно логировать
                 tg_user = None

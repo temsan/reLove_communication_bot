@@ -5,17 +5,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     # Model configuration
     model_provider: Literal['openai', 'huggingface', 'local'] = Field('openai', env='MODEL_PROVIDER', description="Provider for LLM model (openai, huggingface, local)")
-    model_name: str = Field('google/gemini-2.0-flash-exp:free', env='MODEL_NAME', description="Model name (e.g., 'google/gemini-2.0-flash-exp:free' for OpenRouter)")
+    model_name: str = Field("meta-llama/llama-3.3-8b-instruct:free", env='MODEL_NAME', description="Название модели для OpenRouter")
     """
     Application settings loaded from environment variables.
     """
     # Load settings from .env and ignore extra variables
-    model_config = SettingsConfigDict(env_file='.env.temp', env_file_encoding='utf-8', extra='ignore')
+    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
     llm_attempts: int = Field(1, env='LLM_ATTEMPTS', description="Number of attempts to run LLM")
 
     bot_token: SecretStr = Field(..., env='BOT_TOKEN', description="Telegram Bot Token")
-    log_level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] = Field("INFO", env='LOG_LEVEL', description="Logging level")
+    log_level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'] = Field("INFO", env='LOGLEVEL', description="Logging level")
 
     # Webhook settings
     webhook_host: Optional[HttpUrl] = Field(None, env='WEBHOOK_HOST', description="Webhook host URL (e.g., https://yourdomain.com)")
@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     db_url: str = Field(..., env='DB_URL', description="SQLAlchemy database URL")
 
     # OpenRouter settings
-    openai_api_key: SecretStr = Field(..., env='OPENROUTER_API_KEY', description="OpenRouter API key")
-    openai_api_base: str = Field(..., env='OPENROUTER_API_BASE', description="Base URL для OpenRouter API")
+    openai_api_key: SecretStr = Field(..., env='OPENAI_API_KEY', description="OpenAI (или OpenRouter) API key")
+    openai_api_base: str = Field("https://openrouter.ai/api/v1", env='OPENAI_API_BASE', description="Base URL для OpenRouter API")
     
     # Hugging Face settings
     hugging_face_token: Optional[SecretStr] = Field(None, env='HUGGING_FACE_TOKEN', description="Hugging Face API token")
@@ -47,13 +47,19 @@ class Settings(BaseSettings):
     tg_api_id: int = Field(..., env='TG_API_ID', description="Telegram API ID")
     tg_api_hash: SecretStr = Field(..., env='TG_API_HASH', description="Telegram API hash")
     tg_session: str = Field(..., env='TG_SESSION', description="Telethon session name")
-    tg_bot_token: SecretStr = Field(..., env='TG_BOT_TOKEN', description="Telegram Bot Token")
+
+    # Batch processing settings
+    USER_PROCESSING_BATCH_SIZE: int = Field(200, env='USER_PROCESSING_BATCH_SIZE', description="Batch size for processing users")
+    BATCH_PROCESSING_DELAY_SECONDS: float = Field(.5, env='BATCH_PROCESSING_DELAY_SECONDS', description="Delay in seconds between processing batches")
 
     # reLove streams configuration
     relove_streams: List[str] = Field(
         default_factory=lambda: ["Мужской", "Женский", "Смешанный", "Путь Героя"],
         description="Список доступных потоков reLove"
     )
+
+    chat_export_path: str = Field('scripts/result.json', env='CHAT_EXPORT_PATH', description='Путь к файлу с экспортом чата (JSON)')
+
     @field_validator('webhook_host', 'webhook_secret', mode='before')
     @classmethod
     def empty_str_to_none(cls, v):

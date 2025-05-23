@@ -1,31 +1,143 @@
 import asyncio
 import base64
+import json
 import logging
 from openai import AsyncOpenAI
+from ..utils.rate_limiter import llm_rate_limiter
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSequenceClassification, pipeline, BitsAndBytesConfig
-from huggingface_hub import login
+from huggingface_hub import login, InferenceClient
 from relove_bot.config import settings
 import torch
 
 logger = logging.getLogger(__name__)
 
 class LLM:
+    async def generate_text(self, prompt: str, max_tokens: int = 500, temperature: float = 0.7) -> str:
+        """
+        Генерирует текст на основе промпта с использованием выбранного провайдера.
+        
+        Args:
+            prompt: Текст промпта
+            max_tokens: Максимальное количество токенов в ответе
+            temperature: Температура генерации (от 0.0 до 1.0)
+            
+        Returns:
+            Сгенерированный текст
+        """
+        if not prompt or not prompt.strip():
+            return ""
+            
+        try:
+            if self.provider == 'openai':
+                return await self._generate_with_openai(prompt, max_tokens, temperature)
+            elif self.provider == 'huggingface':
+                return await self._generate_with_hf_api(prompt, max_tokens, temperature)
+            elif self.provider == 'local':
+                return await self._generate_with_local(prompt, max_tokens, temperature)
+            else:
+                raise ValueError(f"Unsupported provider: {self.provider}")
+        except Exception as e:
+            logger.error(f"Ошибка при генерации текста: {e}")
+            return ""
+            
+    async def _generate_with_openai(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        """Генерация текста с помощью OpenAI API."""
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            
+            # Проверяем структуру ответа
+            if not response or not hasattr(response, 'choices') or not response.choices:
+                logger.error("Пустой ответ от OpenAI API")
+                return ""
+                
+            # Получаем первый выбор
+            choice = response.choices[0]
+            if not hasattr(choice, 'message') or not choice.message:
+                logger.error("Некорректная структура ответа от OpenAI API")
+                return ""
+                
+            # Получаем контент сообщения
+            content = choice.message.content
+            if not content:
+                logger.error("Пустой контент в ответе от OpenAI API")
+                return ""
+                
+            return content
+            
+        except Exception as e:
+            logger.error(f"Ошибка при генерации текста с OpenAI: {e}")
+            return ""
+            
+    async def _generate_with_hf_api(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        """Генерация текста с помощью HuggingFace API."""
+        try:
+            response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.client.text_generation(
+                    prompt,
+                    max_new_tokens=max_tokens,
+                    temperature=temperature,
+                    return_full_text=False
+                )
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Ошибка при генерации текста с HuggingFace API: {e}")
+            return ""
+            
+    async def _generate_with_local(self, prompt: str, max_tokens: int, temperature: float) -> str:
+        """Генерация текста с локальной моделью."""
+        if not hasattr(self, 'model') or not self.model:
+            raise RuntimeError("Локальная модель не загружена")
+            
+        try:
+            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+            
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=max_tokens,
+                    temperature=temperature,
+                    do_sample=True,
+                    pad_token_id=self.tokenizer.eos_token_id
+                )
+                
+            # Декодируем только сгенерированную часть (исключая промпт)
+            generated = outputs[0][inputs.input_ids.shape[-1]:]
+            return self.tokenizer.decode(generated, skip_special_tokens=True)
+        except Exception as e:
+            logger.error(f"Ошибка при локальной генерации текста: {e}")
+            return ""
+            
     def __init__(self):
         self.provider = settings.model_provider
-        self.model_name = settings.model_name  # Например: 'google/gemini-2.0-flash-exp:free' для OpenRouter
+        self.model_name = settings.model_name
+        self.client = None
+        self.tokenizer = None
+        self.model = None
         
         if self.provider == 'openai':
             # Используем OpenRouter.ai в качестве API
             self.client = AsyncOpenAI(
                 api_key=settings.openai_api_key.get_secret_value(),
-                base_url=settings.openai_api_base
+                base_url=settings.openai_api_base,
+                default_headers={
+                    "HTTP-Referer": "https://github.com/relove-bot",
+                    "X-Title": "reLove Bot",
+                    "Content-Type": "application/json"
+                }
             )
         elif self.provider == 'huggingface':
             # Используем HuggingFace API
             try:
                 hf_token = settings.hugging_face_token.get_secret_value()
                 login(token=hf_token)
-                self.client = None
+                self.client = InferenceClient(token=hf_token)
             except Exception as e:
                 logger.error(f"Ошибка при инициализации HuggingFace: {e}")
                 raise
@@ -153,25 +265,24 @@ class LLM:
             if user_info:
                 self.user_info = user_info
                 
-            # Если используется локальная модель, вызываем соответствующий метод
+            # Выбираем метод анализа в зависимости от провайдера
             if self.provider == 'local':
-                return await self._analyze_content_local(
+                result = await self._analyze_content_local(
                     text=text,
                     system_prompt=system_prompt,
                     max_tokens=max_tokens
                 )
-                
-            # Иначе используем API
-            result = await self._analyze_content_api(
-                text=text,
-                image_url=image_url,
-                image_base64=processed_image_base64,
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system_prompt=system_prompt,
-                timeout=timeout
-            )
+            else:
+                result = await self._analyze_content_api(
+                    text=text,
+                    image_url=image_url,
+                    image_base64=processed_image_base64,
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system_prompt=system_prompt,
+                    timeout=timeout
+                )
             
             # Проверяем, что результат не пустой
             if not result or not isinstance(result, dict):
@@ -216,6 +327,7 @@ class LLM:
                 'error': error_details
             }
 
+    @llm_rate_limiter
     async def _analyze_content_api(
         self,
         text: str = None,

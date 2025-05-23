@@ -14,7 +14,6 @@ Base = declarative_base()
 class GenderEnum(enum.Enum):
     male = "male"
     female = "female"
-    unknown = "unknown"
 
 
 class User(Base):
@@ -26,7 +25,7 @@ class User(Base):
     last_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     registration_date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-    gender: Mapped[Optional[GenderEnum]] = mapped_column(SQLEnum(GenderEnum, name='genderenum'), nullable=True, index=True, doc="Пол пользователя (male/female/unknown)")
+    gender: Mapped[Optional[GenderEnum]] = mapped_column(SQLEnum(GenderEnum, name='genderenum'), nullable=True, default=None, index=True, doc="Пол пользователя (male/female)")
     history_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, doc="Выжимка истории общения с ботом")
     profile_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, doc="Выжимка профиля (посты, фото и т.д.)") 
     photo_jpeg: Mapped[Optional[bytes]] = mapped_column(

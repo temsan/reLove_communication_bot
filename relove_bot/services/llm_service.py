@@ -6,16 +6,113 @@ import base64
 import logging
 from typing import Optional, Dict, Any, List
 from enum import Enum
+import json
+import aiohttp
+from relove_bot.config import settings
+import re
 
 from relove_bot.rag.llm import LLM
 from relove_bot.db.models import GenderEnum
+from relove_bot.utils.api_rate_limiter import APIRateLimiter
 
 logger = logging.getLogger(__name__)
 
 class LLMService:
     def __init__(self):
+        """Инициализирует сервис для работы с LLM"""
+        self.api_key = settings.openai_api_key
+        self.api_base = settings.openai_api_base
+        self.model = settings.model_name
+        self.attempts = settings.llm_attempts
+        self.cache = {}  # Добавляем кэш
+        self.rate_limiter = APIRateLimiter(max_requests_per_minute=20, max_requests_per_day=1000)
+        
+        # Инициализируем LLM
+        from relove_bot.rag.llm import LLM
         self.llm = LLM()
         
+        # Отладочный вывод настроек
+        logger.info("=== Настройки LLMService ===")
+        logger.info(f"API Key: {self.api_key.get_secret_value()[:5]}..." if self.api_key else "API Key: None")
+        logger.info(f"API Base: {self.api_base}")
+        logger.info(f"Модель: {self.model}")
+        logger.info(f"Попыток: {self.attempts}")
+        logger.info("==========================")
+        
+    async def generate_text(self, prompt: str, max_tokens: int = 1000, temperature: float = 0.7, model: str = None) -> str:
+        """Генерирует текст через LLM"""
+        try:
+            # Проверяем кэш
+            cache_key = f"prompt_{hash(prompt)}_{max_tokens}_{temperature}_{model or self.model}"
+            if cache_key in self.cache:
+                logger.info(f"Используем кэшированный ответ для: {prompt[:50]}...")
+                return self.cache[cache_key]
+            
+            # Ждем, пока не будет превышен лимит
+            await self.rate_limiter.wait_for_limit(self.api_key.get_secret_value())
+            
+            # Логируем детали запроса
+            logger.info("=== Детали запроса к LLM ===")
+            logger.info(f"URL: {self.api_base}/chat/completions")
+            logger.info(f"Модель: {model or self.model}")
+            logger.info(f"Размер промпта: {len(prompt)} символов")
+            logger.info("==========================")
+            
+            # Отправляем запрос с повторными попытками
+            max_retries = 3
+            retry_delay = 5
+            for attempt in range(max_retries):
+                try:
+                    payload = {
+                        "model": model or self.model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": temperature,
+                        "max_tokens": max_tokens
+                    }
+                    
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(
+                            f"{self.api_base}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {self.api_key.get_secret_value()}",
+                                "Content-Type": "application/json",
+                                "HTTP-Referer": "https://relove.com",
+                                "X-Title": "reLove Bot"
+                            },
+                            json=payload,
+                            timeout=30  # Увеличиваем таймаут
+                        ) as response:
+                            # Проверяем статус ответа
+                            if response.status != 200:
+                                error_msg = await response.json().get('error', {}).get('message', 'Unknown error')
+                                if 'Rate limit' in error_msg:
+                                    logger.warning(f"Превышение лимита API, попытка {attempt + 1}/{max_retries}")
+                                    await asyncio.sleep(retry_delay * (attempt + 1))
+                                    continue
+                                raise ValueError(f"Ошибка API: {error_msg}")
+                            
+                            result = await response.json()
+                            
+                            # Проверяем наличие ответа
+                            if not result or not result.get('choices'):
+                                raise ValueError("Пустой ответ от API")
+                            
+                            # Кэшируем результат
+                            self.cache[cache_key] = result['choices'][0]['message']['content']
+                            return result['choices'][0]['message']['content']
+                            
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        logger.error(f"Ошибка при генерации текста после {max_retries} попыток: {str(e)}", exc_info=True)
+                        raise
+                    logger.warning(f"Ошибка при попытке {attempt + 1}/{max_retries}: {str(e)}")
+                    await asyncio.sleep(retry_delay * (attempt + 1))
+                    continue
+            
+        except Exception as e:
+            logger.error(f"Ошибка при генерации текста: {str(e)}", exc_info=True)
+            raise
+
     async def analyze_gender(
         self,
         first_name: str = None,
@@ -49,19 +146,20 @@ class LLMService:
             bio=bio
         )
         
-        if text_gender != GenderEnum.UNKNOWN:
+        if text_gender is not None:
             return text_gender
             
         # 2. Если не удалось определить по тексту и есть фото, пробуем по фото
         if photo_bytes:
             try:
                 photo_gender = await self._analyze_photo_gender(photo_bytes)
-                if photo_gender != GenderEnum.UNKNOWN:
+                if photo_gender is not None:
                     return photo_gender
             except Exception as e:
                 logger.error(f"Ошибка при анализе фото: {e}", exc_info=True)
         
-        return GenderEnum.UNKNOWN
+        # Возвращаем женский пол по умолчанию, если не удалось определить
+        return GenderEnum.female
         
     async def _analyze_text_gender(
         self,
@@ -94,7 +192,7 @@ class LLMService:
             text_parts.append(f"О себе: {bio}")
             
         if not text_parts:
-            return GenderEnum.UNKNOWN
+            return None
             
         prompt = "\n".join(text_parts)
         
@@ -119,19 +217,19 @@ class LLMService:
             )
             
             if not result or 'error' in result:
-                return GenderEnum.UNKNOWN
+                return None
                 
             gender_text = result.get('summary', '').strip().lower()
             
             if 'male' in gender_text:
-                return GenderEnum.MALE
+                return GenderEnum.male
             elif 'female' in gender_text:
-                return GenderEnum.FEMALE
+                return GenderEnum.female
                 
         except Exception as e:
             logger.error(f"Ошибка при анализе текстового пола: {e}", exc_info=True)
             
-        return GenderEnum.UNKNOWN
+        return None
         
     async def _analyze_photo_gender(self, photo_bytes: bytes) -> GenderEnum:
         """
@@ -166,19 +264,19 @@ class LLMService:
             )
             
             if not result or 'error' in result:
-                return GenderEnum.UNKNOWN
+                return None
                 
             gender_text = result.get('summary', '').strip().lower()
             
             if 'male' in gender_text:
-                return GenderEnum.MALE
+                return GenderEnum.male
             elif 'female' in gender_text:
-                return GenderEnum.FEMALE
+                return GenderEnum.female
                 
         except Exception as e:
             logger.error(f"Ошибка при анализе фото: {e}", exc_info=True)
             
-        return GenderEnum.UNKNOWN
+        return None
 
     async def analyze_text(self, prompt: str, system_prompt: str = None, max_tokens: int = 64, user_info: dict = None) -> str:
         """
@@ -199,8 +297,7 @@ You are an expert in gender analysis. Your task is to determine the gender of a 
 
 Instructions:
 1. Analyze the provided information (username, first name, last name, and profile summary)
-2. Return ONLY one word: 'male' or 'female'
-3. If you cannot determine the gender with high confidence, return 'unknown'
+2. Return ONLY one word: 'male' or 'female' based on your analysis
 
 Important:
 - Focus on clear indicators of gender
@@ -327,3 +424,63 @@ Important:
         except Exception as e:
             logger.error(f"Ошибка при анализе фото: {str(e)}", exc_info=True)
             return 'unknown'
+
+    async def get_user_gender(self, user_id: int) -> Optional[GenderEnum]:
+        """Определяет пол пользователя через LLM"""
+        try:
+            llm = LLM()
+            
+            # Добавляем задержку перед запросом
+            await asyncio.sleep(3)
+            
+            prompt = f"Определи пол пользователя по его ID {user_id}. В ответе используй только одно слово: 'male' или 'female'."
+            logger.info(f"Отправляем запрос на определение пола для пользователя {user_id}")
+            result = await llm.generate_text(prompt)
+            
+            # Пробуем определить пол из ответа
+            if 'female' in result.lower():
+                logger.info(f"Определен пол пользователя {user_id}: female")
+                return GenderEnum.female
+            elif 'male' in result.lower():
+                logger.info(f"Определен пол пользователя {user_id}: male")
+                return GenderEnum.male
+                
+            logger.warning(f"Не удалось определить пол пользователя {user_id} из ответа: {result}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Ошибка при определении пола пользователя {user_id}: {e}")
+            if 'Rate limit' in str(e) or 'exceeded' in str(e):
+                logger.warning(f"Превышение лимита API при определении пола пользователя {user_id}, увеличиваем задержку")
+                await asyncio.sleep(30)
+            return None
+
+    async def get_user_interests(self, user_id: int) -> List[str]:
+        """Получает интересы пользователя через LLM"""
+        try:
+            llm = LLM()
+            
+            # Добавляем задержку перед запросом
+            await asyncio.sleep(3)
+            
+            prompt = f"Перечисли интересы пользователя {user_id} в формате списка. Используй только русские слова."
+            logger.info(f"Отправляем запрос на получение интересов для пользователя {user_id}")
+            result = await llm.generate_text(prompt)
+            
+            # Пробуем извлечь интересы из ответа
+            interests = []
+            if result:
+                # Просто разбиваем по запятым и пробелам
+                interests = [i.strip() for i in result.split(',') if i.strip()]
+                logger.info(f"Получены интересы пользователя {user_id}: {interests}")
+            else:
+                logger.warning(f"Пустой ответ от LLM при получении интересов для пользователя {user_id}")
+                
+            return interests
+            
+        except Exception as e:
+            logger.error(f"Ошибка при получении интересов пользователя {user_id}: {e}")
+            if 'Rate limit' in str(e) or 'exceeded' in str(e):
+                logger.warning(f"Превышение лимита API при получении интересов пользователя {user_id}, увеличиваем задержку")
+                await asyncio.sleep(30)
+            return []

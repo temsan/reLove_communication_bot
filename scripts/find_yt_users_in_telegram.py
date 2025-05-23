@@ -45,7 +45,7 @@ async def search_telegram_by_username(usernames):
         if not username:
             continue
         try:
-            entity = await client.get_entity(username)
+            entity = await client.get_entity(int(username))
             results.append(f"{username}: найден — id={entity.id}, имя={getattr(entity, 'first_name', '')}, ссылка=https://t.me/{username}")
         except (UsernameNotOccupiedError, UsernameInvalidError):
             results.append(f"{username}: не найден")

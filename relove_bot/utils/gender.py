@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 async def detect_gender(tg_user) -> str:
     """
     Определяет пол пользователя с помощью LLM на основе текстовых данных и фото профиля.
-    Возвращает 'male', 'female' или 'unknown'.
+    Возвращает 'male' или 'female'.
     """
     llm_service = LLMService()
     
@@ -34,7 +34,7 @@ async def detect_gender(tg_user) -> str:
             username=user_info['username'],
             bio=user_info['bio']
         )
-        if gender != GenderEnum.UNKNOWN:
+        if gender is not None:
             logger.debug(f"Пол определен по текстовым данным: {gender}")
             return gender
             
@@ -57,5 +57,5 @@ async def detect_gender(tg_user) -> str:
     except Exception as e:
         logger.error(f"Ошибка при определении пола пользователя {getattr(tg_user, 'id', 'unknown')}: {e}", exc_info=True)
     
-    logger.debug(f"Не удалось определить пол для пользователя {getattr(tg_user, 'id', 'unknown')}")
-    return GenderEnum.unknown
+    logger.debug(f"Не удалось определить пол для пользователя {getattr(tg_user, 'id', 'unknown')}, используется значение по умолчанию: female")
+    return GenderEnum.female

@@ -23,7 +23,8 @@ class ProfileService:
     async def process_user(self, user_id, main_channel_id, tg_user=None):
         if tg_user is None:
             try:
-                tg_user = await client.get_entity(user_id)
+                logger.debug(f'Attempting to get entity for user_id: {user_id}')
+                tg_user = await client.get_entity(int(user_id))
             except Exception as e:
                 logger.warning(f"Не удалось получить Telegram entity для user {user_id}: {e}")
                 # Пробуем получить по username, если он есть в базе

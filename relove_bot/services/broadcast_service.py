@@ -19,7 +19,7 @@ class BroadcastService:
             try:
                 await client.send_message(uid, text)
                 sent += 1
-                await asyncio.sleep(delay)
+                # await asyncio.sleep(delay)
             except PeerFloodError:
                 logging.warning(f"Flood control for {uid}, skipping...")
                 failed += 1

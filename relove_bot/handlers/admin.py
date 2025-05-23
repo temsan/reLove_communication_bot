@@ -176,7 +176,7 @@ async def handle_broadcast_confirm(callback_query: types.CallbackQuery, state: F
                 except Exception as e:
                      logger.error(f"Unexpected error sending broadcast to user {user_id}: {e}", exc_info=True)
                      failed_count += 1
-                await asyncio.sleep(0.1) # Небольшая задержка для избежания лимитов
+                # await asyncio.sleep(0.1) # Небольшая задержка для избежания лимитов
         else:
             logger.error("Could not find message data to broadcast.")
             await callback_query.message.answer("❌ Ошибка: Не найдены данные сообщения для рассылки.")

@@ -21,7 +21,7 @@ class ReminderService:
         return task
 
     async def _remind_later(self, user_id, text, delay):
-        await asyncio.sleep(delay)
+        # await asyncio.sleep(delay)
         try:
             await client.send_message(user_id, text)
         except Exception as e:

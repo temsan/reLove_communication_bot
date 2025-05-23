@@ -35,10 +35,11 @@ async def safe_get_entity(identifier, max_retries=3):
     client = await get_client()
     for _ in range(max_retries):
         try:
-            return await client.get_entity(identifier)
+            logger.debug(f'Attempting to get entity for identifier: {identifier}')
+        return await client.get_entity(int(identifier))
         except FloodWaitError as e:
             logger.warning(f'FloodWaitError: ждем {e.seconds} секунд для {identifier}')
-            await asyncio.sleep(e.seconds)
+            # await asyncio.sleep(e.seconds)
         except PeerIdInvalidError:
             logger.warning(f'PeerIdInvalidError: не удалось найти сущность для {identifier}')
             return None
@@ -160,7 +161,7 @@ async def fetch_user_photo(user_id: int) -> Optional[bytes]:
     except FloodWaitError as e:
         wait_time = e.seconds
         logger.warning(f"Превышен лимит запросов API Telegram. Ожидание {wait_time} секунд")
-        await asyncio.sleep(wait_time)
+        # await asyncio.sleep(wait_time)
         return await fetch_user_photo(user_id)
         return await fetch_user_photo(client, user_id)
     except (Image.UnidentifiedImageError, TypeError) as e:

@@ -1,64 +1,72 @@
 #!/usr/bin/env python3
+# Отключаем предупреждения до импорта других библиотек
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning, module='transformers*')
+warnings.filterwarnings('ignore', category=UserWarning, module='transformers*')
+
 import os
 import sys
 import asyncio
 import logging
-from tqdm import tqdm
 from dotenv import load_dotenv
 
 # Добавляем корень проекта в PYTHONPATH для корректного импорта
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from relove_bot.utils.custom_logging import setup_logging
-from relove_bot.config import settings, reload_settings
-from relove_bot.utils.fill_profiles import fill_all_profiles
+from relove_bot.config import settings, reload_settings # reload_settings может быть нужен для инициализации
+from relove_bot.services.batch_profile_fill_service import process_all_channel_profiles_batch
+from relove_bot.db.database import setup_database # Оставляем для возможной инициализации БД перед запуском сервиса
 
-# Настройка логирования - уменьшаем уровень логирования для tqdm
-logging.basicConfig(level=logging.ERROR)
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.ERROR)  # Устанавливаем уровень логирования на ERROR
+# Настройка логирования - только критические ошибки и прогресс
+# Основное логирование будет происходить внутри сервиса
+logging.basicConfig(
+    level=logging.CRITICAL, # Устанавливаем CRITICAL по умолчанию для корневого логгера
+    format='%(asctime)s - %(levelname)s - %(message)s', # Упрощенный формат для скрипта
+    handlers=[
+        logging.StreamHandler(), # Вывод в консоль
+        logging.FileHandler('fill_profiles_critical.log', mode='a') # Запись критических ошибок в файл
+    ]
+)
 
+# Настраиваем логгер конкретно для этого скрипта, если нужно выводить INFO о старте/завершении
+script_logger = logging.getLogger(__name__)
+script_logger.setLevel(logging.INFO) # Позволяем INFO для сообщений о старте/окончании
+
+# Отключаем детальное логирование для других модулей на уровне этого скрипта,
+# чтобы не дублировать логи сервисов, если они настроены иначе.
+# Логирование relove_bot будет управляться его собственными настройками.
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('sqlalchemy').setLevel(logging.WARNING)
+logging.getLogger('aiosqlite').setLevel(logging.WARNING)
+logging.getLogger('asyncio').setLevel(logging.WARNING)
+
+# Загружаем настройки из .env. `override=True` перезапишет системные переменные, если они есть.
 load_dotenv(override=True)
-reload_settings()
-
-class TqdmLoggingHandler(logging.Handler):
-    def emit(self, record):
-        # Пропускаем все сообщения кроме ошибок
-        if record.levelno >= logging.ERROR:
-            tqdm.write(self.format(record))
-
-# Настраиваем обработчик для логирования
-tqdm_handler = TqdmLoggingHandler()
-tqdm_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-logger.addHandler(tqdm_handler)
+reload_settings() # Перезагружаем настройки, чтобы учесть .env файл
 
 async def main():
+    script_logger.info("Запуск скрипта заполнения профилей...")
     try:
-        print("Начало обработки профилей пользователей...")
-        batch_size = 200
+        # Опционально: инициализация БД, если это не делается автоматически при импорте сервисов
+        # await setup_database() 
         
-        with tqdm(total=None, desc="Обработка пользователей", unit="пользователей") as pbar:
-            # Запускаем процесс обновления профилей
-            processed_count = await fill_all_profiles(
-                channel_id_or_username=settings.our_channel_id,
-                batch_size=batch_size,
-                progress_callback=lambda: pbar.update(1)
-            )
+        # Вызов основной сервисной функции
+        # Имя канала можно передать из настроек или как аргумент командной строки
+        target_channel = settings.our_channel_id # Используем ID нашего основного канала
+        if not target_channel:
+            script_logger.critical("Целевой канал для заполнения профилей не указан в настройках (OUR_CHANNEL_ID).")
+            return
+
+        await process_all_channel_profiles_batch(channel_username=target_channel)
         
-        print(f"\nОбработка завершена. Всего обработано пользователей: {processed_count}")
+        script_logger.info("Скрипт заполнения профилей успешно завершил работу.")
         
     except Exception as e:
-        logger.error(f"Ошибка при выполнении скрипта: {e}", exc_info=True)
-        return 1
-    return 0
+        script_logger.critical(f"КРИТИЧЕСКАЯ ОШИБКА в скрипте fill_profiles.py: {e}", exc_info=True)
+    except KeyboardInterrupt:
+        script_logger.info("\nСкрипт остановлен пользователем.")
+    finally:
+        script_logger.info("Завершение работы скрипта fill_profiles.")
 
 if __name__ == "__main__":
-    try:
-        exit_code = asyncio.run(main())
-        sys.exit(exit_code)
-    except KeyboardInterrupt:
-        logger.info("Скрипт остановлен пользователем")
-        sys.exit(0)
-    except Exception as e:
-        logger.error(f"Критическая ошибка: {e}", exc_info=True)
-        sys.exit(1)
+    asyncio.run(main())

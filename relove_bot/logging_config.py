@@ -18,35 +18,34 @@ class CustomJsonFormatter(jsonlogger.JsonFormatter):
 
 def setup_logging():
     """Configures logging for the application to output JSON to stdout."""
-    log_level_str = settings.log_level
-    log_level = getattr(logging, log_level_str.upper(), logging.INFO)
-
+    # Устанавливаем уровень логирования по умолчанию WARNING вместо INFO
+    log_level = logging.WARNING
+    
+    # Создаем форматтер
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Настраиваем корневой логгер
     logger = logging.getLogger()
     logger.setLevel(log_level)
-
-    # Убираем стандартные обработчики, если они есть
-    # for handler in logger.handlers:
-    #     logger.removeHandler(handler)
-
-    # Используем stdout
-    log_handler = logging.StreamHandler(sys.stdout)
-
-    # Используем наш JSON formatter
-    formatter = CustomJsonFormatter('%(timestamp)s %(level)s %(logger)s %(message)s')
-    log_handler.setFormatter(formatter)
-
-    # Добавляем обработчик к корневому логгеру
-    if not logger.handlers:
-        logger.addHandler(log_handler)
-
-    # Настраиваем логгер aiogram (чтобы не дублировался вывод)
-    aiogram_logger = logging.getLogger('aiogram')
-    aiogram_logger.setLevel(logging.INFO) # Можно сделать более детальным при отладке
-    aiogram_logger.propagate = False # Предотвращаем дублирование в корневой логгер
-    if not aiogram_logger.handlers:
-         aiogram_logger.addHandler(log_handler) # Используем тот же обработчик
-
-    logging.info(f"Logging configured with level: {log_level_str}")
+    
+    # Удаляем все существующие обработчики
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # Добавляем консольный обработчик
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    # Настраиваем логгеры для внешних библиотек
+    logging.getLogger('aiogram').setLevel(logging.WARNING)
+    logging.getLogger('asyncio').setLevel(logging.WARNING)
+    logging.getLogger('aiohttp').setLevel(logging.WARNING)
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
+    
+    # Отключаем логирование для ненужных модулей
+    logging.getLogger('PIL').setLevel(logging.WARNING)
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
 
 # Вызываем настройку при импорте модуля -- УДАЛЯЕМ ЭТО
-# setup_logging() 
+# setup_logging()
