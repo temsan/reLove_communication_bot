@@ -108,3 +108,20 @@ class UserActivityLog(Base):
 
     def __repr__(self):
         return f"<UserActivityLog(id={self.id}, user_id={self.user_id}, type={self.activity_type}, time={self.timestamp})>"
+
+class YouTubeChatUser(Base):
+    __tablename__ = "youtube_chat_users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    youtube_display_name: Mapped[str] = mapped_column(String, nullable=False, comment="Отображаемое имя в YouTube чате")
+    youtube_channel_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, comment="ID канала пользователя в YouTube")
+    message_count: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False, comment="Количество сообщений в чате")
+    first_seen: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Дата первого сообщения")
+    last_seen: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="Дата последнего сообщения")
+    telegram_username: Mapped[Optional[str]] = mapped_column(String, nullable=True, comment="Найденный username в Telegram")
+    telegram_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, comment="ID пользователя в Telegram, если найден")
+    is_community_member: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False, comment="Является ли участником сообщества")
+    user_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True, comment="Дополнительные данные пользователя")
+
+    def __repr__(self):
+        return f"<YouTubeChatUser(id={self.id}, name={self.youtube_display_name}, tg={self.telegram_username or 'N/A'})>"

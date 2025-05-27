@@ -45,11 +45,20 @@ load_dotenv(override=True)
 reload_settings() # Перезагружаем настройки, чтобы учесть .env файл
 
 async def main():
-    script_logger.info("Запуск скрипта заполнения профилей...")
+    script_logger.info("1. Начало выполнения функции main()")
     try:
-        # Опционально: инициализация БД, если это не делается автоматически при импорте сервисов
-        # await setup_database() 
+        script_logger.info("2. Проверка настроек...")
+        script_logger.info(f"  - DB_URL: {'установлен' if settings.db_url else 'не установлен'}")
+        script_logger.info(f"  - BOT_TOKEN: {'установлен' if settings.bot_token else 'не установлен'}")
+        script_logger.info(f"  - OUR_CHANNEL_ID: {settings.our_channel_id}")
         
+        script_logger.info("3. Инициализация базы данных...")
+        db_initialized = await setup_database()
+        if not db_initialized:
+            script_logger.error("Ошибка инициализации базы данных")
+            return
+        
+        script_logger.info("4. Запуск скрипта заполнения профилей...")
         # Вызов основной сервисной функции
         # Имя канала можно передать из настроек или как аргумент командной строки
         target_channel = settings.our_channel_id # Используем ID нашего основного канала

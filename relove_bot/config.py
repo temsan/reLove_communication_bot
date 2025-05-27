@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     tg_api_hash: SecretStr = Field(..., env='TG_API_HASH', description="Telegram API hash")
     tg_session: str = Field(..., env='TG_SESSION', description="Telethon session name")
 
+    # Chat export settings
+    chat_export_path: str = Field("chat_export.json", env='CHAT_EXPORT_PATH', 
+                              description="Путь к файлу с экспортом чата для анализа")
+
     # Batch processing settings
     USER_PROCESSING_BATCH_SIZE: int = Field(200, env='USER_PROCESSING_BATCH_SIZE', description="Batch size for processing users")
     BATCH_PROCESSING_DELAY_SECONDS: float = Field(.5, env='BATCH_PROCESSING_DELAY_SECONDS', description="Delay in seconds between processing batches")
