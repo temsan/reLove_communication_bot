@@ -1,0 +1,6 @@
+pytchat>=0.0.44
+SQLAlchemy>=2.0.0
+alembic>=1.11.0
+python-dotenv>=0.19.0
+pytz>=2021.3
+python-dateutil>=2.8.2
