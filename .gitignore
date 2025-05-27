@@ -158,3 +158,6 @@ cython_debug/
 
 # src
 telethon_src/
+
+.analysis_cache/
+*.json
