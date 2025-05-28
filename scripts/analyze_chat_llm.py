@@ -22,33 +22,66 @@ from tqdm import tqdm
 from dotenv import load_dotenv
 
 class AnalysisCache:
-    """Класс для кеширования результатов анализа."""
+    """Класс для кеширования результатов анализа с использованием хеша файла в качестве ключа."""
     
     def __init__(self, cache_dir: str = ".analysis_cache"):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
-        self.cache_index = self._load_index()
     
-    def _load_index(self) -> Dict[str, str]:
-        """Загружает индекс кеша."""
-        index_path = self.cache_dir / "index.json"
-        if index_path.exists():
-            try:
-                with open(index_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, IOError):
-                pass
-        return {}
+    def get_cache_path(self, file_path: Union[str, Path]) -> Path:
+        """Возвращает путь к файлу кеша на основе хеша исходного файла."""
+        file_hash = self._calculate_file_hash(file_path)
+        return self.cache_dir / f"{file_hash}.json"
     
-    def _save_index(self):
-        """Сохраняет индекс кеша."""
-        index_path = self.cache_dir / "index.json"
-        with open(index_path, 'w', encoding='utf-8') as f:
-            json.dump(self.cache_index, f, ensure_ascii=False, indent=2)
+    def _calculate_file_hash(self, file_path: Union[str, Path]) -> str:
+        """Вычисляет MD5 хеш файла."""
+        file_path = Path(file_path)
+        hash_md5 = hashlib.md5()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()
     
-    def _get_user_hash(self, user_id: str, messages: list) -> str:
-        """Генерирует хеш для пользователя на основе его ID и сообщений."""
-        data = f"{user_id}:{len(messages)}:{messages[0].get('date', '') if messages else ''}:{messages[-1].get('date', '') if messages else ''}"
+    def save_result(self, file_path: Union[str, Path], result: Dict) -> Optional[Path]:
+        """Сохраняет результат анализа в кеш."""
+        try:
+            cache_path = self.get_cache_path(file_path)
+            with open(cache_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'file': str(file_path),
+                    'timestamp': datetime.now().isoformat(),
+                    'result': result
+                }, f, ensure_ascii=False, indent=2)
+            return cache_path
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении в кеш: {e}")
+            return None
+    
+    def load_result(self, file_path: Union[str, Path]) -> Optional[Dict]:
+        """Загружает результат анализа из кеша, если он существует."""
+        cache_path = self.get_cache_path(file_path)
+        if not cache_path.exists():
+            return None
+            
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('result')
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке из кеша: {e}")
+            return None
+    
+    def cleanup_old_cache(self, max_age_days: int = 30) -> int:
+        """Удаляет устаревшие файлы кеша."""
+        removed = 0
+        try:
+            for cache_file in self.cache_dir.glob('*.json'):
+                if (datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)).days > max_age_days:
+                    cache_file.unlink()
+                    removed += 1
+        except Exception as e:
+            logger.error(f"Ошибка при очистке кеша: {e}")
+        return removed
         return hashlib.md5(data.encode('utf-8')).hexdigest()
     
     def get_cached_result(self, user_id: str, messages: list) -> Optional[Dict[str, Any]]:
@@ -1737,13 +1770,65 @@ def parse_args():
     load_dotenv()
     default_export_path = os.getenv('CHAT_EXPORT_PATH') or settings.chat_export_path
     
-    parser = argparse.ArgumentParser(description='Анализ чата с помощью LLM')
-    parser.add_argument('--input', '-i', type=str, default=default_export_path,
-                        help=f'Путь к файлу с экспортом чата (JSON). По умолчанию: {default_export_path}')
-    parser.add_argument('--output', '-o', type=str, default='chat_analysis_report.txt',
-                        help='Имя файла для сохранения отчета (по умолчанию: chat_analysis_report.txt)')
+    # Текущая дата по умолчанию
+    current_date = datetime.now()
     
-    return parser.parse_args()
+    # Создаем парсер аргументов
+    parser = argparse.ArgumentParser(description='Анализ чата с помощью LLM')
+    
+    # Основные аргументы
+    parser.add_argument('--input', '-i', type=str, required=True,
+                      help='Путь к файлу с экспортом чата (JSON)')
+    
+    # Параметры для формирования имени отчета
+    parser.add_argument('--event', '-e', type=str, required=True,
+                      help='Название события (например, "Женский поток")')
+    parser.add_argument('--date', '-d', type=str, default=None,
+                      help='Дата в формате ГГГГ-ММ-ДД (по умолчанию текущая дата)')
+    parser.add_argument('--output-dir', type=str, default='reports',
+                      help='Директория для сохранения отчетов (по умолчанию: reports)')
+    
+    # Опции кеширования
+    cache_group = parser.add_argument_group('Настройки кеширования')
+    cache_group.add_argument('--no-cache', action='store_true',
+                           help='Отключить кеширование результатов анализа')
+    cache_group.add_argument('--clean-cache', action='store_true',
+                           help='Очистить устаревшие кеш-файлы (старше 30 дней)')
+    cache_group.add_argument('--cache-dir', type=str, default='.analysis_cache',
+                           help='Директория для хранения кеша (по умолчанию: .analysis_cache)')
+    
+    # Парсим аргументы
+    args = parser.parse_args()
+    
+    # Обрабатываем дату
+    if args.date:
+        try:
+            date_obj = datetime.strptime(args.date, '%Y-%m-%d')
+        except ValueError:
+            print("Ошибка: неверный формат даты. Используйте ГГГГ-ММ-ДД")
+            sys.exit(1)
+    else:
+        date_obj = current_date
+    
+    # Словарь с русскими названиями месяцев
+    month_ru = {
+        1: 'Январь', 2: 'Февраль', 3: 'Март', 4: 'Апрель',
+        5: 'Май', 6: 'Июнь', 7: 'Июль', 8: 'Август',
+        9: 'Сентябрь', 10: 'Октябрь', 11: 'Ноябрь', 12: 'Декабрь'
+    }
+    
+    # Формируем имя файла: "Событие Месяц ГГГГ.md"
+    event_name = ' '.join(args.event.split())  # Удаляем лишние пробелы
+    filename = f"{event_name} {month_ru[date_obj.month]} {date_obj.year}.md"
+    
+    # Создаем директорию для отчетов, если её нет
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Добавляем полный путь к файлу отчета в аргументы
+    args.report_path = output_dir / filename
+    
+    return args
 
 
 async def main():
@@ -1751,11 +1836,11 @@ async def main():
     logger.info("=== Начало работы скрипта анализа чата ===")
     
     try:
-        # Парсим аргументы командной строки (включая загрузку переменных окружения)
+        # Парсим аргументы командной строки
         logger.info("Обработка аргументов командной строки...")
         args = parse_args()
         chat_export_path = args.input
-        output_file = args.output
+        output_file = args.report_path
         
         logger.info(f"Используемый путь к файлу: {chat_export_path}")
         logger.info(f"Файл для сохранения отчета: {output_file}")
@@ -1766,6 +1851,15 @@ async def main():
             logger.error(error_msg)
             print(f"Ошибка: {error_msg}")
             return 1
+        
+        # Инициализируем кеш
+        cache = AnalysisCache(cache_dir=args.cache_dir)
+        
+        # Очищаем старый кеш, если запрошено
+        if args.clean_cache:
+            removed = cache.cleanup_old_cache()
+            logger.info(f"Удалено устаревших файлов кеша: {removed}")
+            print(f"Очистка кеша: удалено {removed} устаревших файлов")
         
         # Загружаем данные из файла
         logger.info("Загрузка данных из файла...")
@@ -1793,75 +1887,87 @@ async def main():
             print(f"Ошибка: {error_msg}")
             return 1
         
-        # Инициализируем анализатор
-        logger.info("Инициализация анализатора чата...")
-        analyzer = ChatAnalyzerLLM()
+        # Проверяем кеш, если он не отключен
+        use_cache = not args.no_cache
+        result = None
         
-        # Запускаем анализ
-        logger.info(f"Запуск анализа чата из файла: {chat_export_path}")
-        try:
-            logger.info("=== Начало анализа чата ===")
-            result = await analyzer.analyze_chat(chat_data)
-            logger.info(f"Результат анализа: {json.dumps(result, ensure_ascii=False, indent=2)}")
+        if use_cache:
+            logger.info("Проверка кеша...")
+            result = cache.load_result(chat_export_path)
+            if result:
+                logger.info("Найден валидный кеш, используем его")
+            else:
+                logger.info("Актуального кеша не найдено, выполняем анализ")
+        else:
+            logger.info("Использование кеша отключено, выполняем анализ")
+        
+        # Если в кеше не нашли или кеш отключен, выполняем анализ
+        if not result:
+            # Инициализируем анализатор
+            logger.info("Инициализация анализатора чата...")
+            analyzer = ChatAnalyzerLLM()
             
-            # Проверяем результат анализа
-            if not result:
-                logger.error("Анализ завершился с пустым результатом")
-                print("Ошибка: Анализ завершился с пустым результатом")
-                return 1
-                
-            if 'error' in result:
-                logger.error(f"Ошибка при анализе: {result['error']}")
-                print(f"Ошибка: {result['error']}")
-                return 1
-                
-            # Выводим основную информацию о результате
-            logger.info("\n=== Результат анализа ===")
-            logger.info(f"Статус: {result.get('status', 'не указан')}")
-            logger.info(f"Найдено участников: {len(result.get('results', {}))}")
-            
-            # Проверяем наличие отчета в результате
-            logger.info("Проверка результата анализа...")
-            if not result:
-                logger.error("Результат анализа пуст")
-                print("Ошибка: Не удалось получить результат анализа")
-                return 1
-                
-            if 'error' in result:
-                logger.error(f"Ошибка в результате анализа: {result['error']}")
-                print(f"Ошибка: {result['error']}")
-                return 1
-                
-            # Сохранение отчета в файл с правильной кодировкой
+            # Запускаем анализ
+            logger.info(f"Запуск анализа чата из файла: {chat_export_path}")
             try:
-                # Создаем папку для отчетов, если её нет
-                os.makedirs(os.path.dirname(output_file), exist_ok=True)
+                logger.info("=== Начало анализа чата ===")
+                result = await analyzer.analyze_chat(chat_data)
+                logger.info("Анализ завершен успешно")
                 
-                with open(output_file, 'w', encoding='utf-8-sig') as f:
-                    if 'report' in result and result['report']:
-                        f.write(result['report'])
-                        logger.info(f"Отчет успешно сохранен в файл: {output_file}")
-                        print(f"Отчет успешно сохранен в файл: {output_file}")
-                        return 0
+                # Сохраняем результат в кеш, если он не отключен
+                if use_cache:
+                    cache_path = cache.save_result(chat_export_path, result)
+                    if cache_path:
+                        logger.info(f"Результат анализа сохранен в кеш: {cache_path}")
                     else:
-                        error_msg = "Не удалось сгенерировать отчет: отсутствуют данные отчета"
-                        logger.error(error_msg)
-                        print(f"Ошибка: {error_msg}")
-                        return 1
-                        
+                        logger.warning("Не удалось сохранить результат в кеш")
+                
             except Exception as e:
-                error_msg = f"Ошибка при сохранении отчета: {str(e)}"
-                logger.error(error_msg)
-                if 'report' in result:
-                    logger.error(f"Тип данных отчета: {type(result['report'])}")
-                    if result['report']:
-                        logger.error(f"Длина отчета: {len(result['report'])} символов")
-                        logger.error(f"Первые 500 символов: {result['report'][:500]}")
+                error_msg = f"Ошибка при анализе чата: {str(e)}"
+                logger.error(error_msg, exc_info=True)
                 print(f"Ошибка: {error_msg}")
                 return 1
+        
+        # Проверяем результат анализа
+        if not result:
+            logger.error("Анализ завершился с пустым результатом")
+            print("Ошибка: Анализ завершился с пустым результатом")
+            return 1
+            
+        if 'error' in result:
+            logger.error(f"Ошибка при анализе: {result['error']}")
+            print(f"Ошибка: {result['error']}")
+            return 1
+            
+        # Выводим основную информацию о результате
+        logger.info("\n=== Результат анализа ===")
+        logger.info(f"Статус: {result.get('status', 'не указан')}")
+        logger.info(f"Найдено участников: {len(result.get('results', {}))}")
+        
+        # Проверяем наличие отчета в результате
+        logger.info("Проверка результата анализа...")
+        if 'report' not in result or not result['report']:
+            error_msg = "Не удалось сгенерировать отчет: отсутствуют данные отчета"
+            logger.error(error_msg)
+            print(f"Ошибка: {error_msg}")
+            return 1
+        
+        # Сохранение отчета в файл с правильной кодировкой
+        try:
+            # Создаем папку для отчетов, если её нет
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(output_file, 'w', encoding='utf-8-sig') as f:
+                f.write(result['report'])
+                
+            logger.info(f"Отчет успешно сохранен в файл: {output_file}")
+            print(f"\nОтчет успешно сохранен в файл: {output_file}")
+            print("\nДля просмотра отчета выполните команду:")
+            print(f"type \"{output_file}\"")
+            return 0
             
         except Exception as e:
-            error_msg = f"Ошибка при анализе чата: {str(e)}"
+            error_msg = f"Ошибка при сохранении отчета: {str(e)}"
             logger.error(error_msg, exc_info=True)
             print(f"Ошибка: {error_msg}")
             return 1
@@ -1871,8 +1977,6 @@ async def main():
         logger.error(error_msg, exc_info=True)
         print(f"Ошибка: {error_msg}")
         return 1
-    
-    return 0
 
 
 if __name__ == "__main__":
