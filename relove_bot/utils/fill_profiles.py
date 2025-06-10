@@ -10,18 +10,24 @@ import os
 import sys
 import time
 from dotenv import load_dotenv
+from telethon.errors import FloodWaitError
+from sqlalchemy.orm import Session
+import traceback
 
 # Загружаем переменные окружения
 load_dotenv()
 
-from relove_bot.db.models import User
+from relove_bot.db.models import User, GenderEnum
 from relove_bot.db.database import get_db_session, setup_database, get_engine
-from relove_bot.services.telegram_service import get_channel_users, get_channel_participants_count, get_client, get_full_user, get_user_profile_summary, get_bot_client
+from relove_bot.services.telegram_service import get_channel_users, get_channel_participants_count, get_client, get_full_user, get_user_profile_summary, get_bot_client, get_personal_channel_posts
 from relove_bot.utils.gender import detect_gender as get_user_gender
 from relove_bot.utils.interests import get_user_streams
 from relove_bot.utils.custom_logging import setup_logging
+from relove_bot.utils.logger import get_logger
+from relove_bot.handlers.common import get_or_create_user
+from relove_bot.db.session import SessionLocal
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Настройка логирования
 setup_logging()
@@ -67,8 +73,6 @@ async def initialize_database():
 # --- Константы для батчинга ---
 DEFAULT_BATCH_SIZE = 200
 DEFAULT_BATCH_DELAY_SECONDS = 5
-
-
 
 async def select_users(gender: str = None, text_filter: str = None, user_id_list: list = None, rank_by: str = None, limit: int = 30):
     """
@@ -130,8 +134,6 @@ async def select_users(gender: str = None, text_filter: str = None, user_id_list
 
 # --- Новая асинхронная джоба для массового обновления summary ---
 
-from relove_bot.db.models import GenderEnum
-
 async def update_user_profile_summary(session: AsyncSession, user_id: int, summary, gender: GenderEnum = None, streams: list = None, tg_user=None) -> str:
     """
     Обновляет или создает профиль пользователя с новым summary и gender.
@@ -148,6 +150,11 @@ async def update_user_profile_summary(session: AsyncSession, user_id: int, summa
         'created' если создан новый профиль, 'updated' если обновлен существующий
     """
     try:
+        # Валидация входных данных
+        if not user_id or not isinstance(user_id, int):
+            logger.error(f"Некорректный ID пользователя: {user_id}")
+            return 'skipped'
+            
         # Обрабатываем случай, когда summary - это кортеж
         if isinstance(summary, tuple):
             # Берем первый не-None элемент или пустую строку
@@ -156,12 +163,26 @@ async def update_user_profile_summary(session: AsyncSession, user_id: int, summa
             # Преобразуем в строку, если это не None
             summary = str(summary) if summary is not None else ''
         
-        # Обрезаем summary до разумной длины (например, 8 000 символов)
-        # чтобы избежать проблем с ограничениями базы данных
+        # Проверяем summary на минимальную длину
+        if len(summary.strip()) < 10:
+            logger.warning(f"Слишком короткий summary для пользователя {user_id}: {len(summary)} символов")
+            return 'skipped'
+        
+        # Обрезаем summary до разумной длины
         MAX_SUMMARY_LENGTH = 8000
         if len(summary) > MAX_SUMMARY_LENGTH:
             summary = summary[:MAX_SUMMARY_LENGTH]
             logger.warning(f"Слишком длинный summary для пользователя {user_id}, обрезано до {MAX_SUMMARY_LENGTH} символов")
+        
+        # Проверяем корректность пола
+        if gender and gender not in [GenderEnum.male, GenderEnum.female, GenderEnum.unknown]:
+            logger.warning(f"Некорректный пол для пользователя {user_id}: {gender}")
+            gender = GenderEnum.unknown
+        
+        # Проверяем корректность потоков
+        if streams is not None and not isinstance(streams, list):
+            logger.warning(f"Некорректные потоки для пользователя {user_id}: {streams}")
+            streams = []
         
         # Проверяем существование пользователя
         stmt = select(User).where(User.id == user_id)
@@ -201,21 +222,17 @@ async def update_user_profile_summary(session: AsyncSession, user_id: int, summa
                         updated = True
                 
                 if updated:
-                    # Добавляем отладочную информацию
-                    logger.debug(f"Обновление пользователя {user_id} (заполнение пустых полей)")
-                    
-                    # Разделяем коммит на несколько операций
-                    await session.flush()
                     await session.commit()
-                    logger.debug(f"Профиль пользователя {user_id} успешно обновлен (заполнены пустые поля)")
+                    logger.info(f"Обновлен профиль пользователя {user_id}")
                     return 'updated'
                 else:
-                    logger.debug(f"Пропуск пользователя {user_id} - все поля уже заполнены")
+                    logger.info(f"Профиль пользователя {user_id} не требует обновления")
                     return 'skipped'
+                    
             except Exception as e:
-                logger.error(f"Ошибка при обновлении профиля пользователя {user_id}: {e}", exc_info=True)
+                logger.error(f"Ошибка при обновлении профиля пользователя {user_id}: {e}")
                 await session.rollback()
-                raise
+                return 'skipped'
         else:
             # Создаем новый профиль
             try:
@@ -231,6 +248,11 @@ async def update_user_profile_summary(session: AsyncSession, user_id: int, summa
                     username = getattr(tg_user, 'username', '')
                     first_name = getattr(tg_user, 'first_name', '')
                     last_name = getattr(tg_user, 'last_name', '')
+                
+                # Проверяем наличие обязательных полей
+                if not (username or first_name):
+                    logger.warning(f"Отсутствуют обязательные поля для пользователя {user_id}")
+                    return 'skipped'
                 
                 # Создаем пользователя с обязательными полями
                 new_user = User(
@@ -258,14 +280,13 @@ async def update_user_profile_summary(session: AsyncSession, user_id: int, summa
                 return 'created'
                 
             except Exception as e:
-                logger.error(f"Ошибка при создании профиля пользователя {user_id}: {e}", exc_info=True)
+                logger.error(f"Ошибка при создании профиля пользователя {user_id}: {e}")
                 await session.rollback()
-                raise
-            
+                return 'skipped'
+                
     except Exception as e:
-        logger.error(f"Критическая ошибка при обновлении профиля пользователя {user_id}: {e}", exc_info=True)
-        await session.rollback()
-        raise
+        logger.error(f"Критическая ошибка при обновлении профиля пользователя {user_id}: {e}")
+        return 'skipped'
 
 async def get_user_photo_jpeg(user_id: int) -> Optional[bytes]:
     """
@@ -288,122 +309,44 @@ async def get_user_photo_jpeg(user_id: int) -> Optional[bytes]:
         logger.error(f"Ошибка при получении фото пользователя {user_id}: {e}")
         return None
 
-async def process_user(user: int, generator=None, session: AsyncSession = None):
+async def get_users_from_db(session: AsyncSession) -> List[int]:
+    """Получает список ID пользователей из базы данных асинхронно."""
+    stmt = select(User.id)
+    result = await session.execute(stmt)
+    return [row[0] for row in result.all()]
+
+async def process_user(user_id: int, client, session: AsyncSession) -> Optional[User]:
     """
-    Обрабатывает профиль пользователя.
+    Обрабатывает одного пользователя.
     
     Args:
-        user: ID пользователя или объект User для обработки
-        generator: Pipeline для генерации текста (опционально)
-        session: Сессия базы данных (опционально)
+        user_id: ID пользователя
+        client: Telegram клиент
+        session: Сессия базы данных
         
     Returns:
-        tuple: (summary, gender, streams, user) или (None, None, None, None) в случае ошибки
+        Optional[User]: Объект пользователя или None в случае ошибки
     """
-    global processed
-    processed += 1
-    user_id = user if isinstance(user, int) else getattr(user, 'id', 'unknown')
-    logger.info(f"Обработка пользователя {user_id}...")
-    start_time = time.time()
-    
     try:
-        # Если передан ID пользователя, получаем объект User
-        if isinstance(user, int):
-            logger.debug(f"Получение данных пользователя {user}...")
-            start_get_user = time.time()
-            user = await get_full_user(user)
-            logger.info(f"Получение данных пользователя {user} заняло {time.time() - start_get_user:.2f} секунд")
-        
-        # Пропускаем, если пользователь не найден
-        if not user:
-            logger.error(f"Пользователь не найден: {user}")
-            return None, None, None, None
+        # Проверяем, что user_id является целым числом
+        if not isinstance(user_id, int):
+            logger.error(f"Некорректный ID пользователя: {user_id}")
+            return None
             
-        logger.debug(f"Данные пользователя {user_id} получены")
-        
-        # Получаем пол пользователя
-        logger.debug(f"Определение пола пользователя {user_id}...")
-        start_gender = time.time()
-        gender = await get_user_gender(user)
-        logger.info(f"Определен пол пользователя {user_id}: {gender}")
-        logger.info(f"Определение пола заняло {time.time() - start_gender:.2f} секунд")
-        
-        # Получаем интересы
-        logger.debug(f"Получение интересов пользователя {user_id}...")
-        start_streams = time.time()
-        from relove_bot.config import settings
-        streams = await get_user_streams(user.id, settings.our_channel_id)
-        logger.info(f"Получены интересы пользователя {user_id}: {streams}")
-        logger.info(f"Получение интересов заняло {time.time() - start_streams:.2f} секунд")
-        
-        # Генерируем summary
-        logger.debug(f"Генерация summary для пользователя {user_id}...")
-        start_summary = time.time()
-        
-        try:
-            # Используем функцию get_user_profile_summary для получения полного профиля
-            logger.info(f"Получение полного профиля пользователя {user_id}...")
-            try:
-                # Используем правильную сигнатуру функции
-                summary, photo_bytes, user_streams = await asyncio.wait_for(
-                    get_user_profile_summary(
-                        user_id=user.id,
-                        main_channel_id=settings.our_channel_id
-                    ),
-                    timeout=300  # Таймаут 5 минут
-                )
-                logger.info(f"Получение профиля заняло {time.time() - start_summary:.2f} секунд")
+        # Создаем новую сессию для каждого пользователя
+        async with SessionLocal() as new_session:
+            # Получаем информацию о пользователе
+            user_info = await get_full_user(user_id)
+            if not user_info:
+                logger.error(f"Не удалось получить информацию о пользователе {user_id}")
+                return None
                 
-                if not summary:
-                    logger.warning(f"Пустой summary для пользователя {user_id}")
-                    return None, None, None, None
-                    
-                # Обновляем потоки, если они получены из get_user_profile_summary
-                if user_streams:
-                    streams = user_streams
-                    logger.info(f"Получены потоки для пользователя {user_id}: {streams}")
-                
-                logger.info(f"Сгенерированный summary для пользователя {user_id}: {summary[:100]}...")
-                
-                # Обновляем фото пользователя, если оно есть и передан session
-                if session is not None and photo_bytes is not None and isinstance(photo_bytes, bytes):
-                    try:
-                        # Получаем пользователя из базы данных
-                        stmt = select(User).where(User.id == user_id)
-                        result = await session.execute(stmt)
-                        db_user = result.scalar_one_or_none()
-                        
-                        if db_user:
-                            # Обновляем только если фото еще не установлено
-                            if not db_user.photo_jpeg:
-                                db_user.photo_jpeg = photo_bytes
-                                await session.commit()
-                                logger.info(f"Обновлено фото пользователя {user_id}")
-                    except Exception as e:
-                        logger.error(f"Ошибка при обновлении фото пользователя {user_id}: {e}")
-                        logger.exception(e)
-                        await session.rollback()
-                
-                return summary, gender, streams, user  # Возвращаем также объект пользователя
-                
-            except asyncio.TimeoutError:
-                logger.warning(f"Таймаут при получении профиля пользователя {user_id}")
-                logger.info(f"Таймаут произошел после {time.time() - start_summary:.2f} секунд")
-                return None, None, None, None
-            except Exception as e:
-                logger.error(f"Ошибка при получении профиля пользователя {user_id}: {e}")
-                logger.exception(e)
-                return None, None, None, None
-                
-        except Exception as summary_error:
-            logger.error(f"Ошибка при генерации summary для пользователя {user_id}: {summary_error}", exc_info=True)
-            logger.exception(summary_error)
-            return None, None, None, None
-        
+            # Создаем или обновляем пользователя
+            user = await get_or_create_user(new_session, user_info)
+            return user
     except Exception as e:
-        logger.error(f"Критическая ошибка при обработке пользователя {user_id}: {e}", exc_info=True)
-        logger.exception(e)
-        return None, None, None, None
+        logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
+        return None
 
 async def close_database():
     """
@@ -418,7 +361,7 @@ async def close_database():
 
 async def fill_all_profiles(users: list = None, channel_id_or_username: str = None, 
                          generator=None, batch_size: int = 200, 
-                         progress_callback=None, client=None):
+                         progress_callback=None, client=None, session=None):
     """
     Заполняет профили пользователей из списка или канала.
     
@@ -427,23 +370,21 @@ async def fill_all_profiles(users: list = None, channel_id_or_username: str = No
         channel_id_or_username: Имя или ID канала (если не передан список пользователей)
         generator: Генератор для обработки текста (опционально)
         batch_size: Размер пакета для обработки
-        progress_callback: Функция обратного вызова для отображения прогресса
+        progress_callback: Функция обратного вызова для отображения прогресса (вызывается после обработки каждого пользователя)
         client: Telegram клиент
+        session: Сессия базы данных
     """
     global created_count, updated_count, skipped_count, skipped_gender_summary_count, processed
-    session = None
-    tasks = [] # Инициализируем tasks здесь
+    tasks = []
     
     try:
-        # Инициализация базы данных
-        await setup_database()
-        session = get_db_session()
-        
         # Если передан список пользователей, используем его
         if users:
             user_list = users
             total_users = len(users)
             logger.critical(f"Обработка {total_users} пользователей из списка")
+            logger.info(f"Тип первого элемента: {type(users[0]) if users else 'список пуст'}")
+            logger.info(f"Пример ID пользователей: {[str(u) for u in users[:3]]}")
         # Иначе получаем пользователей из канала
         elif channel_id_or_username:
             if not client:
@@ -472,197 +413,88 @@ async def fill_all_profiles(users: list = None, channel_id_or_username: str = No
             raise ValueError("Either users list or channel_id_or_username must be provided")
             return
             
-        # Получаем все user_id с прогресс-баром
-        user_ids = []
-        with tqdm(total=total_users, desc="[1/3] Получение пользователей", position=0, leave=True, 
-                 bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar_get:
-            try:
-                logger.info("Начинаем получение списка пользователей")
-                async for user_id in get_channel_users(channel_id_or_username, batch_size):
-                    user_ids.append(user_id)
-                    pbar_get.update(1)
-                    if len(user_ids) % 100 == 0:
-                        logger.info(f"Собрано {len(user_ids)} пользователей")
-                        logger.info(f"Пример ID последнего пользователя: {user_id}")
-            except Exception as e:
-                logger.error(f"Ошибка при получении пользователей: {e}")
-                logger.error(f"Тип ошибки: {type(e)}")
-                logger.error(f"Подробности ошибки: {str(e)}")
-                raise # Если нет пользователей, выходим
+        # Используем уже полученный список пользователей
+        user_ids = user_list
+        total_users = len(user_ids)
+        logger.info(f"Начинаем обработку {total_users} пользователей")
+        logger.info(f"Тип первого ID: {type(user_ids[0]) if user_ids else 'список пуст'}")
+        logger.info(f"Пример ID: {user_ids[:3] if user_ids else 'список пуст'}")
+        
         if not user_ids:
             logger.warning("Не найдено пользователей для обработки")
             return processed
-        
-# Параллельная обработка LLM/summary
-        async def process_llm(user_id, retries=3, delay=1):
-            """
-            Обрабатывает пользователя с повторами при ошибках API.
             
-            Args:
-                user_id: ID пользователя
-                retries: Количество попыток
-                delay: Задержка между попытками (в секундах)
-            """
-            try:
-                logger.debug(f"Начинаем обработку пользователя {user_id}")
-                result = await asyncio.wait_for(process_user(user_id, generator, session=session), timeout=300)
-                logger.debug(f"Обработка пользователя {user_id} завершена")
-                return user_id, result
-            except asyncio.TimeoutError:
-                logger.warning(f"Таймаут при обработке пользователя {user_id}")
-                return user_id, (None, None, None, None)
-            except asyncio.CancelledError:
-                logger.warning(f"Задача обработки пользователя {user_id} была отменена")
-                return user_id, (None, None, None, None)
-            except Exception as e:
-                if retries > 0:
-                    error_msg = str(e).lower()
-                    if any(limit_error in error_msg for limit_error in ['rate limit', 'too many requests']):
-                        logger.warning(f"Превышение лимита API для пользователя {user_id}, ожидаем {delay} секунд")
-                        await asyncio.sleep(delay)
-                        return await process_llm(user_id, retries-1, delay*2)  # Увеличиваем задержку
-                    else:
-                        logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
-                        logger.exception(e)
-                        return user_id, (None, None, None, None)
-                else:
-                    logger.error(f"Ошибка при обработке пользователя {user_id} после всех попыток: {e}")
-                    logger.exception(e)
-                    return user_id, (None, None, None, None)
-        
-        llm_results = []
-        with tqdm(total=len(user_ids), desc="[2/3] Обработка LLM", position=1, leave=True, 
-                 bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar_llm:
-            # Создаем семафор для ограничения количества одновременных задач
-            semaphore = asyncio.Semaphore(5)  # Уменьшаем до 5 задач одновременно
+        # Инициализируем прогресс-бар, если передан колбэк
+        if progress_callback:
+            progress_callback(0, total_users, "Инициализация...")
             
-            async def process_with_semaphore(user_id):
-                async with semaphore:
-                    try:
-                        # Увеличиваем задержку для первых пользователей (warm-up)
-                        if processed < 5:  # Для первых 5 пользователей
-                            await asyncio.sleep(5)  # Увеличенная задержка
-                        else:
-                            # Динамическая задержка в зависимости от количества обработанных пользователей
-                            base_delay = 2
-                            if processed > 100:
-                                base_delay = 5  # Увеличиваем задержку после 100 пользователей
-                            elif processed > 50:
-                                base_delay = 3  # Увеличиваем задержку после 50 пользователей
-                            await asyncio.sleep(base_delay)
-                        
-                        # Добавляем дополнительную задержку между запросами к API
-                        if processed > 0:
-                            await asyncio.sleep(10)  # Дополнительная задержка между пользователями
-                        
-                        result = await process_llm(user_id)
-                        return result
-                    except Exception as e:
-                        logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
-                        # Если ошибка связана с лимитами API, увеличиваем задержку
-                        if 'Rate limit' in str(e):
-                            logger.warning(f"Превышение лимита API для пользователя {user_id}, увеличиваем задержку")
-                            await asyncio.sleep(60)  # Ждем минуту перед следующей попыткой
-                        return user_id, (None, None, None, None)
-            
-            # Создаем список задач для асинхронного выполнения
-            tasks = []
-            for uid in user_ids:
-                task = asyncio.create_task(process_with_semaphore(uid))
-                tasks.append(task)
-            logger.info(f"Запланировано обработка {len(tasks)} пользователей через LLM")
-            
-            try:
-                # Ожидаем завершения всех задач с задержкой между группами
-                results = []
-                for i in range(0, len(tasks), 5):  # Обрабатываем по 5 задач за раз
-                    group = tasks[i:i + 5]
-                    logger.info(f"Обработка группы {i//5 + 1} из {len(tasks)//5 + 1}")
-                    for task in group:
-                        result = await task
-                        user_id, result_data = result
-                        if result_data and all(result_data):
-                            results.append(result)
-                            pbar_llm.update(1)
-                            logger.info(f"Успешно обработан пользователь {user_id}")
-                        else:
-                            logger.warning(f"Пропущен пользователь {user_id} - пустые данные")
-                    # Добавляем задержку между группами (2 секунды)
-                    await asyncio.sleep(2)
-                llm_results = results
-            except asyncio.CancelledError:
-                logger.warning("Процесс обработки LLM был прерван")
-                raise
-            finally:
-                # Отменяем все незавершенные задачи
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-                # Ждем завершения отмененных задач
-                await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Если нет результатов LLM, выходим
-        if not llm_results:
-            logger.warning("Нет результатов для записи в БД")
+        # Проверяем сессию базы данных
+        if not session:
+            logger.error("Не передана сессия базы данных")
             return processed
-        
-# Параллельная запись в БД
-        async def write_db(user_id, result):
-            if not session:
-                logger.error(f"Сессия базы данных не инициализирована для пользователя {user_id}")
-                return 'skipped'
             
-            if not result or not isinstance(result, tuple) or len(result) != 4:
-                logger.warning(f"Пропущен пользователь {user_id} - некорректные данные")
-                return 'skipped_gender_summary'
-            summary, gender, streams, tg_user = result
-            if not summary or not gender or streams is None:
-                logger.warning(f"Пропущен пользователь {user_id} - пустые данные")
-                return 'skipped_gender_summary'
-            try:
-                if not all([summary, gender]):
-                    logger.warning(f"Пропущен пользователь {user_id} - пустые поля")
-                    return 'skipped'
-                res = await update_user_profile_summary(
-                    session=session,
-                    user_id=user_id,
-                    summary=summary,
-                    gender=gender,
-                    streams=streams,
-                    tg_user=tg_user
-                )
-                logger.info(f"Пользователь {user_id} успешно записан в БД: {res}")
-                return res
-            except asyncio.CancelledError:
-                logger.warning(f"Задача записи в БД для пользователя {user_id} была отменена")
-                return 'skipped'
-            except Exception as e:
-                logger.error(f"Ошибка при обновлении профиля пользователя {user_id}: {e}")
-                logger.exception(e)
-                return 'skipped'
+        logger.info(f"Тип сессии БД: {type(session).__name__}")
+        logger.info(f"Активное подключение: {session.bind.engine.pool.status() if hasattr(session, 'bind') else 'Нет подключения'}")
         
-        with tqdm(total=len(llm_results), desc="[3/3] Запись в БД   ", position=2, leave=True, 
-                 bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]') as pbar_db:
-            tasks = [write_db(user_id, result) for user_id, result in llm_results]
-            try:
-                for coro in asyncio.as_completed(tasks):
-                    res = await coro
-                    if res == 'created':
-                        created_count += 1
-                        logger.info(f"Создан новый профиль для пользователя {user_id}")
-                    elif res == 'updated':
-                        updated_count += 1
-                        logger.info(f"Обновлен профиль пользователя {user_id}")
-                    elif res == 'skipped_gender_summary':
-                        skipped_gender_summary_count += 1
-                        logger.warning(f"Пропущен пользователь {user_id} - пустой summary")
-                    else:
+        # Обрабатываем пользователей порциями
+        for i in range(0, len(user_ids), batch_size):
+            batch = user_ids[i:i + batch_size]
+            logger.critical(f"Обработка Пачка {i//batch_size + 1} ({len(batch)} пользователей)...")
+            
+            # Создаем задачи для обработки пользователей
+            tasks = []
+            for user_id in batch:
+                task = asyncio.create_task(process_user(user_id, client, session))
+                tasks.append((user_id, task))
+            
+            # Ждем завершения всех задач
+            results = []
+            for user_id, task in tasks:
+                try:
+                    result = await task
+                    if result and isinstance(result, User):
+                        results.append((user_id, result))
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
+                    continue
+            
+            # Записываем результаты в БД
+            if results:
+                for user_id, result in results:
+                    try:
+                        if result:
+                            res = await update_user_profile_summary(
+                                session=session,
+                                user_id=user_id,
+                                summary=result.profile_summary,
+                                gender=result.gender,
+                                streams=result.streams,
+                                tg_user=result
+                            )
+                            if res == 'created':
+                                created_count += 1
+                            elif res == 'updated':
+                                updated_count += 1
+                            else:
+                                skipped_count += 1
+                    except Exception as e:
+                        logger.error(f"Ошибка при записи пользователя {user_id} в БД: {e}")
                         skipped_count += 1
-                        logger.warning(f"Пропущен пользователь {user_id}")
-                    pbar_db.update(1)
-            except asyncio.CancelledError:
-                logger.warning("Процесс записи в БД был прерван")
-                raise
+                        continue
+                
+                # Коммитим изменения после каждой пачки
+                try:
+                    await session.commit()
+                except Exception as e:
+                    logger.error(f"Ошибка при коммите изменений: {e}")
+                    await session.rollback()
+            
+            # Обновляем прогресс
+            if progress_callback:
+                progress_callback(min(i + batch_size, total_users), total_users, f"Обработано {min(i + batch_size, total_users)} из {total_users}")
+            
+            # Добавляем задержку между пачками
+            await asyncio.sleep(1)
         
         logger.info(f"Операция завершена. Результаты:")
         logger.info(f"Создано профилей: {created_count}")
@@ -670,23 +502,20 @@ async def fill_all_profiles(users: list = None, channel_id_or_username: str = No
         logger.info(f"Пропущено профилей: {skipped_count}")
         logger.info(f"Пропущено из-за пустого summary: {skipped_gender_summary_count}")
         return processed
+        
     except Exception as e:
         logger.error(f"Ошибка при заполнении профилей: {e}", exc_info=True)
         raise
     finally:
         try:
             # Закрываем все соединения
-            if session:
-                await session.close()
             if client:
                 await client.disconnect()
-            await close_database()
             # Ждем завершения всех задач
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
             logger.error(f"Ошибка при завершении работы: {e}")
-            # raise # Предотвращаем распространение ошибки, чтобы не влиять на код выхода, если основная работа выполнена
         
         logger.info(f"Операция завершена. Результаты:")
         logger.info(f"Создано профилей: {created_count}")
@@ -694,5 +523,53 @@ async def fill_all_profiles(users: list = None, channel_id_or_username: str = No
         logger.info(f"Пропущено профилей: {skipped_count}")
         logger.info(f"Пропущено из-за пустого summary: {skipped_gender_summary_count}")
         return processed
+
+async def main():
+    """Основная функция скрипта."""
+    try:
+        # Инициализация клиента
+        client = await get_client()
+        if not client.is_connected():
+            await client.start()
+            
+        # Инициализация сессии
+        session = Session()
+        
+        # Получаем список пользователей
+        users = await get_users_from_db(session)
+        total_users = len(users)
+        
+        # Создаем прогресс-бар
+        with tqdm(total=total_users, desc="Сбор пользователей", unit="польз.") as pbar:
+            for user_id in users:
+                try:
+                    profile = await process_user(user_id, client, session)
+                    if profile:
+                        pbar.update(1)
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
+                    continue
+                    
+        logger.info("Скрипт заполнения профилей успешно завершил работу.")
+        
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении скрипта: {e}")
+        logger.error(traceback.format_exc())
+    finally:
+        if 'client' in locals() and client.is_connected():
+            await client.disconnect()
+        if 'session' in locals():
+            session.close()
+            
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Скрипт прерван пользователем")
+    except Exception as e:
+        logger.error(f"Ошибка при завершении работы: {e}")
+        logger.error(traceback.format_exc())
+    finally:
+        logger.info("Завершение работы скрипта fill_profiles.")
 
 

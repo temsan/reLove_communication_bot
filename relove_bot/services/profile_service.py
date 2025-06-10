@@ -4,6 +4,7 @@
 import logging
 from relove_bot.db.repository import UserRepository
 from relove_bot.utils.gender import detect_gender
+from relove_bot.models.gender import GenderEnum
 
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ class ProfileService:
                         tg_user = None
                 else:
                     tg_user = None
+                    
         user = await self.repo.get_by_id(user_id)
         if not user and tg_user:
             first_name = getattr(tg_user, 'first_name', None)
@@ -70,47 +72,25 @@ class ProfileService:
             logger.info(f"Создан новый пользователь {user_id} ({user.username})")
         user_has_summary = user and user.profile_summary and user.profile_summary.strip()
         user_has_gender = user and user.gender and str(user.gender) not in ('', 'unknown', 'None')
-
-        if user_has_summary and user_has_gender:
-            logger.info(f"User {user_id} уже имеет summary и gender, пропускаем.")
-            return 'skipped'
-
-        summary = None
-        gender = None
+        
         result = {}
-
-        posts = None
+        
         if not user_has_summary:
-            posts = await get_user_posts_in_channel(main_channel_id, user_id)
-            summary, last_photo_bytes = await get_full_psychological_summary(
-                user_id=user_id,
-                main_channel_id=main_channel_id,
-                tg_user=tg_user,
-                posts=posts
-            )
-            refusal_phrases = [
-                "i'm sorry, i can't help",
-                "i'm sorry, i can't assist",
-                "i can't help with that",
-                "i can't assist with that",
-                "я не могу помочь",
-                "не могу помочь",
-                "не могу выполнить",
-                "не могу анализировать",
-                "отказ",
-                "извините, я не могу помочь с этой задачей"
-            ]
-            if not summary or any(phrase in summary.lower() for phrase in refusal_phrases):
-                logger.warning(f"LLM отказался генерировать summary для user {user_id} (summary='{summary}'). Пропуск записи в БД.")
-                result['failed'] = True
-                return result
-            await self.repo.update_summary(user_id, summary)
-            result['summary'] = summary
-            # Сохраняем последнее фото профиля, если есть
-            if last_photo_bytes:
-                user.photo_jpeg = last_photo_bytes
-                await self.repo.session.commit()
-                result['photo_saved'] = True
+            # Получаем посты из личного канала
+            try:
+                channel_data = await get_personal_channel_posts(user_id)
+                if channel_data:
+                    posts = channel_data.get("posts", [])
+                    photo_summaries = channel_data.get("photo_summaries", [])
+                    if posts:
+                        user.profile_summary = "\n".join(posts)
+                    if photo_summaries:
+                        user.markers = user.markers or {}
+                        user.markers['photo_summaries'] = photo_summaries
+                    await self.repo.session.commit()
+                    result['summary'] = user.profile_summary
+            except Exception as e:
+                logger.warning(f"Не удалось получить посты из личного канала для user {user_id}: {e}")
 
             # --- Определяем потоки через LLM по тем же постам ---
             try:
@@ -130,8 +110,12 @@ class ProfileService:
                 logger.warning(f"Не удалось определить потоки через LLM для user {user_id}: {e}")
 
         if not user_has_gender:
-    
-            gender = await detect_gender(tg_user) if tg_user else 'unknown'
+            # Если это бот, устанавливаем женский пол
+            if tg_user and getattr(tg_user, 'bot', False):
+                gender = GenderEnum.female
+                logger.info(f"Пользователь {user_id} является ботом, установлен женский пол")
+            else:
+                gender = await detect_gender(tg_user) if tg_user else GenderEnum.female
             await self.repo.update_gender(user_id, gender)
             result['gender'] = gender
 

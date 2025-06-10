@@ -39,3 +39,12 @@ xlrd>=2.0.1
 # Тестирование
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
+
+# Rasa
+rasa>=3.7.0
+rasa-sdk>=3.7.0
+rasa-sdk[full]>=3.7.0
+rasa[transformers]>=3.7.0
+rasa[spacy]>=3.7.0
+spacy>=3.6.0
+en-core-web-md @ https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.6.0/en_core_web_md-3.6.0-py3-none-any.whl

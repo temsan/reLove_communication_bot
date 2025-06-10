@@ -16,6 +16,11 @@ async def detect_gender(tg_user) -> str:
     Определяет пол пользователя с помощью LLM на основе текстовых данных и фото профиля.
     Возвращает 'male' или 'female'.
     """
+    # Проверяем, является ли пользователь ботом
+    if getattr(tg_user, 'bot', False):
+        logger.debug(f"Пользователь {getattr(tg_user, 'id', 'unknown')} является ботом, возвращаем female")
+        return GenderEnum.female
+        
     llm_service = LLMService()
     
     # Собираем всю доступную информацию о пользователе

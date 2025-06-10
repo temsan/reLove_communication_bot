@@ -1,36 +1,72 @@
 #!/usr/bin/env python3
+# Включаем отладочный режим
+import os
+import sys
+import asyncio
+import logging
+import traceback
+from pathlib import Path
+from dotenv import load_dotenv
+from tqdm import tqdm
+from tqdm.asyncio import tqdm_asyncio
+import functools
+
+# Настройка логирования до импорта других модулей
+log_file = Path('fill_profiles_debug.log')
+try:
+    log_file.unlink(missing_ok=True)  # Удаляем старый лог-файл, если он существует
+except Exception as e:
+    print(f"Не удалось удалить старый лог-файл: {e}")
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(log_file, mode='w', encoding='utf-8')
+    ]
+)
+
+logger = logging.getLogger(__name__)
+logger.info('=' * 80)
+logger.info('НАЧАЛО РАБОТЫ СКРИПТА fill_profiles.py')
+logger.info('=' * 80)
+
 # Отключаем предупреждения до импорта других библиотек
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning, module='transformers*')
 warnings.filterwarnings('ignore', category=UserWarning, module='transformers*')
 
-import os
-import sys
-import asyncio
-import logging
-from dotenv import load_dotenv
-
 # Добавляем корень проекта в PYTHONPATH для корректного импорта
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from relove_bot.config import settings, reload_settings # reload_settings может быть нужен для инициализации
-from relove_bot.services.batch_profile_fill_service import process_all_channel_profiles_batch
-from relove_bot.db.database import setup_database # Оставляем для возможной инициализации БД перед запуском сервиса
+logger.info(f"Python path: {sys.path}")
+logger.info(f"Текущая директория: {os.getcwd()}")
+logger.info(f"Файл скрипта: {__file__}")
+logger.info(f"Абсолютный путь к скрипту: {os.path.abspath(__file__)}")
 
-# Настройка логирования - только критические ошибки и прогресс
-# Основное логирование будет происходить внутри сервиса
-logging.basicConfig(
-    level=logging.CRITICAL, # Устанавливаем CRITICAL по умолчанию для корневого логгера
-    format='%(asctime)s - %(levelname)s - %(message)s', # Упрощенный формат для скрипта
-    handlers=[
-        logging.StreamHandler(), # Вывод в консоль
-        logging.FileHandler('fill_profiles_critical.log', mode='a') # Запись критических ошибок в файл
-    ]
-)
+# Проверяем доступность файлов и директорий
+try:
+    logger.info(f"Проверка доступа к лог-файлу: {log_file.absolute()}")
+    with open(log_file, 'a', encoding='utf-8') as f:
+        f.write("Тест записи в лог-файл\n")
+    logger.info("Успешная запись в лог-файл")
+except Exception as e:
+    logger.error(f"Ошибка при записи в лог-файл: {e}")
+    logger.error(f"Текущие права доступа: {os.access('.', os.W_OK)}")
 
-# Настраиваем логгер конкретно для этого скрипта, если нужно выводить INFO о старте/завершении
-script_logger = logging.getLogger(__name__)
-script_logger.setLevel(logging.INFO) # Позволяем INFO для сообщений о старте/окончании
+# Импортируем наши модули
+try:
+    logger.info("Импортируем настройки...")
+    from relove_bot.config import settings, reload_settings
+    from relove_bot.services.batch_profile_fill_service import process_all_channel_profiles_batch
+    from relove_bot.db.database import setup_database
+    from relove_bot.rag.llm import LLM
+    logger.info("Все модули успешно импортированы")
+except ImportError as e:
+    logger.critical(f"Ошибка импорта модулей: {e}")
+    logger.critical(f"sys.path: {sys.path}")
+    raise
 
 # Отключаем детальное логирование для других модулей на уровне этого скрипта,
 # чтобы не дублировать логи сервисов, если они настроены иначе.
@@ -45,37 +81,37 @@ load_dotenv(override=True)
 reload_settings() # Перезагружаем настройки, чтобы учесть .env файл
 
 async def main():
-    script_logger.info("1. Начало выполнения функции main()")
+    logger.info("1. Начало выполнения функции main()")
     try:
-        script_logger.info("2. Проверка настроек...")
-        script_logger.info(f"  - DB_URL: {'установлен' if settings.db_url else 'не установлен'}")
-        script_logger.info(f"  - BOT_TOKEN: {'установлен' if settings.bot_token else 'не установлен'}")
-        script_logger.info(f"  - OUR_CHANNEL_ID: {settings.our_channel_id}")
+        logger.info("2. Проверка настроек...")
+        logger.info(f"  - DB_URL: {'установлен' if settings.db_url else 'не установлен'}")
+        logger.info(f"  - BOT_TOKEN: {'установлен' if settings.bot_token else 'не установлен'}")
+        logger.info(f"  - OUR_CHANNEL_ID: {settings.our_channel_id}")
         
-        script_logger.info("3. Инициализация базы данных...")
+        logger.info("3. Инициализация базы данных...")
         db_initialized = await setup_database()
         if not db_initialized:
-            script_logger.error("Ошибка инициализации базы данных")
+            logger.error("Ошибка инициализации базы данных")
             return
         
-        script_logger.info("4. Запуск скрипта заполнения профилей...")
+        logger.info("4. Запуск скрипта заполнения профилей...")
         # Вызов основной сервисной функции
         # Имя канала можно передать из настроек или как аргумент командной строки
         target_channel = settings.our_channel_id # Используем ID нашего основного канала
         if not target_channel:
-            script_logger.critical("Целевой канал для заполнения профилей не указан в настройках (OUR_CHANNEL_ID).")
+            logger.critical("Целевой канал для заполнения профилей не указан в настройках (OUR_CHANNEL_ID).")
             return
 
         await process_all_channel_profiles_batch(channel_username=target_channel)
         
-        script_logger.info("Скрипт заполнения профилей успешно завершил работу.")
+        logger.info("Скрипт заполнения профилей успешно завершил работу.")
         
     except Exception as e:
-        script_logger.critical(f"КРИТИЧЕСКАЯ ОШИБКА в скрипте fill_profiles.py: {e}", exc_info=True)
+        logger.critical(f"КРИТИЧЕСКАЯ ОШИБКА в скрипте fill_profiles.py: {e}", exc_info=True)
     except KeyboardInterrupt:
-        script_logger.info("\nСкрипт остановлен пользователем.")
+        logger.info("\nСкрипт остановлен пользователем.")
     finally:
-        script_logger.info("Завершение работы скрипта fill_profiles.")
+        logger.info("Завершение работы скрипта fill_profiles.")
 
 if __name__ == "__main__":
     asyncio.run(main())

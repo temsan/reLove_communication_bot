@@ -27,10 +27,38 @@ for name in logging.root.manager.loggerDict:
 load_dotenv(override=True)
 reload_settings()
 
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.future import select
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
 from relove_bot.db.models import User  # Предполагается, что у вас есть модель User
 
+# Создаём асинхронное подключение к базе данных
+engine = create_async_engine('sqlite+aiosqlite:///path_to_your_database.db')  # Замените на ваш путь к базе данных
+Session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+async def get_users_from_db():
+    async with Session() as session:
+        stmt = select(User)
+        result = await session.execute(stmt)
+        return result.scalars().all()
+
+async def update_user_profile(user_id, profile_data):
+    async with Session() as session:
+        stmt = select(User).where(User.id == user_id)
+        result = await session.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user:
+            user.profile_data = profile_data  # Предполагается, что у модели User есть поле profile_data
+            await session.commit()
+            print(f"Профиль пользователя {user_id} обновлён данными: {profile_data}")
+        else:
+            print(f"Пользователь с ID {user_id} не найден в базе данных")
+
+async def fill_profiles_with_llm():
+    users = await get_users_from_db()
+    for user in users:
+        if not user.profile_filled:
+            profile_data = await LLM.analyze_content(f"Заполните профиль для пользователя {user.id}")
 # Создаём подключение к базе данных
 engine = create_engine('sqlite:///path_to_your_database.db')  # Замените на ваш путь к базе данных
 Session = sessionmaker(bind=engine)

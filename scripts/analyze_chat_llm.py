@@ -22,19 +22,38 @@ from tqdm import tqdm
 from dotenv import load_dotenv
 
 class AnalysisCache:
-    """Класс для кеширования результатов анализа с использованием хеша файла в качестве ключа."""
+    """Класс для кеширования результатов анализа чата.
     
-    def __init__(self, cache_dir: str = ".analysis_cache"):
+    Структура кеша:
+    .analysis_cache/
+    ├── files/                  # Хеши файлов
+    │   └── {file_hash}.json    # Метаданные файла
+    └── users/                  # Данные пользователей
+        └── {user_id}/          # ID пользователя
+            ├── {hash1}.json    # Результаты анализа
+            └── {hash2}.json
+    """
+    
+    def __init__(self, cache_dir: str = '.analysis_cache'):
+        """Инициализирует кеш анализа.
+        
+        Args:
+            cache_dir: Базовая директория для хранения кеша
+        """
         self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(exist_ok=True)
+        self.files_dir = self.cache_dir / 'files'
+        self.users_dir = self.cache_dir / 'users'
+        
+        # Создаем необходимые директории
+        self.files_dir.mkdir(parents=True, exist_ok=True)
+        self.users_dir.mkdir(exist_ok=True)
+        
+        logger.info(f"Инициализирован кеш в директории: {self.cache_dir.absolute()}")
+        logger.info(f"Файлы: {self.files_dir}")
+        logger.info(f"Пользователи: {self.users_dir}")  # Загружаем существующий индекс
     
-    def get_cache_path(self, file_path: Union[str, Path]) -> Path:
-        """Возвращает путь к файлу кеша на основе хеша исходного файла."""
-        file_hash = self._calculate_file_hash(file_path)
-        return self.cache_dir / f"{file_hash}.json"
-    
-    def _calculate_file_hash(self, file_path: Union[str, Path]) -> str:
-        """Вычисляет MD5 хеш файла."""
+    def _get_file_hash(self, file_path: Union[str, Path]) -> str:
+        """Вычисляет MD5 хеш содержимого файла."""
         file_path = Path(file_path)
         hash_md5 = hashlib.md5()
         with open(file_path, "rb") as f:
@@ -42,455 +61,267 @@ class AnalysisCache:
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
     
-    def save_result(self, file_path: Union[str, Path], result: Dict) -> Optional[Path]:
-        """Сохраняет результат анализа в кеш."""
-        try:
-            cache_path = self.get_cache_path(file_path)
-            with open(cache_path, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'file': str(file_path),
-                    'timestamp': datetime.now().isoformat(),
-                    'result': result
-                }, f, ensure_ascii=False, indent=2)
-            return cache_path
-        except Exception as e:
-            logger.error(f"Ошибка при сохранении в кеш: {e}")
-            return None
-    
-    def load_result(self, file_path: Union[str, Path]) -> Optional[Dict]:
-        """Загружает результат анализа из кеша, если он существует."""
-        cache_path = self.get_cache_path(file_path)
-        if not cache_path.exists():
-            return None
-            
-        try:
-            with open(cache_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return data.get('result')
-        except Exception as e:
-            logger.error(f"Ошибка при загрузке из кеша: {e}")
-            return None
-    
-    def cleanup_old_cache(self, max_age_days: int = 30) -> int:
-        """Удаляет устаревшие файлы кеша."""
-        removed = 0
-        try:
-            for cache_file in self.cache_dir.glob('*.json'):
-                if (datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)).days > max_age_days:
-                    cache_file.unlink()
-                    removed += 1
-        except Exception as e:
-            logger.error(f"Ошибка при очистке кеша: {e}")
-        return removed
-        return hashlib.md5(data.encode('utf-8')).hexdigest()
-    
-    def get_cached_result(self, user_id: str, messages: list) -> Optional[Dict[str, Any]]:
-        """Пытается получить закешированный результат для пользователя."""
-        user_hash = self._get_user_hash(user_id, messages)
-        cache_file = self.cache_dir / f"{user_hash}.json"
-        
-        if user_hash in self.cache_index and cache_file.exists():
-            try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, IOError):
-                return None
-        return None
-    
-    def save_result(self, user_id: str, messages: list, result: Dict[str, Any]) -> str:
-        """Сохраняет результат анализа в кеш."""
-        user_hash = self._get_user_hash(user_id, messages)
-        cache_file = self.cache_dir / f"{user_hash}.json"
-        
-        # Добавляем метаданные
-        result_with_meta = {
-            "user_id": user_id,
-            "cached_at": datetime.now().isoformat(),
-            "messages_count": len(messages),
-            "first_message_date": messages[0].get('date', '') if messages else '',
-            "last_message_date": messages[-1].get('date', '') if messages else '',
-            "data": result
-        }
-        
-        try:
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                json.dump(result_with_meta, f, ensure_ascii=False, indent=2)
-            
-            # Обновляем индекс
-            self.cache_index[user_id] = user_hash
-            self._save_index()
-            return str(cache_file)
-        except IOError as e:
-            logger.error(f"Ошибка при сохранении в кеш: {e}")
-            return ""
-
-# Добавляем корень проекта в PYTHONPATH для корректного импорта
-sys.path.append(str(Path(__file__).parent.parent))
-from relove_bot.config import settings
-from relove_bot.services.prompts import PSYCHOLOGICAL_ANALYSIS_PROMPT
-
-# Настройка логирования
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)  # Устанавливаем уровень логирования
-
-# Удаляем все существующие обработчики
-for handler in logger.handlers[:]:
-    logger.removeHandler(handler)
-
-# Создаем форматтер для файла
-file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-
-# Настраиваем обработчик для вывода в файл
-file_handler = logging.FileHandler('chat_analysis.log', mode='w', encoding='utf-8')
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(file_formatter)
-logger.addHandler(file_handler)
-
-# Настраиваем обработчик для вывода в консоль с упрощенным форматом
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)  # В консоль выводим только INFO и выше
-console_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(console_formatter)
-logger.addHandler(console_handler)
-
-# Отключаем вывод сообщений от внешних библиотек
-logging.getLogger('httpx').setLevel(logging.WARNING)
-logging.getLogger('asyncio').setLevel(logging.WARNING)
-logging.getLogger('urllib3').setLevel(logging.WARNING)
-
-logger = logging.getLogger(__name__)
-
-# Отключаем предупреждения transformers
-warnings.filterwarnings("ignore", category=FutureWarning)
-
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Flowable
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-
-from relove_bot.services.llm_service import LLMService
-from relove_bot.services.prompts import PSYCHOLOGICAL_ANALYSIS_PROMPT
-from relove_bot.config import settings
-
-# Добавляем фильтр для исключения сообщений пользователей и деталей запросов
-class MessageFilter(logging.Filter):
-    def filter(self, record):
-        return not any(keyword in record.getMessage().lower() for keyword in [
-            'сообщение:', 'текст:', 'user:', 'пользователь:', 'message:', 'text:',
-            '=== детали запроса к llm ===', 'url:', 'модель:', 'размер промпта:',
-            '=== настройки llmservice ===', 'api base:', 'api key:', 'model:',
-            'неожиданный формат ответа:', 'ошибка парсинга json:', 'получен ответ:',
-            'rate limit exceeded:', 'error:', 'ошибка:'
-        ])
-
-logger.addFilter(MessageFilter())
-
-def log_exception(e: Exception, context: str = ""):
-    """Логирует исключение с контекстом."""
-    logger.error(f"Ошибка в {context}: {str(e)}")
-    logger.error("Traceback:")
-    logger.error(traceback.format_exc())
-
-class TokenLimitMonitor:
-    """Мониторинг лимитов токенов"""
-    def __init__(self):
-        self.total_tokens = 0
-        self.max_tokens = 1000  # Лимит на запрос
-        self.total_requests = 0
-        self.failed_requests = 0
-        self.rate_limit_hits = 0
-        
-    def log_request(self, tokens: int, success: bool = True, rate_limited: bool = False):
-        self.total_tokens += tokens
-        self.total_requests += 1
-        if not success:
-            self.failed_requests += 1
-        if rate_limited:
-            self.rate_limit_hits += 1
-            
-    def get_stats(self) -> Dict[str, Any]:
-        return {
-            "total_tokens": self.total_tokens,
-            "total_requests": self.total_requests,
-            "failed_requests": self.failed_requests,
-            "rate_limit_hits": self.rate_limit_hits,
-            "success_rate": (self.total_requests - self.failed_requests) / self.total_requests if self.total_requests > 0 else 0
-        }
-
-class ChatAnalyzerLLM:
-    """Класс для анализа чата с использованием LLM."""
-    
-    # Список бесплатных моделей OpenRouter
-    FREE_MODELS = [
-        "meta-llama/llama-3.3-8b-instruct:free",
-        "mistralai/mistral-7b-instruct:free",
-        "google/gemma-7b-it:free",
-        "anthropic/claude-3-haiku:free",
-        "meta-llama/llama-2-70b-chat:free",
-        "google/gemma-2b-it:free",
-        "microsoft/phi-2:free",
-        "huggingfaceh4/zephyr-7b-beta:free"
-    ]
-    
-    def __init__(self):
-        """Инициализация сервиса LLM."""
-        self.token_monitor = TokenLimitMonitor()
-        self.current_model_index = 0
-        
-        # Получаем API ключ
-        self.api_key = os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
-            raise ValueError("OPENAI_API_KEY не найден в переменных окружения")
-            
-        # Инициализируем LLM сервис
-        self.llm_service = LLMService()
-        
-        # Настройки API
-        self.api_base = "https://openrouter.ai/api/v1"
-        self.model = self.FREE_MODELS[0]
-        self.max_tokens = 1000
-        self.temperature = 0.7
-        self.max_retries = 3  # Увеличиваем количество попыток
-        self.retry_delay = 1  # Начальная задержка в секундах
-        
-        # Инициализируем кеш
-        self.cache = AnalysisCache()
-        
-        logger.info("Инициализирован сервис LLM с поддержкой кеширования")
-        
-        logger.info("Инициализирован сервис LLM")
-        logger.info("=== Настройки лимитов ===")
-        logger.info(f"Максимальное количество токенов на запрос: {self.max_tokens}")
-        logger.info(f"Температура: {self.temperature}")
-        logger.info(f"Максимальное количество попыток: {self.max_retries}")
-        logger.info(f"Задержка между попытками: {self.retry_delay} сек")
-        logger.info("=======================")
-        self.ritual_keywords = [
-            'ритуал', 'поток', 'практика', 'медитация', 'трансформация',
-            'сессия', 'процесс', 'игра', 'ретрит', 'занятие', 'эфир', 'трансляция'
-        ]
-    
-    def _get_next_model(self) -> Optional[str]:
-        """Получает следующую доступную модель из списка."""
-        if self.current_model_index < len(self.FREE_MODELS):
-            model = self.FREE_MODELS[self.current_model_index]
-            self.current_model_index += 1
-            return model
-        return None
-        
-    async def _analyze_with_prompt(self, messages: List[Dict[str, Any]], user_info: Dict[str, Any], prompt_type: str) -> Dict[str, Any]:
-        """Анализирует сообщения с использованием заданного промпта.
+    def get_file_hash(self, file_path: Union[str, Path]) -> str:
+        """Вычисляет хеш файла.
         
         Args:
-            messages: Список сообщений для анализа
-            user_info: Информация о пользователе
-            prompt_type: Тип промпта для анализа (например, 'psychological', 'behavioral' и т.д.)
+            file_path: Путь к файлу
             
         Returns:
-            Словарь с результатами анализа
+            Строковый хеш файла
         """
-        # Используем _analyze_user_messages, так как он более полный и структурированный
-        result = await self._analyze_user_messages(messages)
-        
-        # Если нужен определенный тип анализа, извлекаем его из результата
-        if prompt_type in ['psychological', 'behavioral', 'cognitive']:
-            return result.get(f"{prompt_type}_analysis", {})
+        file_path = Path(file_path)
+        if not file_path.exists():
+            raise FileNotFoundError(f"Файл не найден: {file_path}")
             
-        return result
-    
-    async def _make_llm_request(self, prompt: str, model: str = None) -> Optional[str]:
-        """
-        Отправляет запрос к LLM и возвращает ответ.
+        hasher = hashlib.md5()
+        with open(file_path, 'rb') as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hasher.update(chunk)
+        return hasher.hexdigest()
         
-        Args:
-            prompt: Текст промпта для отправки в LLM
-            model: Опциональное указание модели
-            
-        Returns:
-            Ответ от LLM или None в случае ошибки
-        """
-        if not hasattr(self, 'llm_service') or not self.llm_service:
-            logger.error("LLM сервис не инициализирован")
-            return None
-            
-        if not hasattr(self.llm_service, 'generate_text'):
-            logger.error("Метод generate_text не найден в LLM сервисе")
-            return None
-            
-        logger.info(f"Отправка запроса к LLM. Длина промпта: {len(prompt)} символов")
-        logger.debug(f"Используемая модель: {model or self.model}")
-        
-        for attempt in range(self.max_retries):
-            try:
-                # Используем метод generate_text из LLM сервиса
-                response = await self.llm_service.generate_text(
-                    prompt=prompt,
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    model=model or self.model
-                )
-                
-                if not response:
-                    logger.error("Пустой ответ от LLM сервиса")
-                    continue
-                    
-                logger.debug(f"Успешно получен ответ от LLM. Длина: {len(response)} символов")
-                return response
-                
-            except Exception as e:
-                wait_time = self.retry_delay * (attempt + 1)
-                logger.warning(f"Попытка {attempt + 1}/{self.max_retries} не удалась: {str(e)}")
-                
-                if attempt < self.max_retries - 1:
-                    logger.info(f"Повторная попытка через {wait_time} сек...")
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.error(f"Не удалось выполнить запрос после {self.max_retries} попыток")
-                    return None
-        
-        return None
-        
-    def _get_default_analysis(self, username: str) -> Dict[str, Any]:
-        """Возвращает структуру анализа по умолчанию.
-        
-        Args:
-            username: Имя пользователя
-            
-        Returns:
-            Словарь с структурой анализа по умолчанию
-        """
-        return {
-            "name": username,
-            "forensic_analysis": {
-                "topics": [],
-                "sentiment": "не определен",
-                "patterns": [],
-                "defense_mechanisms": [],
-                "hidden_motives": []
-            },
-            "psychological_analysis": {
-                "conflicts": [],
-                "dependencies": [],
-                "manipulation_patterns": [],
-                "questions": []
-            },
-            "cognitive_analysis": {
-                "distortions": [],
-                "beliefs": [],
-                "insights": []
-            },
-            "behavioral_analysis": {
-                "patterns": [],
-                "strategies": [],
-                "difficulties": []
-            },
-            "complex_analysis": {
-                "interconnections": [],
-                "resistance_patterns": []
-            },
-            "transformation_advice": []
-        }
-        
-    async def _analyze_user_messages(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Анализирует сообщения одного пользователя с использованием LLM.
+    def get_messages_hash(self, messages: List[Dict[str, Any]]) -> str:
+        """Генерирует хеш на основе сообщений пользователя.
         
         Args:
             messages: Список сообщений пользователя
             
         Returns:
-            Словарь с результатами анализа, включая психологический профиль
+            Строковый хеш для идентификации набора сообщений
         """
-        logger.info(f"Начало анализа {len(messages)} сообщений пользователя")
         if not messages:
-            logger.warning("Нет сообщений для анализа")
-            return self._get_default_analysis(username="Неизвестный участник")
+            return "empty"
             
-        # Получаем информацию о пользователе из первого сообщения
-        user_info = self._get_user_info(messages[0])
-        username = user_info.get('name', 'Неизвестный участник')
+        # Сортируем сообщения по дате для консистентности
+        sorted_messages = sorted(
+            (msg for msg in messages if isinstance(msg, dict)),
+            key=lambda x: (x.get('date', ''), str(x.get('message_id', '')))
+        )
         
-        # Создаем прогресс-бар для обработки сообщений
-        with tqdm(total=len(messages), desc=f"Анализ сообщений {username}", unit="сообщ.", ncols=100) as pbar:
-            # Формируем текст сообщений
-            processed_messages = []
-            for msg in messages:
-                text = self._extract_text(msg).strip()
-                if text:
-                    processed_messages.append(f"{msg.get('date', '')}: {text}")
-                pbar.update(1)
+        # Создаем строку для хеширования
+        hash_components = [f"total={len(sorted_messages)}"]
+        
+        # Добавляем хешированные части сообщений
+        for msg in sorted_messages:
+            msg_text = str(msg.get('text', ''))
+            msg_date = str(msg.get('date', ''))
+            msg_id = str(msg.get('message_id', ''))
+            
+            # Хешируем длинные тексты для экономии места
+            if len(msg_text) > 100:
+                msg_text = hashlib.md5(msg_text.encode()).hexdigest()
                 
-            messages_text = "\n".join(processed_messages)
+            hash_components.append(f"{msg_date}:{msg_id}:{msg_text[:100]}")
+        
+        # Хешируем финальную строку
+        hash_input = "|".join(hash_components).encode()
+        return hashlib.md5(hash_input).hexdigest()
+    
+    def load_result(self, file_hash: str, user_id: str, messages_hash: str) -> Optional[Dict]:
+        """Загружает результат анализа из кеша.
+        
+        Args:
+            file_hash: Хеш исходного файла
+            user_id: ID пользователя
+            messages_hash: Хеш сообщений пользователя
             
-            if not messages_text.strip():
-                logger.warning("Нет текста для анализа")
-                return self._get_default_analysis(username=username)
+        Returns:
+            Словарь с результатом анализа или None, если не найден
+        """
+        try:
+            # Проверяем, есть ли такой файл в кеше
+            file_meta_path = self.files_dir / f"{file_hash}.json"
+            if not file_meta_path.exists():
+                return None
+                
+            # Проверяем, есть ли у пользователя такой хеш сообщений
+            user_dir = self.users_dir / str(user_id)
+            if not user_dir.exists():
+                return None
+                
+            cache_file = user_dir / f"{messages_hash}.json"
+            if not cache_file.exists():
+                return None
+                
+            # Загружаем кешированный результат
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+            # Проверяем актуальность кеша
+            with open(file_meta_path, 'r', encoding='utf-8') as f:
+                file_meta = json.load(f)
+                
+            if data.get('file_version') != file_meta.get('version'):
+                logger.debug(f"Версия файла изменилась, кеш устарел: {file_hash}")
+                return None
+                
+            logger.debug(f"Загружен кеш для пользователя {user_id}, хеш: {messages_hash}")
+            return data.get('result')
             
-            # Импортируем промпт
-            from relove_bot.services.prompts import PSYCHOLOGICAL_ANALYSIS_PROMPT
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке из кеша: {e}", exc_info=True)
+            return None
+    
+    def save_result(self, file_path: Union[str, Path], user_id: str, 
+                    messages: List[Dict[str, Any]], result: Dict) -> bool:
+        """Сохраняет результат анализа в кеш.
+        
+        Args:
+            file_path: Путь к исходному файлу
+            user_id: ID пользователя
+            messages: Список сообщений пользователя
+            result: Результат анализа
             
-            # Формируем полный промпт с именем пользователя в начале
-            prompt = f"Пользователь: {username}\n\n{PSYCHOLOGICAL_ANALYSIS_PROMPT.format(messages=messages_text)}"
+        Returns:
+            bool: True если сохранение прошло успешно
+        """
+        try:
+            file_path = Path(file_path)
+            file_hash = self.get_file_hash(file_path)
+            messages_hash = self.get_messages_hash(messages)
             
-            # Отправляем запрос к LLM
-            llm_response = await self._make_llm_request(prompt)
+            # Создаем директорию пользователя, если её нет
+            user_dir = self.users_dir / str(user_id)
+            user_dir.mkdir(parents=True, exist_ok=True)
             
-            if not llm_response:
-                logger.error("Пустой ответ от LLM")
-                return self._get_default_analysis(username=username)
+            # Путь к файлу с результатом
+            cache_file = user_dir / f"{messages_hash}.json"
             
-            # Инициализируем response_text перед try-блоком
-            response_text = llm_response.strip('```json').strip('```').strip()
+            # Путь к метаданным файла
+            file_meta_path = self.files_dir / f"{file_hash}.json"
             
-            # Обрабатываем ответ
+            # Создаем/обновляем метаданные файла
+            file_meta = {
+                'file_path': str(file_path.absolute()),
+                'file_size': file_path.stat().st_size,
+                'last_modified': file_path.stat().st_mtime,
+                'version': 1,  # Можно увеличивать при изменении формата
+                'cached_at': datetime.now().isoformat()
+            }
+            
+            # Сохраняем метаданные файла
+            with open(file_meta_path, 'w', encoding='utf-8') as f:
+                json.dump(file_meta, f, ensure_ascii=False, indent=2)
+            
+            # Сохраняем результат анализа
+            cache_data = {
+                'user_id': user_id,
+                'file_hash': file_hash,
+                'messages_hash': messages_hash,
+                'messages_count': len(messages),
+                'first_message_date': messages[0].get('date') if messages else None,
+                'last_message_date': messages[-1].get('date') if messages else None,
+                'file_version': file_meta['version'],
+                'cached_at': datetime.now().isoformat(),
+                'result': result
+            }
+            
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            
+            logger.debug(f"Сохранен кеш для пользователя {user_id}, хеш: {messages_hash}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении в кеш: {e}", exc_info=True)
+            return False
+    
+    def clear_old_cache(self, max_age_days: int = 30) -> int:
+        """Очищает устаревшие записи кеша.
+        
+        Args:
+            max_age_days: Максимальный возраст записи в днях
+            
+        Returns:
+            int: Количество удаленных записей
+        """
+        deleted = 0
+        now = datetime.now()
+        max_age = timedelta(days=max_age_days)
+        
+        # Очищаем устаревшие файлы пользователей
+        for user_dir in self.users_dir.glob('*'):
+            if user_dir.is_dir():
+                for cache_file in user_dir.glob('*.json'):
+                    try:
+                        mtime = datetime.fromtimestamp(cache_file.stat().st_mtime)
+                        if now - mtime > max_age:
+                            cache_file.unlink()
+                            deleted += 1
+                    except Exception as e:
+                        logger.error(f"Ошибка при удалении {cache_file}: {e}")
+        
+        # Очищаем устаревшие метаданные файлов
+        for meta_file in self.files_dir.glob('*.json'):
             try:
-                # Логируем сырой ответ для отладки
-                logger.debug(f"Сырой ответ от LLM: {response_text[:500]}..." if len(response_text) > 500 else f"Сырой ответ от LLM: {response_text}")
-                
-                # Парсим JSON с ответом
-                analysis = json.loads(response_text)
-                
-                # Формируем структурированный результат
-                return {
-                    "name": username,
-                    "forensic_analysis": {
-                        "topics": analysis.get("forensic_analysis", {}).get("topics", []),
-                        "sentiment": analysis.get("forensic_analysis", {}).get("sentiment", "не определен"),
-                        "patterns": analysis.get("forensic_analysis", {}).get("patterns", []),
-                        "defense_mechanisms": analysis.get("forensic_analysis", {}).get("defense_mechanisms", []),
-                        "hidden_motives": analysis.get("forensic_analysis", {}).get("hidden_motives", [])
-                    },
-                    "psychological_analysis": {
-                        "conflicts": analysis.get("psychological_analysis", {}).get("conflicts", []),
-                        "dependencies": analysis.get("psychological_analysis", {}).get("dependencies", []),
-                        "manipulation_patterns": analysis.get("psychological_analysis", {}).get("manipulation_patterns", []),
-                        "questions": analysis.get("psychological_analysis", {}).get("questions", [])
-                    },
-                    "cognitive_analysis": {
-                        "distortions": analysis.get("cognitive_analysis", {}).get("distortions", []),
-                        "beliefs": analysis.get("cognitive_analysis", {}).get("beliefs", []),
-                        "insights": analysis.get("cognitive_analysis", {}).get("insights", [])
-                    },
-                    "behavioral_analysis": {
-                        "patterns": analysis.get("behavioral_analysis", {}).get("patterns", []),
-                        "strategies": analysis.get("behavioral_analysis", {}).get("strategies", []),
-                        "difficulties": analysis.get("behavioral_analysis", {}).get("difficulties", [])
-                    },
-                    "complex_analysis": {
-                        "interconnections": analysis.get("complex_analysis", {}).get("interconnections", []),
-                        "resistance_patterns": analysis.get("complex_analysis", {}).get("resistance_patterns", [])
-                    },
-                    "transformation_advice": analysis.get("transformation_advice", [])
-                }
-                
-            except json.JSONDecodeError as je:
-                logger.error(f"Ошибка декодирования JSON: {je}")
-                # Пытаемся извлечь структурированную информацию из текста
-                return self._extract_structured_info_from_text(response_text)
-            
+                mtime = datetime.fromtimestamp(meta_file.stat().st_mtime)
+                if now - mtime > max_age:
+                    meta_file.unlink()
+                    deleted += 1
             except Exception as e:
-                logger.error(f"Ошибка при анализе сообщений пользователя {username}: {str(e)}", exc_info=True)
-                return self._get_default_analysis(username=username)
+                logger.error(f"Ошибка при удалении {meta_file}: {e}")
+        
+        return deleted
+
+    def _process_llm_response(self, response_text: str, username: str):
+        """Обрабатывает ответ от LLM и возвращает структурированные данные.
+        
+        Args:
+            response_text: Текст ответа от LLM
+            username: Имя пользователя для логирования
+            
+        Returns:
+            Словарь с результатами анализа
+        """
+        try:
+            # Логируем сырой ответ для отладки
+            logger.debug(f"Сырой ответ от LLM: {response_text[:500]}..." if len(response_text) > 500 
+                        else f"Сырой ответ от LLM: {response_text}")
+            
+            # Парсим JSON с ответом
+            analysis = json.loads(response_text)
+            
+            # Формируем структурированный результат
+            return {
+                "name": username,
+                "forensic_analysis": {
+                    "topics": analysis.get("forensic_analysis", {}).get("topics", []),
+                    "sentiment": analysis.get("forensic_analysis", {}).get("sentiment", "не определен"),
+                    "patterns": analysis.get("forensic_analysis", {}).get("patterns", []),
+                    "defense_mechanisms": analysis.get("forensic_analysis", {}).get("defense_mechanisms", []),
+                    "hidden_motives": analysis.get("forensic_analysis", {}).get("hidden_motives", [])
+                },
+                "psychological_analysis": {
+                    "conflicts": analysis.get("psychological_analysis", {}).get("conflicts", []),
+                    "dependencies": analysis.get("psychological_analysis", {}).get("dependencies", []),
+                    "manipulation_patterns": analysis.get("psychological_analysis", {}).get("manipulation_patterns", []),
+                    "questions": analysis.get("psychological_analysis", {}).get("questions", [])
+                },
+                "cognitive_analysis": {
+                    "distortions": analysis.get("cognitive_analysis", {}).get("distortions", []),
+                    "beliefs": analysis.get("cognitive_analysis", {}).get("beliefs", []),
+                    "insights": analysis.get("cognitive_analysis", {}).get("insights", [])
+                },
+                "behavioral_analysis": {
+                    "patterns": analysis.get("behavioral_analysis", {}).get("patterns", []),
+                    "strategies": analysis.get("behavioral_analysis", {}).get("strategies", []),
+                    "difficulties": analysis.get("behavioral_analysis", {}).get("difficulties", [])
+                },
+                "complex_analysis": {
+                    "interconnections": analysis.get("complex_analysis", {}).get("interconnections", []),
+                    "resistance_patterns": analysis.get("complex_analysis", {}).get("resistance_patterns", [])
+                },
+                "transformation_advice": analysis.get("transformation_advice", [])
+            }
+            
+        except json.JSONDecodeError as je:
+            logger.error(f"Ошибка декодирования JSON: {je}")
+            # Пытаемся извлечь структурированную информацию из текста
+            return self._extract_structured_info_from_text(response_text)
+        
+        except Exception as e:
+            logger.error(f"Ошибка при анализе сообщений пользователя {username}: {str(e)}", exc_info=True)
+            return self._get_default_analysis(username=username)
 
 
     def _add_to_result(self, result: Dict[str, Any], field_path: str, value: str) -> None:
@@ -862,10 +693,7 @@ class ChatAnalyzerLLM:
                 "conflicts": [],
                 "dependencies": [],
                 "manipulation_patterns": [],
-                "questions": [],
-                "emotional_state": "не определено",
-                "behavioral_patterns": [],
-                "emotions": []
+                "questions": []
             },
             "cognitive_analysis": {
                 "distortions": [],
@@ -875,18 +703,13 @@ class ChatAnalyzerLLM:
             "behavioral_analysis": {
                 "patterns": [],
                 "strategies": [],
-                "difficulties": [],
-                "coping_mechanisms": []
+                "difficulties": []
             },
             "complex_analysis": {
                 "interconnections": [],
-                "resistance_patterns": [],
-                "systemic_patterns": []
+                "resistance_patterns": []
             },
-            "transformation_advice": [],
-            "key_insights": [],
-            "recommendations": [],
-            "themes": []
+            "transformation_advice": []
         }
 
     def _group_by_user(self, messages: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
@@ -1059,39 +882,6 @@ class ChatAnalyzerLLM:
                 'name': 'Участник',
                 'username': ''
             }
-
-            # Инициализируем переменные
-            user_id = ''
-            name_parts = []
-            username = ''
-            
-            # Пытаемся получить информацию из поля from
-            if 'from' in message:
-                from_field = message['from']
-                if isinstance(from_field, dict):
-                    # Собираем имя из first_name и last_name, если они есть
-                    first_name = from_field.get('first_name', '').strip()
-                    last_name = from_field.get('last_name', '').strip()
-                    
-                    if first_name or last_name:
-                        name_parts = [part for part in [first_name, last_name] if part]
-                    
-                    user_id = str(from_field.get('id', ''))
-                    username = from_field.get('username', '').strip()
-                    
-                    # Если есть username, но нет имени, используем username как имя
-                name = ' '.join(name_parts)
-            
-            # Удаляем лишние пробелы и проверяем, что имя не пустое
-            name = name.strip()
-            if not name:
-                name = f"Участник {user_id[-4:]}" if user_id else "Участник"
-            
-            return {
-                'id': user_id,
-                'name': name,
-                'username': username
-            }
             
         except Exception as e:
             logger.error(f"Ошибка при получении информации о пользователе: {e}")
@@ -1101,208 +891,107 @@ class ChatAnalyzerLLM:
                 'username': ''
             }
 
-    async def analyze_chat(self, data: Dict[str, Any], use_cache: bool = True) -> Dict[str, Any]:
-        """Анализирует чат с использованием LLM для определения психологических профилей участников.
+    def _extract_text(self, msg: Dict[str, Any]) -> str:
+        """Извлекает текст из сообщения, обрабатывая различные форматы.
+        
+        Поддерживает:
+        - Простой текст
+        - Текст с форматированием (вложенные словари с type и text)
+        - Списки текстовых фрагментов
+        """
+        def process_text_item(item):
+            """Обрабатывает отдельный элемент текста, который может быть строкой или словарем."""
+            if isinstance(item, str):
+                return item
+            elif isinstance(item, dict):
+                return item.get('text', '')
+            return ''
+            
+        # Получаем текст сообщения
+        text_content = msg.get('text', msg.get('message', ''))
+                
+        # Обрабатываем разные форматы текста
+        if isinstance(text_content, list):
+            # Если текст представлен списком (например, с форматированием)
+            parts = []
+            for item in text_content:
+                if isinstance(item, dict) and 'text' in item:
+                    parts.append(process_text_item(item))
+                else:
+                    parts.append(str(item))
+            text = ' '.join(parts)
+        elif isinstance(text_content, dict):
+            # Если текст в виде словаря
+            text = process_text_item(text_content)
+        else:
+            # Простой текст
+            text = str(text_content)
+                
+        # Убираем лишние пробелы и переносы строк
+        return ' '.join(text.split())
+
+    def _get_user_info(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """Извлекает информацию о пользователе из сообщения.
+        
+        Возвращает:
+            dict: Словарь с ключами:
+                - id: ID пользователя (из from_id или user_id)
+                - name: Полное имя пользователя
+                - username: Имя пользователя (если есть)
+        """
+        try:
+            # Инициализируем переменные
+            user_id = ''
+            name = ''
+            username = ''
+            
+            # Получаем ID пользователя из разных возможных полей
+            if 'from_id' in message:
+                user_id = str(message['from_id'])
+            elif 'user_id' in message:
+                user_id = str(message['user_id'])
+            
+            # Получаем имя пользователя
+            if 'from' in message and isinstance(message['from'], str):
+                name = message['from']
+            elif 'name' in message:
+                name = str(message['name'])
+            
+            # Получаем username, если есть
+            if 'username' in message:
+                username = str(message['username'])
+            
+            return {
+                'id': user_id,
+                'name': name,
+                'username': username
+            }
+        except Exception as e:
+            logger.error(f"Ошибка при получении информации о пользователе: {e}")
+            return {
+                'id': '',
+                'name': 'Участник',
+                'username': ''
+            }
+
+    def _handle_analysis_error(self, error_msg: str, report_path: str = None) -> Dict[str, Any]:
+        """Обрабатывает ошибку при анализе и возвращает словарь с информацией об ошибке.
         
         Args:
-            data: Данные чата для анализа
-            use_cache: Использовать ли кеширование результатов (по умолчанию True)
+            error_msg: Сообщение об ошибке
+            report_path: Путь к файлу отчета (опционально)
             
         Returns:
-            Dict: Словарь с результатами анализа, включая путь к сохраненному отчету.
+            Словарь с информацией об ошибке
         """
-        logger.info("=== Начало анализа чата ===")
-        logger.info(f"Использование кеша: {'включено' if use_cache else 'отключено'}")
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        
+        result = {"error": error_msg}
+        if report_path:
+            result["report_path"] = str(report_path)
             
-        if not data:
-            error_msg = "Нет данных для анализа: data пуст"
-            logger.error(error_msg)
-            return {"error": error_msg}
-                
-        if 'messages' not in data:
-            error_msg = "Отсутствует ключ 'messages' в данных"
-            logger.error(error_msg)
-            return {"error": error_msg}
-                
-        try:
-            messages = data['messages']
-            if not messages:
-                error_msg = "Список сообщений пуст"
-                logger.error(error_msg)
-                return {"error": error_msg}
-                
-            # Группируем сообщения по пользователям
-            user_messages = self._group_by_user(messages)
-            total_users = len(user_messages)
-            logger.info(f"Найдено уникальных пользователей: {total_users}")
-                
-            if not user_messages:
-                error_msg = "Не удалось сгруппировать сообщения по пользователям"
-                logger.error(error_msg)
-                return {"error": error_msg}
-            
-            # Создаем отчет
-            report = {
-                "metadata": {
-                    "created_at": datetime.now().isoformat(),
-                    "total_users": total_users,
-                    "analyzed_users": 0,
-                    "cached_users": 0,
-                    "failed_users": 0,
-                    "use_cache": use_cache
-                },
-                "results": {}
-            }
-            
-            # Создаем папку для отчета
-            try:
-                today = datetime.now().strftime('%Y-%m-%d')
-                report_dir = Path('reports') / today
-                
-                # Создаем полный путь, если его нет
-                report_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Формируем имя файла отчета
-                safe_flow_name = "".join(c if c.isalnum() or c in ' _-' else '_' 
-                                       for c in data.get('name', 'Неизвестный чат'))
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                report_filename = f"analysis_{safe_flow_name[:50]}_{timestamp}.json"
-                report_path = report_dir / report_filename
-                
-                # Проверяем, что путь доступен для записи
-                if not os.access(report_dir, os.W_OK):
-                    error_msg = f"Нет прав на запись в директорию: {report_dir}"
-                    logger.error(error_msg)
-                    return {"error": error_msg}
-                    
-            except Exception as e:
-                error_msg = f"Ошибка при создании директории для отчета: {str(e)}"
-                logger.error(error_msg, exc_info=True)
-                return {"error": error_msg}
-            
-            # Анализируем каждого пользователя с прогресс-баром (верхний)
-            with tqdm(
-                total=total_users,
-                desc="Анализ пользователей",
-                unit="пользователь",
-                dynamic_ncols=True,
-                position=0,
-                leave=False
-            ) as pbar:
-                # Общий прогресс (нижний)
-                with tqdm(
-                    total=total_users * 2,  # Удваиваем для двух стадий: анализ + сохранение
-                    desc="Общий прогресс",
-                    unit="шаг",
-                    dynamic_ncols=True,
-                    position=1,
-                    leave=True,
-                    bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]'
-                ) as main_pbar:
-                    for user_id, msgs in user_messages.items():
-                        try:
-                            if not msgs or not isinstance(msgs, list):
-                                logger.warning(f"Нет сообщений для пользователя {user_id}")
-                                report["metadata"]["failed_users"] += 1
-                                main_pbar.update(1)  # Обновляем общий прогресс
-                                continue
-                                
-                            try:
-                                user_info = self._get_user_info(msgs[0])
-                                username = user_info.get('name', str(user_id))
-                                pbar.set_description(f"Анализ: {username[:20]}")
-                            except Exception as e:
-                                logger.error(f"Ошибка при получении информации о пользователе {user_id}: {e}")
-                                report["metadata"]["failed_users"] += 1
-                                main_pbar.update(1)  # Обновляем общий прогресс
-                                continue
-                            
-                            # Пытаемся загрузить из кеша
-                            analysis = None
-                            if use_cache:
-                                cached_result = self.cache.get_cached_result(user_id, msgs)
-                                if cached_result:
-                                    analysis = cached_result['data']
-                                    report["metadata"]["cached_users"] += 1
-                                    logger.info(f"Использован кеш для пользователя {username}")
-                            
-                            # Если не нашли в кеше, анализируем
-                            if not analysis:
-                                logger.info(f"Анализ пользователя {username}")
-                                analysis = await self._analyze_with_prompt(msgs, user_info, "event")
-                                if isinstance(analysis, dict) and not analysis.get('error'):
-                                    # Сохраняем в кеш
-                                    cache_path = self.cache.save_result(user_id, msgs, analysis)
-                                    if cache_path:
-                                        logger.debug(f"Результат сохранен в кеш: {cache_path}")
-                            
-                            # Добавляем в результаты
-                            if isinstance(analysis, dict) and not analysis.get('error'):
-                                report["results"][user_id] = analysis
-                                report["metadata"]["analyzed_users"] += 1
-                            
-                            # Сохраняем промежуточные результаты
-                            self._save_report(report, report_path)
-                            
-                        except Exception as e:
-                            username = user_info.get('name', str(user_id)) if 'user_info' in locals() else str(user_id)
-                            error_msg = f"Ошибка при анализе пользователя {username}: {str(e)}"
-                            logger.error(error_msg, exc_info=True)
-                            report["metadata"]["failed_users"] += 1
-                        finally:
-                            pbar.update(1)  # Обновляем прогресс анализа пользователей
-                            main_pbar.update(1)  # Обновляем общий прогресс
-            
-            # Завершаем отчет
-            report["metadata"]["completed_at"] = datetime.now().isoformat()
-            
-            if not report["results"]:
-                error_msg = "Не удалось проанализировать ни одного пользователя"
-                logger.error(error_msg)
-                return {"error": error_msg}
-            
-            # Сохраняем финальный отчет
-            self._save_report(report, report_path)
-            
-            # Генерируем текстовый отчет
-            flow_name = f"{data.get('name', 'Неизвестный чат')}"
-            if 'date' in data:
-                try:
-                    chat_date = datetime.fromisoformat(data['date'].replace('Z', '+00:00'))
-                    flow_name += f" от {chat_date.strftime('%d.%m.%Y')}"
-                except (ValueError, TypeError):
-                    pass
-                    
-            text_report = self._generate_text_report(report["results"], flow_name)
-            text_report_path = report_path.with_suffix('.txt')
-            
-            try:
-                with open(text_report_path, 'w', encoding='utf-8', errors='replace') as f:
-                    f.write(text_report)
-                
-                logger.info(f"Отчет успешно сохранен: {report_path}")
-                logger.info(f"Текстовый отчет: {text_report_path}")
-                
-                return {
-                    "success": True,
-                    "report_path": str(report_path),
-                    "text_report_path": str(text_report_path),
-                    "stats": report["metadata"]
-                }
-                
-            except Exception as e:
-                error_msg = f"Ошибка при сохранении текстового отчета: {str(e)}"
-                logger.error(error_msg)
-                return {
-                    "error": error_msg,
-                    "report_path": str(report_path) if 'report_path' in locals() else None
-                }
-                
-        except Exception as e:
-            error_msg = f"Критическая ошибка при анализе чата: {str(e)}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
-            return {"error": error_msg}
+        return result
 
     def _get_section_content(self, data: Dict, section: str, field: str, default: Any = 'не выявлено') -> str:
         """Получает содержимое секции отчета с обработкой ошибок."""
@@ -1777,14 +1466,22 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Анализ чата с помощью LLM')
     
     # Основные аргументы
-    parser.add_argument('--input', '-i', type=str, required=True,
-                      help='Путь к файлу с экспортом чата (JSON)')
+    default_input = os.getenv('CHAT_EXPORT_PATH')
+    parser.add_argument(
+        '--input',
+        type=str,
+        required=not bool(default_input),
+        default=default_input,
+        help='Путь к входному JSON-файлу с сообщениями чата или директории с файлами. '
+             'Если не указан, берется из переменной окружения CHAT_EXPORT_PATH.'
+    )
+    parser.add_argument(
+        '--output',
+        type=str,
+        help='Путь для сохранения отчета (по умолчанию: reports/analysis_<timestamp>.<json|txt>)'
+    )
     
     # Параметры для формирования имени отчета
-    parser.add_argument('--event', '-e', type=str, required=True,
-                      help='Название события (например, "Женский поток")')
-    parser.add_argument('--date', '-d', type=str, default=None,
-                      help='Дата в формате ГГГГ-ММ-ДД (по умолчанию текущая дата)')
     parser.add_argument('--output-dir', type=str, default='reports',
                       help='Директория для сохранения отчетов (по умолчанию: reports)')
     
@@ -1797,18 +1494,43 @@ def parse_args():
     cache_group.add_argument('--cache-dir', type=str, default='.analysis_cache',
                            help='Директория для хранения кеша (по умолчанию: .analysis_cache)')
     
+    # Формат вывода
+    output_group = parser.add_argument_group('Настройки вывода')
+    output_group.add_argument('--format', type=str, choices=['json', 'text'], default='text',
+                            help='Формат вывода отчета (json или text)')
+    output_group.add_argument('--output-extension', type=str, default=None,
+                            help='Расширение выходного файла (по умолчанию: .md для text, .json для json)')
+    
     # Парсим аргументы
     args = parser.parse_args()
     
-    # Обрабатываем дату
-    if args.date:
+    # Функция для извлечения информации о чате из JSON
+    def extract_chat_info(input_path):
         try:
-            date_obj = datetime.strptime(args.date, '%Y-%m-%d')
-        except ValueError:
-            print("Ошибка: неверный формат даты. Используйте ГГГГ-ММ-ДД")
-            sys.exit(1)
-    else:
-        date_obj = current_date
+            with open(input_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+            # Извлекаем название чата и удаляем префикс 'reLove ЧАТ '
+            chat_name = data.get('name', '')
+            event_name = re.sub(r'^reLove\s*ЧАТ\s*', '', chat_name).strip()
+            
+            # Ищем дату в сообщениях
+            chat_date = current_date
+            for msg in data.get('messages', [])[:100]:  # Проверяем первые 100 сообщений
+                if 'date' in msg:
+                    try:
+                        chat_date = datetime.strptime(msg['date'].split('T')[0], '%Y-%m-%d')
+                        break
+                    except (ValueError, IndexError):
+                        continue
+                        
+            return event_name, chat_date
+        except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
+            logger.warning(f'Не удалось извлечь информацию из JSON: {e}')
+            return 'Неизвестное событие', current_date
+    
+    # Извлекаем информацию о чате
+    event_name, chat_date = extract_chat_info(args.input)
     
     # Словарь с русскими названиями месяцев
     month_ru = {
@@ -1817,16 +1539,24 @@ def parse_args():
         9: 'Сентябрь', 10: 'Октябрь', 11: 'Ноябрь', 12: 'Декабрь'
     }
     
-    # Формируем имя файла: "Событие Месяц ГГГГ.md"
-    event_name = ' '.join(args.event.split())  # Удаляем лишние пробелы
-    filename = f"{event_name} {month_ru[date_obj.month]} {date_obj.year}.md"
+    # Формируем имя файла: "Название_чата Месяц ГГГГ"
+    filename = f"{event_name} {month_ru[chat_date.month]} {chat_date.year}.md"
     
     # Создаем директорию для отчетов, если её нет
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    # Определяем расширение файла на основе формата
+    if args.output_extension:
+        file_extension = args.output_extension
+    else:
+        file_extension = '.json' if args.format == 'json' else '.md'
+    
+    # Убираем существующее расширение, если оно есть
+    base_filename = os.path.splitext(filename)[0]
+    
     # Добавляем полный путь к файлу отчета в аргументы
-    args.report_path = output_dir / filename
+    args.report_path = output_dir / f"{base_filename}{file_extension}"
     
     return args
 
@@ -1891,9 +1621,12 @@ async def main():
         use_cache = not args.no_cache
         result = None
         
+        # Для кеширования всего чата используем фиксированный идентификатор
+        chat_id = "chat_analysis"
+        
         if use_cache:
             logger.info("Проверка кеша...")
-            result = cache.load_result(chat_export_path)
+            result = cache.load_result(chat_export_path, chat_id)
             if result:
                 logger.info("Найден валидный кеш, используем его")
             else:
@@ -1907,16 +1640,20 @@ async def main():
             logger.info("Инициализация анализатора чата...")
             analyzer = ChatAnalyzerLLM()
             
-            # Запускаем анализ
+            # Запускаем анализ с указанным форматом
             logger.info(f"Запуск анализа чата из файла: {chat_export_path}")
             try:
                 logger.info("=== Начало анализа чата ===")
-                result = await analyzer.analyze_chat(chat_data)
+                result = await analyzer.analyze_chat(
+                    chat_data, 
+                    use_cache=use_cache,
+                    output_format=args.format
+                )
                 logger.info("Анализ завершен успешно")
                 
                 # Сохраняем результат в кеш, если он не отключен
                 if use_cache:
-                    cache_path = cache.save_result(chat_export_path, result)
+                    cache_path = cache.save_result(chat_export_path, chat_id, result)
                     if cache_path:
                         logger.info(f"Результат анализа сохранен в кеш: {cache_path}")
                     else:

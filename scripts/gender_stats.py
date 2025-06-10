@@ -10,10 +10,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # Загружаем переменные окружения
 load_dotenv()
 
-from relove_bot.db.database import setup_database, async_engine, AsyncSessionFactory
+from relove_bot.db.database import setup_database, AsyncSessionFactory
 from relove_bot.db.models import User
 from relove_bot.config import settings
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 async def get_gender_stats():
@@ -21,6 +20,7 @@ async def get_gender_stats():
     await setup_database()
     
     # Проверяем, что AsyncSessionFactory инициализирован
+    print(f"AsyncSessionFactory: {AsyncSessionFactory}")
     if AsyncSessionFactory is None:
         raise RuntimeError("AsyncSessionFactory не инициализирован. Проверьте настройки базы данных.")
     
@@ -36,8 +36,12 @@ async def get_gender_stats():
         
         # Выводим результат
         print("Статистика по полу:")
+        total = 0
         for gender, count in result:
+            total += count
             print(f"{gender}: {count} пользователей")
+        
+        print(f"\nВсего пользователей: {total}")
 
 if __name__ == "__main__":
     asyncio.run(get_gender_stats())

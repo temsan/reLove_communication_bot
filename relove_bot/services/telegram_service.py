@@ -5,12 +5,17 @@ import os
 import re
 import sys
 import time
-from typing import Optional, Any, Dict, List, Tuple, Union, AsyncGenerator
+import traceback
+from typing import Optional, Any, Dict, List, Tuple, Union, AsyncGenerator, Set
 
 from telethon import TelegramClient, events
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.functions.channels import GetParticipantRequest, GetParticipantsRequest, GetFullChannelRequest, GetChannelsRequest
-from telethon.tl.types import ChannelParticipantsSearch, Channel, Message, User, UserProfilePhoto
+from telethon.tl.types import (
+    ChannelParticipantsSearch, Channel, Message, User, UserProfilePhoto, 
+    User as TelegramUser, ChannelParticipantsRecent, ChannelParticipantsAdmins,
+    ChannelParticipantsBots
+)
 from telethon.errors import ChatAdminRequiredError, ChannelPrivateError, UserNotParticipantError, FloodWaitError
 from tqdm.asyncio import tqdm
 from io import BytesIO
@@ -157,21 +162,27 @@ async def analyze_photo_via_llm(photo_bytes: bytes) -> str:
 
 async def openai_psychological_summary(text: str, image_url: str = None) -> str:
     """
-    Отправляет текст и/или фото в LLM.analyze_content и возвращает психологический портрет пользователя.
+    Отправляет текст и/или фото в LLM.analyze_content и возвращает психологический портрет пользователя
+    в стиле "Безжалостное Зеркало Правды".
     """
+    from . import prompts
+    
     llm = LLM()
-    prompt = "Ты — профессиональный психолог. Проанализируй личность пользователя по представленному тексту и/или фото. Дай краткий, информативный портрет."
+    
+    # Получаем промпт в стиле "Безжалостное Зеркало Правды"
+    prompt = prompts._get_text_prompt(text)
+    
     try:
         result = await llm.analyze_content(
             text=text,
             image_url=image_url,
             system_prompt=prompt,
-            max_tokens=256
+            max_tokens=1024  # Увеличиваем лимит токенов для более развернутого анализа
         )
         return result["summary"]
     except Exception as e:
         logging.error(f"Ошибка при генерации психологического профиля: {e}")
-        return None
+        return "Не удалось сгенерировать анализ. Пожалуйста, попробуйте позже."
 
 async def get_full_psychological_summary(user_id: int, main_channel_id: Optional[str] = None, tg_user=None, posts: Optional[list] = None) -> tuple[str, bytes, list]:
     """
@@ -352,7 +363,7 @@ async def get_personal_channel_entity(user_id: int) -> Optional[Channel]:
         full_user = await get_full_user(user_id)
         if full_user:
             channel = await asyncio.wait_for(
-                (await get_client())(GetChannelRequest(full_user.id)),
+                (await get_client())(GetFullChannelRequest(full_user.id)),
                 timeout=30
             )
             return channel
@@ -416,44 +427,66 @@ async def get_user_profile_summary(user_id: int, main_channel_id: Optional[str] 
         main_channel_id: ID основного канала (опционально)
     
     Returns:
-        Кортеж (summary, photo_bytes, streams) или (None, None, []) в случае ошибки
+        Кортеж (summary, photo_bytes, streams) или ("", None, []) в случае ошибки
     """
     client = None
+    client = None
     try:
+        logger.info(f"Инициализация клиента для пользователя {user_id}...")
         client = await get_bot_client()
         if not client or not client.is_connected():
             logger.error("Не удалось подключиться к клиенту Telegram")
-            return None, None, []
+            return "", None, []
             
-        user = await client.get_entity(user_id)
-        if not user:
-            logger.error(f"Пользователь {user_id} не найден")
-            return None, None, []
+        logger.info(f"Получение сущности пользователя {user_id}...")
+        try:
+            user = await client.get_entity(user_id)
+            if not user:
+                logger.error(f"Пользователь {user_id} не найден")
+                return "", None, []
+        except Exception as e:
+            logger.error(f"Ошибка при получении данных пользователя {user_id}: {e}")
+            return "", None, []
             
         logger.debug(f"Получение профиля пользователя {user_id} (username: {getattr(user, 'username', 'N/A')})")
         
-        result = await get_full_psychological_summary(user_id, main_channel_id=main_channel_id, tg_user=user)
-        if not result or len(result) != 3:
-            logger.error(f"Некорректный формат результата для пользователя {user_id}")
-            return None, None, []
+        try:
+            logger.info(f"Запуск get_full_psychological_summary для пользователя {user_id}...")
+            result = await get_full_psychological_summary(user_id, main_channel_id=main_channel_id, tg_user=user)
             
-        summary, photo_bytes, streams = result
-        
-        # Проверяем типы возвращаемых значений
-        if not isinstance(summary, str) or not isinstance(streams, list):
-            logger.error(f"Некорректные типы данных в результате для пользователя {user_id}")
-            return None, None, []
+            if not result or len(result) != 3:
+                logger.error(f"Некорректный формат результата для пользователя {user_id}")
+                return "", None, []
+                
+            summary, photo_bytes, streams = result
             
-        # Проверяем, что photo_bytes - это bytes или None
-        if photo_bytes is not None and not isinstance(photo_bytes, (bytes, bytearray)):
-            logger.warning(f"Некорректный тип photo_bytes для пользователя {user_id}, преобразуем в None")
-            photo_bytes = None
+            # Проверяем типы возвращаемых значений
+            if not summary or not isinstance(summary, str):
+                logger.error(f"Некорректный тип summary для пользователя {user_id}")
+                return "", None, []
+                
+            if not isinstance(streams, list):
+                logger.warning(f"Некорректный тип streams для пользователя {user_id}, преобразуем в пустой список")
+                streams = []
+                
+            # Проверяем, что photo_bytes - это bytes или None
+            if photo_bytes is not None and not isinstance(photo_bytes, (bytes, bytearray)):
+                logger.warning(f"Некорректный тип photo_bytes для пользователя {user_id}, преобразуем в None")
+                photo_bytes = None
+                
+            logger.info(f"Успешно получен профиль для пользователя {user_id}")
+            return summary, photo_bytes, streams
             
-        return summary, photo_bytes, streams
+        except asyncio.TimeoutError:
+            logger.error(f"Таймаут при получении профиля пользователя {user_id}")
+            return "", None, []
+        except Exception as e:
+            logger.error(f"Ошибка при обработке профиля пользователя {user_id}: {e}", exc_info=True)
+            return "", None, []
         
     except Exception as e:
         logger.error(f"Ошибка при получении профиля пользователя {user_id}: {e}", exc_info=True)
-        return None, None, []
+        return "", None, []
         
     finally:
         if client:
@@ -463,6 +496,8 @@ async def get_user_profile_summary(user_id: int, main_channel_id: Optional[str] 
                     await client.disconnect()
             except Exception as e:
                 logger.warning(f"Ошибка при отключении клиента: {e}")
+                pass
+
 
 async def get_user_gender(user_id: int, client=None, tg_user=None) -> GenderEnum:
     """
@@ -540,7 +575,7 @@ async def get_user_gender(user_id: int, client=None, tg_user=None) -> GenderEnum
         logger.error(f"Критическая ошибка при определении пола пользователя {user_id}: {e}", exc_info=True)
     
     logger.info("Не удалось определить пол пользователя, используется значение по умолчанию: unknown")
-    return GenderEnum.unknown
+    return GenderEnum.female
 
 async def get_channel_participants_count(channel_id_or_username: str):
     """
@@ -567,240 +602,332 @@ async def get_channel_participants_count(channel_id_or_username: str):
         logger.error(f"Ошибка при получении количества участников канала: {e}")
         raise
 
-async def get_full_user(user_id: int, client=None):
-    """
-    Получает полную информацию о пользователе через GetFullUserRequest.
-    
-    Args:
-        user_id: ID пользователя
-        client: Существующий клиент Telethon (опционально)
-    
-    Returns:
-        Объект User с информацией о пользователе или None, если пользователь не найден
-    """
-    max_retries = settings.llm_attempts
-    retry_count = 0
-    
-    while retry_count < max_retries:
+async def get_full_user(user_id: int) -> Optional[User]:
+    """Получает полную информацию о пользователе."""
+    try:
+        logger.info(f"[DEBUG] get_full_user: пытаюсь получить пользователя {user_id}")
+        client = await get_client()
+        
         try:
-            if not client or not client.is_connected():
-                client = await get_client()
-                if not client.is_connected():
-                    await client.start()
-                if not await client.is_user_authorized():
-                    raise RuntimeError("User not authorized. Please log in first.")
-            
+            logger.info(f"[DEBUG] get_full_user: запрашиваю entity для {user_id}")
+            user = await client.get_entity(user_id)
+            if not user:
+                logger.error(f"[DEBUG] get_full_user: пользователь {user_id} не найден")
+                return None
+                
             # Получаем полную информацию о пользователе
-            full_user = await client(GetFullUserRequest(user_id))
-            
-            if not full_user or not full_user.users:
-                logger.warning(f"Пользователь с ID {user_id} не найден")
+            full_user = await client(GetFullUserRequest(user))
+            if not full_user:
+                logger.error(f"[DEBUG] get_full_user: не удалось получить полную информацию о пользователе {user_id}")
                 return None
                 
-            # Возвращаем объект User
-            return full_user.users[0]
+            # Возвращаем сам объект пользователя, а не UserFull
+            return user
             
-        except Exception as e:
-            retry_count += 1
-            if retry_count >= max_retries:
-                if 'A wait of' in str(e) and 'seconds is required' in str(e):
-                    wait_time = int(re.search(r'A wait of (\d+) seconds', str(e)).group(1))
-                    hours, remainder = divmod(wait_time, 3600)
-                    minutes, seconds = divmod(remainder, 60)
-                    formatted_time = f"{hours} часов, {minutes} минут, {seconds} секунд"
-                    logger.error(f"Необходимо подождать {formatted_time} перед повторной попыткой.")
-                    await asyncio.sleep(wait_time)
-                    continue
-                logger.error(f"Ошибка при получении информации о пользователе {user_id} (попытка {retry_count}/{max_retries}): {e}")
-                return None
-                
-            wait_time = 5 * retry_count
-            logger.warning(f"Повторная попытка {retry_count}/{max_retries} через {wait_time} секунд...")
-            # await asyncio.sleep(wait_time)
+        except FloodWaitError as e:
+            wait_time = e.seconds
+            logger.warning(f"Достигнут лимит запросов. Ожидание {wait_time} секунд...")
+            await asyncio.sleep(wait_time)
+            return await get_full_user(user_id)  # Рекурсивный вызов после ожидания
+            
+    except Exception as e:
+        logger.error(f"[DEBUG] get_full_user: ошибка при получении пользователя {user_id}: {e}")
+        logger.error(str(e))
+        logger.error(traceback.format_exc())
+        return None
 
-async def get_channel_users(channel_id_or_username: str, batch_size: int = 200, max_retries: int = 3, show_progress: bool = True):
-    """
-    Асинхронно получает всех пользователей из канала порциями.
+async def get_channel_users(channel_id_or_username: str, batch_size: int = 100, max_retries: int = 3, show_progress: bool = True):
+    """Получает список пользователей канала с возможностью пакетной загрузки.
     
     Args:
         channel_id_or_username: ID или username канала
-        batch_size: размер пакета для получения участников (максимум 200)
-        max_retries: максимальное количество повторных попыток при ошибках
-        show_progress: показывать ли индикатор выполнения
-    
+        batch_size: Количество пользователей в одной пачке
+        max_retries: Максимальное количество попыток при ошибках
+        show_progress: Показывать прогресс-бар
+        
     Yields:
-        int: ID пользователей из канала
+        int: ID пользователя
     """
+    if not channel_id_or_username:
+        logger.error("Ошибка: не указан channel_id_or_username")
+        raise ValueError("Необходимо указать ID или username канала")
+        
     client = None
     retry_count = 0
-    processed_count = 0
-    total_users = 0
-    pbar = None
-    start_time = time.time()
     processed = 0
+    pbar = None
+    channel_name = str(channel_id_or_username)
+    
+    # Список символов для поиска
+    search_chars = (
+        'abcdefghijklmnopqrstuvwxyz'  # английский алфавит
+        'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'  # русский алфавит
+        '0123456789'  # цифры
+    )
     
     while retry_count <= max_retries:
         try:
-            if not client or not client.is_connected():
+            # Инициализация клиента с проверкой подключения
+            if client is None or not client.is_connected():
                 client = await get_client()
                 if not client.is_connected():
                     await client.start()
                 if not await client.is_user_authorized():
                     raise RuntimeError("User not authorized. Please log in first.")
             
-            # Получаем канал и общее количество участников
-            channel = await client.get_entity(channel_id_or_username)
-            if channel is None or not isinstance(channel, Channel):
-                logger.error(f"Не удалось получить канал по идентификатору: {channel_id_or_username}")
-                raise ValueError(f"Некорректный идентификатор канала: {channel_id_or_username}")
-            channel_name = getattr(channel, 'title', str(getattr(channel, 'id', 'N/A')))
+            # Получаем канал с обработкой ошибок
+            try:
+                channel = await client.get_entity(channel_id_or_username)
+                if channel is None or not isinstance(channel, Channel):
+                    error_msg = f"Некорректный идентификатор канала: {channel_id_or_username} (получен тип: {type(channel)})"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
+                
+                channel_name = getattr(channel, 'title', 'Без названия')
+                channel_id = getattr(channel, 'id', 'N/A')
+                logger.info(f"Успешно получили сущность канала: {channel_name} (ID: {channel_id})")
+                
+            except Exception as e:
+                error_msg = f"Ошибка при получении сущности канала {channel_id_or_username}: {e}"
+                logger.error(error_msg)
+                logger.error(f"Тип ошибки: {type(e).__name__}")
+                logger.error(f"Полный traceback: {traceback.format_exc()}")
+                raise RuntimeError(error_msg) from e
             
             # Получаем общее количество участников для прогресс-бара
-            full_chat = await client(GetFullChannelRequest(channel=channel))
-            total_users = getattr(full_chat.full_chat, 'participants_count', 0)
+            total_users = 0
+            try:
+                full_chat = await client(GetFullChannelRequest(channel=channel))
+                total_users = getattr(full_chat.full_chat, 'participants_count', 0)
+                logger.info(f"Всего участников в канале {channel_name}: {total_users}")
+            except Exception as e:
+                logger.warning(f"Не удалось получить количество участников: {e}")
+                logger.warning("Будет отображаться только прогресс обработки")
             
-            # Инициализируем прогресс-бар
-            if show_progress and total_users > 0:
-                pbar = tqdm(
-                    total=total_users,
-                    desc=f"{channel_name[:20]}..." if len(channel_name) > 20 else channel_name,
-                    unit="польз.",
-                    bar_format='{l_bar}{bar:50}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]',
-                    ncols=120,
-                    ascii=' =',
-                    miniters=1,
-                    dynamic_ncols=True,
-                    leave=False,
-                    position=0
-                )
-            
-            # Используем итератор участников канала с пагинацией
-            async for user in client.iter_participants(channel, limit=None, aggressive=False):
-                # Добавляем небольшую задержку между запросами
-                # await asyncio.sleep(1)  # 1 секунда задержки между запросами
+            # Инициализируем прогресс-бар с упрощенным форматом
+            if show_progress:
                 try:
-                    # Пропускаем ботов и удаленные аккаунты
-                    if getattr(user, 'bot', False) or getattr(user, 'deleted', False):
-                        if pbar is not None:
-                            pbar.total -= 1
-                            pbar.refresh()
-                        continue
-                        
-                    logger.debug(f"Обработка пользователя: {getattr(user, 'username', '')} (ID: {getattr(user, 'id', 'N/A')})")
-                    
-                    # Если функция используется как генератор, возвращаем ID пользователя
-                    user_id = user.id
-                    yield user_id
-                    
-                    # Обновляем прогресс-бар для каждого обработанного пользователя
-                    if show_progress and pbar is not None:
-                        pbar.update(1)
-                        processed += 1
-                        pbar.set_postfix_str(f"Обработано: {processed}", refresh=True)
-                    
-                    # Добавляем небольшую задержку каждые batch_size пользователей
-                    if processed % batch_size == 0:
-                        # await asyncio.sleep(0.5)
-                        # Обновляем описание каждые 100 пользователей
-                        if processed % 100 == 0 and pbar is not None:
-                            pbar.set_description(f"{channel_name[:15]}..." if len(channel_name) > 15 else channel_name)
-                        
+                    pbar = tqdm(
+                        total=total_users if total_users > 0 else None,
+                        desc=f"{channel_name[:20]}..." if len(channel_name) > 20 else channel_name,
+                        unit="польз.",
+                        bar_format='{l_bar}{bar:50}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]',
+                        ncols=120,
+                        ascii=' =',
+                        miniters=1,
+                        dynamic_ncols=True,
+                        leave=False,
+                        position=0
+                    )
+                    # Добавляем начальное сообщение о статусе
+                    pbar.set_description(f"{pbar.desc} (сбор)")
                 except Exception as e:
-                    user_id = getattr(user, 'id', 'N/A')
-                    username = getattr(user, 'username', 'N/A')
+                    logger.error(f"Ошибка при инициализации прогресс-бара: {e}")
+                    pbar = None
+            
+            # Обрабатываем пользователей порциями
+            total_processed = 0
+            current_batch = []
+            consecutive_errors = 0
+            max_consecutive_errors = 10
+            
+            try:
+                # Используем GetParticipantsRequest для получения всех участников
+                offset = 0
+                limit = 200  # Максимальный размер одной выборки
+                
+                # Список фильтров для получения разных типов участников
+                filters = [
+                    ChannelParticipantsAdmins(),
+                    ChannelParticipantsBots(),
+                    ChannelParticipantsRecent()  # Недавние участники
+                ]
+                
+                # Добавляем фильтры поиска по каждому символу
+                for char in search_chars:
+                    filters.append(ChannelParticipantsSearch(char))
+                
+                for filter_type in filters:
+                    offset = 0  # Сбрасываем offset для каждого фильтра
                     
-                    # Пропускаем логирование ошибок о лимитах API
-                    if "A wait of" in str(e) and "seconds is required" in str(e):
-                        wait_time = int(str(e).split("A wait of ")[1].split(" seconds")[0])
+                    while True:
+                        try:
+                            # Проверяем подключение и переподключаемся при необходимости
+                            if not client.is_connected():
+                                logger.warning("Соединение потеряно. Переподключение...")
+                                await client.connect()
+                                if not await client.is_user_authorized():
+                                    raise RuntimeError("User not authorized after reconnection")
+                            
+                            # Получаем участников с текущим фильтром
+                            participants = await client(GetParticipantsRequest(
+                                channel=channel,
+                                filter=filter_type,
+                                offset=offset,
+                                limit=limit,
+                                hash=0
+                            ))
+                            
+                            if not participants or not hasattr(participants, 'users') or not participants.users:
+                                break
+                                
+                            for user in participants.users:
+                                try:
+                                    # Проверяем, что у пользователя есть ID
+                                    if not hasattr(user, 'id') or not user.id:
+                                        continue
+                                    
+                                    # Добавляем пользователя в текущую пачку
+                                    current_batch.append(user)
+                                    total_processed += 1
+                                    processed += 1
+                                    
+                                    # Обновляем прогресс-бар
+                                    if pbar is not None:
+                                        try:
+                                            pbar.update(1)
+                                            pbar.set_postfix_str(f"Обработано: {pbar.n}")
+                                        except Exception as pb_error:
+                                            logger.warning(f"Ошибка при обновлении прогресс-бара: {pb_error}")
+                                    
+                                    # Если набрали нужное количество пользователей, возвращаем их
+                                    if len(current_batch) >= batch_size:
+                                        for batch_user in current_batch:
+                                            yield batch_user.id
+                                        current_batch = []
+                                        # Добавляем небольшую задержку между пачками
+                                        await asyncio.sleep(0.5)  # Увеличиваем задержку до 500мс
+                                        
+                                except Exception as e:
+                                    logger.warning(f"Ошибка при обработке пользователя: {e}")
+                                    continue
+                            
+                            offset += len(participants.users)
+                            if len(participants.users) < limit:
+                                break
+                                
+                            # Добавляем задержку между запросами
+                            await asyncio.sleep(0.5)  # Увеличиваем задержку до 500мс
+                                
+                        except Exception as e:
+                            logger.error(f"Ошибка при получении участников: {e}")
+                            retry_count += 1
+                            if retry_count > max_retries:
+                                break
+                            await asyncio.sleep(1)  # Уменьшаем задержку до 1 секунды
+                            continue
+                
+                # Обрабатываем оставшихся пользователей
+                if current_batch:
+                    for batch_user in current_batch:
+                        yield batch_user.id
+                
+                logger.info(f"Все пользователи обработаны. Всего: {total_processed}")
+                return
+                
+            except Exception as e:
+                logger.error(f"Ошибка при получении пользователей: {e}")
+                retry_count += 1
+                if retry_count > max_retries:
+                    logger.error(f"Достигнуто максимальное количество попыток ({max_retries}). Прерываем.")
+                    break
+                
+                await asyncio.sleep(1)  # Уменьшаем задержку до 1 секунды
+                logger.info(f"Повторная попытка {retry_count}/{max_retries}...")
+            
+            # Закрываем прогресс-бар после завершения
+            if pbar is not None:
+                pbar.close()
+                
+            logger.info(f"Обработка пользователей канала завершена. Всего обработано: {total_processed}")
+            return
+            
+        except Exception as e:
+            error_msg = str(e).lower()
+            logger.error(f"Ошибка при итерации по пользователям: {e}", exc_info=True)
+            
+            if "a wait of" in error_msg and "seconds is required" in error_msg:
+                try:
+                    wait_match = re.search(r'a wait of (\d+) seconds', error_msg)
+                    if wait_match:
+                        wait_time = min(5, int(int(wait_match.group(1)) / 2))  # Ограничиваем время ожидания до 5 секунд
                         logger.warning(f"Достигнут лимит запросов. Ожидание {wait_time} секунд...")
-                        # await asyncio.sleep(wait_time)
+                        if pbar is not None:
+                            try:
+                                pbar.set_description(f"{pbar.desc.split(' (')[0]} (ожидание {wait_time}с)")
+                            except Exception:
+                                pass
+                        await asyncio.sleep(wait_time)
                         continue
-                    
-                    # Для других ошибок логируем только первые 10 символов ID
-                    error_id = str(user_id)[:10] + '...' if len(str(user_id)) > 10 else user_id
-                    logger.error(f"Ошибка при обработке пользователя {username} (ID: {error_id}): {str(e)[:100]}...")
-                    
-                    if pbar is not None:
-                        pbar.update(1)
-                        
-                    # Добавляем дополнительную задержку после ошибки
-                    # await asyncio.sleep(2)
-                    continue
-                    
-            # Если дошли сюда, значит, все участники обработаны успешно
-            if pbar is not None:
-                pbar.close()
-            return  # Выходим при успешном завершении
+                except Exception as wait_err:
+                    logger.error(f"Ошибка при обработке времени ожидания: {wait_err}")
             
-        except Exception as e:
             retry_count += 1
-            if pbar is not None:
-                pbar.close()
-                pbar = None
-                
+            
             if retry_count > max_retries:
-                logger.error(f"Превышено максимальное количество попыток ({max_retries}) при получении пользователей из канала: {e}")
+                error_msg = f"Превышено максимальное количество попыток ({max_retries}) при обработке канала {channel_name}"
+                logger.error(error_msg)
+                if pbar is not None:
+                    try:
+                        pbar.set_description(f"{pbar.desc.split(' (')[0]} (ошибка)")
+                    except Exception:
+                        pass
                 break
-                
-            wait_time = 5 * retry_count  # Экспоненциальная задержка
-            logger.warning(f"Повторная попытка {retry_count}/{max_retries} через {wait_time} сек...")
-            # await asyncio.sleep(wait_time)
-            continue
-
-async def get_personal_channel_posts(user_id: int, limit: int = 100):
-    """
-    Получает посты из личного канала пользователя (через personal_channel_id или fallback по username/bio).
-    """
-    client = await get_client()
-    user = await client.get_entity(user_id)
-    posts = []
-    channel_link = None
-
-    # 1. Прямое получение через personal_channel_id
-    try:
-        entity = await get_personal_channel_entity(user_id)
-        if entity:
-            channel_link = entity.username
-    except Exception as e:
-        logging.info(f"[get_personal_channel_posts] Не удалось получить личный канал через personal_channel_id: {e}")
-
-    # 2. Если не нашли через personal_channel_id, ищем в bio
-    if not channel_link:
-        bio = getattr(user, 'about', '') or ''
-        if bio:
-            # Ищем @username или t.me/username
-            match = re.search(r'(@\w+)|(t\.me/\w+)', bio)
-            if match:
-                username = match.group(1)[1:] if match.group(1) else match.group(2).split('/')[-1]
+            
+            await asyncio.sleep(1)  # Уменьшаем задержку до 1 секунды
+            logger.warning(f"Повторная попытка {retry_count}/{max_retries}...")
+            
+            if pbar is not None:
                 try:
-                    entity = await client.get_entity(username)
-                    if hasattr(entity, 'broadcast') or hasattr(entity, 'megagroup'):
-                        channel_link = username
-                except Exception as e:
-                    logging.info(f"[get_personal_channel_posts] Не удалось получить канал по username {username}: {e}")
-
-    # Получаем посты только если нашли канал
-    if channel_link:
+                    pbar.set_description(f"{pbar.desc.split(' (')[0]} (повтор {retry_count}/{max_retries})")
+                except Exception:
+                    pass
+    
+    error_msg = f"Не удалось обработать канал {channel_name} после {max_retries} попыток"
+    logger.error(error_msg)
+    
+    if client is not None:
         try:
-            async for msg in client.iter_messages(channel_link, limit=limit):
-                if msg.text:
-                    posts.append(msg.text)
+            if client.is_connected():
+                await client.disconnect()
+                logger.info("Соединение с Telegram успешно закрыто")
         except Exception as e:
-            logging.warning(f"[get_personal_channel_posts] Не удалось получить посты из {channel_link}: {e}")
+            logger.error(f"Ошибка при отключении клиента: {e}")
+        finally:
+            client = None
+    
+    raise RuntimeError(f"{error_msg}. Обработано пользователей: {processed}")
 
-    # Фото профиля -> анализ через LLM
-    photo_summaries = []
-    # Получаем только последнее фото профиля
-    async for photo in client.iter_profile_photos(user_id, limit=1):
-        bio = BytesIO()
-        await client.download_media(photo, file=bio)
-        bio.seek(0)
-        img_bytes = bio.read()
-        summary = await analyze_photo_via_llm(img_bytes)
-        photo_summaries.append(summary)
-        break
-
-    return {"posts": posts, "photo_summaries": photo_summaries}
+async def get_personal_channel_posts(user_id: int) -> dict:
+    """Получает посты из личного канала пользователя."""
+    try:
+        client = await get_client()
+        full_user = await get_full_user(user_id)
+        if full_user:
+            try:
+                channel = await client(GetFullChannelRequest(full_user.id))
+                if channel:
+                    posts = []
+                    photo_summaries = []
+                    async for message in client.iter_messages(channel, limit=100):
+                        if message.text:
+                            posts.append(message.text)
+                        if message.photo:
+                            try:
+                                photo_bytes = await message.download_media(bytes)
+                                if photo_bytes:
+                                    photo_summaries.append(photo_bytes)
+                            except Exception as e:
+                                logger.warning(f"Не удалось загрузить фото: {e}")
+                    return {"posts": posts, "photo_summaries": photo_summaries}
+            except FloodWaitError as e:
+                wait_time = e.seconds
+                logger.warning(f"Достигнут лимит запросов. Ожидание {wait_time} секунд...")
+                await asyncio.sleep(wait_time)
+                return await get_personal_channel_posts(user_id)  # Рекурсивный вызов после ожидания
+    except Exception as e:
+        logger.warning(f"Не удалось получить посты из личного канала: {e}")
+    return {"posts": [], "photo_summaries": []}
 
 def _determine_gender_from_name(name: str) -> Optional[GenderEnum]:
     """

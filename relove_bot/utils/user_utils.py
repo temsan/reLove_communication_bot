@@ -1,4 +1,9 @@
 from relove_bot.db.models import User
+import logging
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 async def update_user_on_touch(user_id, message, session, extra_context: dict = None, extra_markers: dict = None):
     """
@@ -50,3 +55,8 @@ async def get_users_by_marker(session, key: str, value) -> list:
     return (await session.execute(
         User.__table__.select().where(User.markers[key].astext == str(value))
     )).fetchall()
+
+async def select_users(gender: str = None, text_filter: str = None, user_id_list: list = None, rank_by: str = None, limit: int = 30):
+    # Здесь можно добавить логику выборки пользователей, если она есть в fill_profiles.py
+    # Например, фильтрация по полу, тексту и т.д.
+    pass

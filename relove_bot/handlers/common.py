@@ -5,9 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from ..rag.llm import LLM
-from ..rag.pipeline import get_user_context
 from ..db.session import SessionLocal
-from ..db.models import UserActivityLog, User
+from ..db.models import UserActivityLog, User, GenderEnum
 from datetime import datetime
 from relove_bot.db.memory_index import user_memory_index
 
@@ -16,14 +15,13 @@ router = Router()
 
 from ..rag.pipeline import get_profile_summary
 from ..db.vector import search_similar_users
-from ..rag.llm import get_text_embedding
-from ..utils.fill_profiles import select_users
+from ..utils.user_utils import select_users
 import logging
 
 # Список Telegram user_id админов
 ADMIN_IDS = {123456789, 987654321}  # Замените на свои id
 
-from relove_bot.utils.fill_profiles import fill_all_profiles
+from relove_bot.utils.profile_utils import fill_all_profiles
 from relove_bot.config import settings
 import asyncio
 
@@ -65,6 +63,7 @@ async def get_or_create_user(session: AsyncSession, tg_user: types.User) -> User
             username=tg_user.username,
             first_name=tg_user.first_name or "", # first_name может быть None?
             last_name=tg_user.last_name,
+            gender=GenderEnum.female,  # female по умолчанию
             is_active=True
             # registration_date установится по умолчанию
             # is_admin и другие поля по умолчанию
@@ -103,7 +102,7 @@ async def handle_start(message: types.Message, session: AsyncSession):
          logger.error(f"Failed to get or create user for ID {tg_user.id}")
          await message.answer("Произошла ошибка при обработке вашего профиля. Попробуйте позже.")
 
-@router.message(commands=["admin_update_summaries"])
+@router.message(Command(commands=["admin_update_summaries"]))
 async def handle_admin_update_summaries(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
         await message.reply("Нет доступа. Только для администраторов.")
@@ -113,7 +112,7 @@ async def handle_admin_update_summaries(message: types.Message):
     asyncio.create_task(fill_all_profiles(settings.channel_id))
     await message.reply("Обновление запущено в фоне. Результат будет доступен в логах.")
 
-@router.message(commands=["admin_find_users"])
+@router.message(Command(commands=["admin_find_users"]))
 async def handle_admin_find_users(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
         await message.reply("Нет доступа. Только для администраторов.")
@@ -149,7 +148,7 @@ async def handle_admin_find_users(message: types.Message):
         logging.error(f"Ошибка в handle_admin_find_users: {e}")
         await message.reply(f"Ошибка при поиске пользователей: {e}")
 
-@router.message(commands=["admin_user_info"])
+@router.message(Command(commands=["admin_user_info"]))
 async def handle_admin_user_info(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
         await message.reply("Нет доступа. Только для администраторов.")
@@ -242,7 +241,7 @@ async def handle_message(message: types.Message):
         logging.error(f"Ошибка в handle_message: {e}")
         await message.answer("Произошла ошибка при обработке сообщения. Попробуйте позже.")
 
-@router.message(commands=["similar"])
+@router.message(Command(commands=["similar"]))
 async def handle_similar(message: types.Message):
     try:
         args = message.get_args().strip()
