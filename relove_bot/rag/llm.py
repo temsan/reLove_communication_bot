@@ -12,6 +12,8 @@ from relove_bot.services.prompts import (
     RAG_SUMMARY_PROMPT,
     RAG_ASSISTANT_PROMPT
 )
+from typing import Dict, Any
+import openai
 
 logger = logging.getLogger(__name__)
 
@@ -354,6 +356,9 @@ class LLM:
                 - raw_response: Сырой ответ от API
         """
         try:
+            # Добавляем задержку между запросами (3 секунды)
+            await asyncio.sleep(3)
+            
             messages = []
             
             # Добавляем системный промпт, если он задан
@@ -739,3 +744,45 @@ class LLM:
         except Exception as e:
             logger.error(f"Ошибка при получении ответа ассистента: {e}", exc_info=True)
             return ''
+
+    async def _analyze_content_api(self, content: str) -> Dict[str, Any]:
+        """Анализ контента через API с обработкой ошибок и повторными попытками"""
+        max_retries = 3
+        retry_delay = 5  # секунды
+        
+        for attempt in range(max_retries):
+            try:
+                # Добавляем задержку между запросами
+                await asyncio.sleep(3)
+                
+                response = await asyncio.wait_for(
+                    self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {"role": "system", "content": self.system_prompt},
+                            {"role": "user", "content": content}
+                        ],
+                        temperature=0.7,
+                        max_tokens=1000
+                    ),
+                    timeout=30
+                )
+                
+                return json.loads(response.choices[0].message.content)
+                
+            except asyncio.TimeoutError:
+                logger.warning(f"Таймаут запроса (попытка {attempt + 1}/{max_retries})")
+                if attempt == max_retries - 1:
+                    raise ValueError("Превышено время ожидания ответа от API")
+                    
+            except openai.RateLimitError as e:
+                logger.warning(f"Превышен лимит запросов (попытка {attempt + 1}/{max_retries})")
+                if attempt == max_retries - 1:
+                    raise ValueError(f"Ошибка API: {str(e)}")
+                await asyncio.sleep(retry_delay * (attempt + 1))  # Увеличиваем задержку с каждой попыткой
+                
+            except Exception as e:
+                logger.error(f"Ошибка при вызове API: {str(e)}")
+                if attempt == max_retries - 1:
+                    raise ValueError(f"Ошибка API: {str(e)}")
+                await asyncio.sleep(retry_delay)
