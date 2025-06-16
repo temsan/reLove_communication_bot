@@ -322,25 +322,6 @@ async def main():
         report_dir = Path("reports")
         report_dir.mkdir(exist_ok=True)
         
-        # Сохраняем анализ структуры
-        structure_file = report_dir / f"relove_structure_analysis_{timestamp}.json"
-        with open(structure_file, "w", encoding="utf-8") as f:
-            json.dump(structure_analysis, f, ensure_ascii=False, indent=2)
-            
-        # Сохраняем анализ ключевых смыслов
-        meaning_file = report_dir / f"relove_core_meaning_{timestamp}.json"
-        with open(meaning_file, "w", encoding="utf-8") as f:
-            json.dump(core_meaning, f, ensure_ascii=False, indent=2)
-            
-        # Сохраняем анализ сообщений
-        messages_file = report_dir / f"relove_messages_analysis_{timestamp}.json"
-        with open(messages_file, "w", encoding="utf-8") as f:
-            json.dump({
-                "total_messages": len(messages),
-                "batches": len(batches),
-                "analyses": all_analyses
-            }, f, ensure_ascii=False, indent=2)
-            
         # Генерируем и сохраняем MD-отчет
         md_report = generate_md_report(structure_analysis, {
             "total_messages": len(messages),
@@ -351,13 +332,9 @@ async def main():
         md_file = report_dir / f"relove_analysis_{timestamp}.md"
         with open(md_file, "w", encoding="utf-8") as f:
             f.write(md_report)
-            
+        
         print(f"\nАнализ завершен. Проанализировано сообщений: {len(messages)}. Батчей: {len(batches)}.")
-        print(f"Результаты сохранены в:")
-        print(f"- Анализ структуры: {structure_file}")
-        print(f"- Анализ ключевых смыслов: {meaning_file}")
-        print(f"- Анализ сообщений: {messages_file}")
-        print(f"- Markdown отчет: {md_file}")
+        print(f"Markdown-отчет сохранён: {md_file}")
         
     finally:
         await client.disconnect()
