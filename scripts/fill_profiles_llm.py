@@ -15,7 +15,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from relove_bot.config import settings, reload_settings
 from relove_bot.utils.fill_profiles import fill_all_profiles
-from relove_bot.rag.llm import LLM
+from relove_bot.db.database import setup_database
+from relove_bot.db.repository import UserRepository
+from relove_bot.services.llm_service import llm_service
+from relove_bot.services.prompts import PROFILE_INTERESTS_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -55,42 +58,57 @@ async def update_user_profile(user_id, profile_data):
             print(f"Пользователь с ID {user_id} не найден в базе данных")
 
 async def fill_profiles_with_llm():
-    users = await get_users_from_db()
-    for user in users:
-        if not user.profile_filled:
-            profile_data = await LLM.analyze_content(f"Заполните профиль для пользователя {user.id}")
-# Создаём подключение к базе данных
-engine = create_engine('sqlite:///path_to_your_database.db')  # Замените на ваш путь к базе данных
-Session = sessionmaker(bind=engine)
-session = Session()
-
-def get_users_from_db():
-    # Получаем всех пользователей из базы данных
-    return session.query(User).all()
-
-def update_user_profile(user_id, profile_data):
-    # Обновляем профиль пользователя в базе данных
-    user = session.query(User).filter(User.id == user_id).first()
-    if user:
-        user.profile_data = profile_data  # Предполагается, что у модели User есть поле profile_data
-        session.commit()
-        print(f"Профиль пользователя {user_id} обновлён данными: {profile_data}")
-    else:
-        print(f"Пользователь с ID {user_id} не найден в базе данных")
-
-
-async def fill_profiles_with_llm():
-    # Предположим, что у нас есть функция get_users_from_db, которая возвращает список пользователей
-    users = get_users_from_db()  # Эта функция должна быть определена для получения пользователей из БД
-
-    for user in users:
-        # Проверяем, есть ли незаполненные поля
-        if not user.profile_filled:
-            # Вызываем LLM для заполнения профиля
-            profile_data = await LLM.analyze_content(f"Заполните профиль для пользователя {user.id}")
-            # Обновляем профиль пользователя в базе данных
-            update_user_profile(user.id, profile_data)  # Эта функция должна быть определена для обновления профиля в БД
-
+    """
+    Заполняет профили пользователей с помощью LLM.
+    """
+    try:
+        # Получаем всех пользователей
+        users = await get_users_from_db()
+        
+        for user in users:
+            try:
+                # Получаем профиль пользователя
+                profile = await get_user_profile(user.id)
+                if not profile:
+                    continue
+                    
+                # Анализируем текстовые поля
+                text_parts = []
+                if profile.first_name:
+                    text_parts.append(f"Имя: {profile.first_name}")
+                if profile.last_name:
+                    text_parts.append(f"Фамилия: {profile.last_name}")
+                if profile.username:
+                    text_parts.append(f"Логин: @{profile.username}")
+                if profile.bio:
+                    text_parts.append(f"О себе: {profile.bio}")
+                    
+                if not text_parts:
+                    continue
+                    
+                prompt = "\n".join(text_parts)
+                
+                # Анализируем профиль
+                result = await llm_service.analyze_text(
+                    text=prompt,
+                    system_prompt=PROFILE_INTERESTS_PROMPT,
+                    max_tokens=64
+                )
+                
+                if not result:
+                    continue
+                    
+                # Обновляем профиль
+                await update_user_profile(user.id, {
+                    'interests': result.strip()
+                })
+                
+            except Exception as e:
+                logger.error(f"Ошибка при заполнении профиля пользователя {user.id}: {e}", exc_info=True)
+                continue
+                
+    except Exception as e:
+        logger.error(f"Ошибка при заполнении профилей: {e}", exc_info=True)
 
 async def main():
     try:

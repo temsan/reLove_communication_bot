@@ -10,6 +10,10 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 from tqdm.asyncio import tqdm_asyncio
 import functools
+from relove_bot.db.session import get_session
+from relove_bot.db.repository import UserRepository
+from relove_bot.services.profile_service import ProfileService
+from relove_bot.utils.fill_profiles import fill_all_profiles
 
 # Настройка логирования до импорта других модулей
 log_file = Path('fill_profiles_debug.log')
@@ -19,11 +23,11 @@ except Exception as e:
     print(f"Не удалось удалить старый лог-файл: {e}")
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(log_file, mode='w', encoding='utf-8')
+        logging.FileHandler('fill_profiles_debug.log'),
+        logging.StreamHandler()
     ]
 )
 
@@ -59,9 +63,8 @@ except Exception as e:
 try:
     logger.info("Импортируем настройки...")
     from relove_bot.config import settings, reload_settings
-    from relove_bot.services.batch_profile_fill_service import process_all_channel_profiles_batch
+    from relove_bot.utils.fill_profiles import fill_all_profiles
     from relove_bot.db.database import setup_database
-    from relove_bot.rag.llm import LLM
     logger.info("Все модули успешно импортированы")
 except ImportError as e:
     logger.critical(f"Ошибка импорта модулей: {e}")
@@ -75,6 +78,9 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('sqlalchemy').setLevel(logging.WARNING)
 logging.getLogger('aiosqlite').setLevel(logging.WARNING)
 logging.getLogger('asyncio').setLevel(logging.WARNING)
+
+# Устанавливаем уровень логирования для Telethon
+logging.getLogger('telethon').setLevel(logging.WARNING)
 
 # Загружаем настройки из .env. `override=True` перезапишет системные переменные, если они есть.
 load_dotenv(override=True)
@@ -95,14 +101,10 @@ async def main():
             return
         
         logger.info("4. Запуск скрипта заполнения профилей...")
-        # Вызов основной сервисной функции
-        # Имя канала можно передать из настроек или как аргумент командной строки
-        target_channel = settings.our_channel_id # Используем ID нашего основного канала
-        if not target_channel:
-            logger.critical("Целевой канал для заполнения профилей не указан в настройках (OUR_CHANNEL_ID).")
-            return
-
-        await process_all_channel_profiles_batch(channel_username=target_channel)
+        async with get_session() as session:
+            repo = UserRepository(session)
+            service = ProfileService(repo)
+            await fill_all_profiles()
         
         logger.info("Скрипт заполнения профилей успешно завершил работу.")
         
