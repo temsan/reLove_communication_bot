@@ -1,0 +1,96 @@
+version: "3.1"
+
+stories:
+# История анализа состояния пользователя
+- story: Пользователь запрашивает анализ своего состояния
+  steps:
+  - intent: analyze_my_state
+  - action: action_analyze_user_profile
+  - action: utter_ask_emotional_state
+
+# История обновления эмоционального состояния
+- story: Пользователь сообщает о своём состоянии
+  steps:
+  - intent: track_mood
+    entities:
+    - emotional_state: happy
+  - action: action_update_emotional_state
+  - action: utter_emotional_state_updated
+
+# История запроса инсайтов
+- story: Пользователь запрашивает инсайты о своей активности
+  steps:
+  - intent: get_insights
+  - action: action_get_user_insights
+
+# История запроса рекомендаций
+- story: Пользователь просит рекомендации
+  steps:
+  - intent: get_recommendations
+  - action: action_analyze_user_profile
+  - action: utter_ask_emotional_state
+
+# Комбинированная история: анализ и рекомендации
+- story: Пользователь анализирует состояние и получает рекомендации
+  steps:
+  - intent: analyze_my_state
+  - action: action_analyze_user_profile
+  - intent: get_recommendations
+  - action: action_analyze_user_profile
+  - action: utter_ask_emotional_state
+
+# История с уточнением периода анализа
+- story: Пользователь анализирует состояние за период
+  steps:
+  - intent: analyze_my_state
+    entities:
+    - time_period: week
+  - action: action_analyze_user_profile
+  - action: utter_ask_emotional_state
+
+# История с уточнением типа анализа
+- story: Пользователь запрашивает анализ настроения
+  steps:
+  - intent: analyze_my_state
+    entities:
+    - analysis_type: emotional
+  - action: action_analyze_user_profile
+  - action: utter_ask_emotional_state
+
+# История с уточнением типа инсайтов
+- story: Пользователь запрашивает инсайты по активности
+  steps:
+  - intent: get_insights
+    entities:
+    - insight_type: activity
+  - action: action_get_user_insights
+
+# История с уточнением интенсивности настроения
+- story: Пользователь сообщает о сильном настроении
+  steps:
+  - intent: track_mood
+    entities:
+    - emotional_state: happy
+    - mood_intensity: high
+  - action: action_update_emotional_state
+  - action: utter_emotional_state_updated
+
+# История с негативным настроением
+- story: Пользователь сообщает о плохом настроении
+  steps:
+  - intent: track_mood
+    entities:
+    - emotional_state: sad
+    - mood_intensity: high
+  - action: action_update_emotional_state
+  - action: utter_emotional_state_updated
+  - action: utter_cheer_up
+
+# История с нейтральным состоянием
+- story: Пользователь сообщает о нейтральном состоянии
+  steps:
+  - intent: track_mood
+    entities:
+    - emotional_state: calm
+  - action: action_update_emotional_state
+  - action: utter_emotional_state_updated

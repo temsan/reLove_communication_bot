@@ -1,0 +1,42 @@
+version: "3.1"
+
+action_endpoint:
+  url: "http://localhost:5055/webhook"
+
+# Настройки для трекера событий (опционально)
+tracker_store:
+  type: sql
+  dialect: sqlite
+  db: events.db
+
+# Настройки хранилища историй (опционально)
+lock_store:
+  type: in_memory
+
+# Настройки для хранения моделей (опционально)
+model:
+  # Указываем путь для сохранения обученных моделей
+  path: ./models
+  # Автоматически загружать последнюю модель при старте
+  auto_fallback_on_failure: true
+  # Загружать последнюю модель при старте
+  load_models_on_startup: true
+
+# Настройки для API (опционально)
+api:
+  # Порт для API сервера
+  port: 5005
+  # Хост для API сервера
+  host: "0.0.0.0"
+  # Включить CORS
+  cors: "*"
+  # Включить аутентификацию (опционально)
+  # auth_token: your_auth_token
+  # enable_api: true
+
+# Настройки для каналов (опционально)
+# channels:
+#   - name: telegram
+#     credentials: "path/to/telegram_credentials.yml"
+#   - name: facebook
+#     credentials: "path/to/facebook_credentials.yml"

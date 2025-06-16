@@ -1,0 +1,45 @@
+version: "3.1"
+
+stories:
+
+- story: Пользователь хочет посмотреть свой профиль
+  steps:
+  - intent: show_profile
+  - action: action_get_user_profile
+  - action: utter_profile_loaded
+
+- story: Пользователь хочет проанализировать свой профиль
+  steps:
+  - intent: analyze_profile
+  - action: utter_profile_analyzing
+  - action: action_analyze_profile
+  - action: utter_did_that_help
+
+- story: Пользователь хочет обновить эмоциональное состояние
+  steps:
+  - intent: set_emotional_state
+  - action: action_update_profile_marker
+  - action: utter_emotional_state_updated
+
+- story: Пользователь просит помощи
+  steps:
+  - intent: get_help
+  - action: utter_help
+
+- story: Пользователь спрашивает о психологии
+  steps:
+  - intent: ask_about_psychology
+  - action: utter_psychology_tip
+  - action: utter_did_that_help
+
+- story: Пользователь хочет обновить маркер в профиле
+  steps:
+  - intent: update_profile
+  - action: utter_ask_marker_key
+  - slot_was_set:
+    - marker_key: "anxiety_level"
+  - action: utter_ask_marker_value
+  - slot_was_set:
+    - marker_value: "low"
+  - action: action_update_profile_marker
+  - action: utter_marker_updated

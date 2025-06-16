@@ -1,0 +1,205 @@
+version: "3.1"
+
+intents:
+  - greet
+  - goodbye
+  - affirm
+  - deny
+  - mood_great
+  - mood_unhappy
+  - bot_challenge
+  - faq
+  - contact_support
+  - show_profile
+  - analyze_profile
+  - update_profile
+  - get_help
+  - ask_about_psychology
+  - set_emotional_state
+  - request_support
+  - get_insights
+  - analyze_my_state
+  - track_mood
+  - get_recommendations
+
+entities:
+  - name
+  - email
+  - phone
+  - marker_key
+  - marker_value
+  - emotional_state
+  - profile_section
+  - analysis_type
+  - time_period
+  - insight_type
+  - mood_intensity
+
+slots:
+  name:
+    type: text
+    influence_conversation: true
+    mappings:
+    - type: from_entity
+      entity: name
+  email:
+    type: text
+    influence_conversation: false
+    mappings:
+    - type: from_entity
+      entity: email
+  phone:
+    type: text
+    influence_conversation: false
+    mappings:
+    - type: from_entity
+      entity: phone
+  marker_key:
+    type: text
+    influence_conversation: true
+    mappings:
+    - type: from_entity
+      entity: marker_key
+  marker_value:
+    type: any
+    influence_conversation: true
+    mappings:
+    - type: from_entity
+      entity: marker_value
+  emotional_state:
+    type: categorical
+    values:
+      - happy
+      - sad
+      - anxious
+      - calm
+      - excited
+      - tired
+    influence_conversation: true
+    mappings:
+    - type: from_entity
+      entity: emotional_state
+  profile_section:
+    type: categorical
+    values:
+      - general
+      - history
+      - markers
+      - all
+    influence_conversation: true
+    mappings:
+    - type: from_entity
+      entity: profile_section
+  analysis_type:
+    type: categorical
+    values:
+      - basic
+      - detailed
+      - emotional
+      - behavioral
+      - conversation
+      - engagement
+    influence_conversation: true
+    mappings:
+    - type: from_entity
+      entity: analysis_type
+  
+  time_period:
+    type: categorical
+    values:
+      - day
+      - week
+      - month
+      - all_time
+    influence_conversation: true
+    mappings:
+    - type: from_entity
+      entity: time_period
+      
+  insight_type:
+    type: categorical
+    values:
+      - mood
+      - activity
+      - patterns
+      - all
+    influence_conversation: true
+    mappings:
+    - type: from_entity
+      entity: insight_type
+      
+  mood_intensity:
+    type: categorical
+    values:
+      - low
+      - medium
+      - high
+    influence_conversation: true
+    mappings:
+    - type: from_entity
+      entity: mood_intensity
+
+responses:
+  utter_greet:
+    - text: "Привет! Как я могу вам помочь?"
+  utter_goodbye:
+    - text: "До свидания! Буду рад помочь снова."
+  utter_iamabot:
+    - text: "Я бот, созданный, чтобы помочь вам."
+  utter_happy:
+    - text: "Отлично, я рад, что у вас хорошее настроение!"
+  utter_cheer_up:
+    - text: "Не переживайте! Я уверен, что всё наладится. Чем ещё могу помочь?"
+  utter_did_that_help:
+    - text: "Помогло ли это вам?"
+  utter_contact_support:
+    - text: "Вы можете связаться с нашей службой поддержки по email: support@example.com"
+  utter_profile_loaded:
+    - text: "Я загрузил ваш профиль. Что вы хотели бы узнать?"
+  utter_profile_not_found:
+    - text: "Извините, не удалось найти ваш профиль. Пожалуйста, зарегистрируйтесь в системе."
+  utter_profile_analyzing:
+    - text: "Анализирую ваш профиль..."
+  utter_marker_updated:
+    - text: "Я обновил информацию в вашем профиле."
+  utter_emotional_state_updated:
+    - text: "Спасибо, что поделились своим состоянием. Это поможет мне лучше вас понять."
+  utter_ask_emotional_state:
+    - text: "Как вы себя чувствуете в последнее время?"
+  utter_ask_marker_key:
+    - text: "Какой параметр вы хотите изменить?"
+  utter_ask_marker_value:
+    - text: "Какое значение вы хотите установить?"
+  utter_psychology_tip:
+    - text: "Вот что я могу вам порекомендовать на основе вашего профиля..."
+  utter_help:
+    - text: |
+        Я могу помочь вам с:
+        - Просмотром и анализом вашего профиля
+        - Отслеживанием вашего эмоционального состояния
+        - Рекомендациями по психологическому благополучию
+        - Анализом вашего общения и активности
+        - Ответами на вопросы о психологии
+        
+        Вы можете спросить:
+        • "Проанализируй мое состояние"
+        • "Какие у меня есть инсайты?"
+        • "Отследить мое настроение"
+        • "Что нового в моей активности?"
+        
+        Что вас интересует?
+
+actions:
+  - action_validate_form
+  - action_default_fallback
+  - action_restart
+  - actions.profile_actions.ActionGetUserProfile
+  - actions.profile_actions.ActionAnalyzeProfile
+  - actions.profile_actions.ActionUpdateProfileMarker
+  - actions.analyze_profile_action.ActionAnalyzeUserProfile
+  - actions.analyze_profile_action.ActionUpdateEmotionalState
+  - actions.analyze_profile_action.ActionGetUserInsights
+
+session_config:
+  session_expiration_time: 60  # минуты
+  carry_over_slots_to_new_session: true
