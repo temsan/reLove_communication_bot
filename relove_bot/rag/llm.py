@@ -8,6 +8,10 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoModelForSequen
 from huggingface_hub import login, InferenceClient
 from relove_bot.config import settings
 import torch
+from relove_bot.services.prompts import (
+    RAG_SUMMARY_PROMPT,
+    RAG_ASSISTANT_PROMPT
+)
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +220,7 @@ class LLM:
         model: str = None,
         max_tokens: int = 512,
         temperature: float = 0.4,
-        system_prompt: str = "Сделай краткое информативное summary для следующего текста или изображения.",
+        system_prompt: str = RAG_SUMMARY_PROMPT,
         timeout: int = 60,
         user_info: dict = None
     ) -> dict:
@@ -336,7 +340,7 @@ class LLM:
         model: str = None,
         max_tokens: int = 512,
         temperature: float = 0.4,
-        system_prompt: str = "Сделай краткое информативное summary для следующего текста или изображения.",
+        system_prompt: str = RAG_SUMMARY_PROMPT,
         timeout: int = 60
     ) -> dict:
         """
@@ -517,10 +521,11 @@ class LLM:
                 'finish_reason': 'error',
                 'error': str(e)
             }
+
     async def _analyze_content_local(
         self,
         text: str = None,
-        system_prompt: str = "Сделай краткое информативное summary для следующего текста или изображения.",
+        system_prompt: str = RAG_SUMMARY_PROMPT,
         max_tokens: int = 512
     ) -> dict:
         """
@@ -695,4 +700,42 @@ class LLM:
                 
         except Exception as e:
             logger.error(f"Ошибка при генерации ответа: {str(e)}", exc_info=True)
+            return ''
+
+    async def get_assistant_response(
+        self,
+        query: str,
+        context: str,
+        system_prompt: str = RAG_ASSISTANT_PROMPT
+    ) -> str:
+        """
+        Получает ответ ассистента на основе контекста.
+        
+        Args:
+            query: Вопрос пользователя
+            context: Контекст для ответа
+            system_prompt: Системный промпт
+            
+        Returns:
+            str: Ответ ассистента или пустая строка в случае ошибки
+        """
+        try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Контекст:\n{context}\n\nВопрос: {query}"}
+            ]
+            
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=256
+            )
+            
+            if not response.choices:
+                return ''
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logger.error(f"Ошибка при получении ответа ассистента: {e}", exc_info=True)
             return ''

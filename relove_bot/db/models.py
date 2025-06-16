@@ -15,6 +15,19 @@ class GenderEnum(enum.Enum):
     male = "male"
     female = "female"
 
+class PsychotypeEnum(enum.Enum):
+    strategist = "strategist"
+    creator = "creator"
+    guardian = "guardian"
+    explorer = "explorer"
+    transformer = "transformer"
+
+class JourneyStageEnum(enum.Enum):
+    ordinary_world = "ordinary_world"
+    call_to_adventure = "call_to_adventure"
+    refusal = "refusal"
+    meeting_mentor = "meeting_mentor"
+    crossing_threshold = "crossing_threshold"
 
 class User(Base):
     __tablename__ = "users"
@@ -40,6 +53,7 @@ class User(Base):
 
     registrations: Mapped[List["Registration"]] = relationship(back_populates="user")
     activity_logs: Mapped[List["UserActivityLog"]] = relationship(back_populates="user")
+    diagnostic_results: Mapped[List["DiagnosticResult"]] = relationship("DiagnosticResult", back_populates="user")
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username}, name={self.first_name}, gender={self.gender})>"
@@ -125,3 +139,44 @@ class YouTubeChatUser(Base):
 
     def __repr__(self):
         return f"<YouTubeChatUser(id={self.id}, name={self.youtube_display_name}, tg={self.telegram_username or 'N/A'})>"
+
+class DiagnosticResult(Base):
+    __tablename__ = "diagnostic_results"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    psychotype: Mapped[PsychotypeEnum] = mapped_column(SQLEnum(PsychotypeEnum), index=True)
+    journey_stage: Mapped[JourneyStageEnum] = mapped_column(SQLEnum(JourneyStageEnum), index=True)
+    answers: Mapped[Dict[str, str]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    strengths: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
+    challenges: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
+    emotional_triggers: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
+    logical_patterns: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
+    current_state: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    next_steps: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
+    emotional_state: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resistance_points: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
+    recommended_stream: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    stream_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    user: Mapped["User"] = relationship(back_populates="diagnostic_results")
+
+    def __repr__(self):
+        return f"<DiagnosticResult(user_id={self.user_id}, psychotype={self.psychotype}, stage={self.journey_stage})>"
+
+class DiagnosticQuestion(Base):
+    __tablename__ = "diagnostic_questions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    options: Mapped[Dict[str, str]] = mapped_column(JSON, nullable=False)
+    order: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    emotional_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    logical_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    def __repr__(self):
+        return f"<DiagnosticQuestion(id={self.id}, text={self.text[:50]}...)>"

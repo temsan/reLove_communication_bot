@@ -117,86 +117,131 @@ async def dashboard(request: web.Request):
     from relove_bot.db.models import User, Registration, Event, Chat, UserActivityLog
     import logging
     logger = logging.getLogger("dashboard")
-    async with AsyncSessionFactory() as session:
-        repo = UserRepository(session)
-        users = await session.execute(User.__table__.select())
-        users = users.fetchall()
-        registrations = await session.execute(Registration.__table__.select())
-        registrations = registrations.fetchall()
-        events = await session.execute(Event.__table__.select())
-        events = events.fetchall()
-        chats = await session.execute(Chat.__table__.select())
-        chats = chats.fetchall()
-        logs = await session.execute(UserActivityLog.__table__.select())
-        logs = logs.fetchall()
+    
+    try:
+        async with AsyncSessionFactory() as session:
+            repo = UserRepository(session)
+            
+            # Получаем данные из базы
+            users = await session.execute(User.__table__.select())
+            users = users.fetchall()
+            registrations = await session.execute(Registration.__table__.select())
+            registrations = registrations.fetchall()
+            events = await session.execute(Event.__table__.select())
+            events = events.fetchall()
+            chats = await session.execute(Chat.__table__.select())
+            chats = chats.fetchall()
+            logs = await session.execute(UserActivityLog.__table__.select())
+            logs = logs.fetchall()
 
-        gender_count = {'male': 0, 'female': 0, 'unknown': 0}
-        for u in users:
-            g = (u.gender.value if hasattr(u.gender, 'value') else u.gender) or 'unknown'
-            gender_count[g] = gender_count.get(g, 0) + 1
+            # Обработка гендерной статистики
+            gender_count = {'male': 0, 'female': 0, 'unknown': 0}
+            for u in users:
+                try:
+                    g = (u.gender.value if hasattr(u.gender, 'value') else u.gender) or 'unknown'
+                    gender_count[g] = gender_count.get(g, 0) + 1
+                except Exception as e:
+                    logger.error(f"Ошибка обработки гендера для пользователя {u.id}: {e}")
+                    gender_count['unknown'] += 1
 
-        user_streams = {u.id: getattr(u, 'streams', []) for u in users}
+            # Обработка потоков пользователей
+            user_streams = {}
+            for u in users:
+                try:
+                    streams = getattr(u, 'streams', []) or []
+                    user_streams[u.id] = streams if isinstance(streams, list) else []
+                except Exception as e:
+                    logger.error(f"Ошибка обработки потоков для пользователя {u.id}: {e}")
+                    user_streams[u.id] = []
 
-        user_posts_analytics = []
-        for u in users:
-            post_count = sum(1 for l in logs if l.user_id == u.id and l.activity_type in ('message', 'post'))
-            if u.profile_summary or post_count:
-                user_posts_analytics.append({
-                    'id': u.id,
-                    'gender': (u.gender.value if hasattr(u.gender, 'value') else u.gender) or 'unknown',
-                    'summary': u.profile_summary,
-                    'post_count': post_count
-                })
+            # Аналитика постов пользователей
+            user_posts_analytics = []
+            for u in users:
+                try:
+                    post_count = sum(1 for l in logs if l.user_id == u.id and l.activity_type in ('message', 'post'))
+                    if u.profile_summary or post_count:
+                        user_posts_analytics.append({
+                            'id': u.id,
+                            'gender': (u.gender.value if hasattr(u.gender, 'value') else u.gender) or 'unknown',
+                            'summary': u.profile_summary or '',
+                            'post_count': post_count
+                        })
+                except Exception as e:
+                    logger.error(f"Ошибка обработки аналитики для пользователя {u.id}: {e}")
 
-        users_data = []
-        for u in users:
-            photo_b64 = base64.b64encode(u.photo_jpeg).decode('utf-8') if hasattr(u, 'photo_jpeg') and isinstance(u.photo_jpeg, (bytes, bytearray)) and u.photo_jpeg else None
-            post_count = sum(1 for l in logs if l.user_id == u.id and l.activity_type in ('message', 'post'))
-            users_data.append({
-                'id': u.id,
-                'photo_jpeg': photo_b64,
-                'first_name': u.first_name or '',
-                'last_name': u.last_name or '',
-                'username': u.username or '',
-                'gender': u.gender.value if u.gender else '',
-                'profile_summary': u.profile_summary or '',
-                'streams_count': len(getattr(u, 'streams', []) or []),
-                'post_count': post_count,
+            # Данные пользователей
+            users_data = []
+            for u in users:
+                try:
+                    photo_b64 = None
+                    if hasattr(u, 'photo_jpeg') and u.photo_jpeg:
+                        try:
+                            photo_b64 = base64.b64encode(u.photo_jpeg).decode('utf-8')
+                        except Exception as e:
+                            logger.error(f"Ошибка кодирования фото для пользователя {u.id}: {e}")
+                    
+                    post_count = sum(1 for l in logs if l.user_id == u.id and l.activity_type in ('message', 'post'))
+                    streams = getattr(u, 'streams', []) or []
+                    streams_count = len(streams) if isinstance(streams, list) else 0
+                    
+                    users_data.append({
+                        'id': u.id,
+                        'photo_jpeg': photo_b64,
+                        'first_name': u.first_name or '',
+                        'last_name': u.last_name or '',
+                        'username': u.username or '',
+                        'gender': (u.gender.value if hasattr(u.gender, 'value') else u.gender) or '',
+                        'profile_summary': u.profile_summary or '',
+                        'streams_count': streams_count,
+                        'post_count': post_count,
+                    })
+                except Exception as e:
+                    logger.error(f"Ошибка обработки данных пользователя {u.id}: {e}")
+
+            # Статистика потоков
+            from collections import Counter
+            all_streams = []
+            for streams in user_streams.values():
+                if isinstance(streams, list):
+                    all_streams.extend(streams)
+            stream_counter = Counter(all_streams)
+            stream_labels = list(stream_counter.keys())
+            stream_counts = list(stream_counter.values())
+
+            # Подготовка данных для графиков
+            male_count = gender_count.get('male', 0) or 0
+            female_count = gender_count.get('female', 0) or 0
+            unknown_count = gender_count.get('unknown', 0) or 0
+            stream_labels = stream_labels if stream_labels else []
+            stream_counts = stream_counts if stream_counts else []
+            
+            # Подсчет общей статистики
+            total_users = len(users)
+            total_events = len(events)
+            total_streams = sum(len(streams) for streams in user_streams.values() if isinstance(streams, list))
+            total_posts = sum(1 for l in logs if l.activity_type in ('message', 'post'))
+
+            return aiohttp_jinja2.render_template('dashboard.html', request, {
+                'users': users_data,
+                'events': events,
+                'registrations': registrations,
+                'logs': logs,
+                'gender_count': gender_count,
+                'user_streams': user_streams,
+                'stream_labels': stream_labels,
+                'stream_counts': stream_counts,
+                'user_posts_analytics': user_posts_analytics,
+                'male_count': male_count,
+                'female_count': female_count,
+                'unknown_count': unknown_count,
+                'total_users': total_users,
+                'total_events': total_events,
+                'total_streams': total_streams,
+                'total_posts': total_posts,
             })
-
-        from collections import Counter
-        all_streams = []
-        for streams in user_streams.values():
-            if streams:
-                all_streams.extend(streams)
-        stream_counter = Counter(all_streams)
-        stream_labels = list(stream_counter.keys())
-        stream_counts = list(stream_counter.values())
-
-        # Гарантируем, что данные для графиков всегда валидные
-        male_count = gender_count.get('male', 0) or 0
-        female_count = gender_count.get('female', 0) or 0
-        unknown_count = gender_count.get('unknown', 0) or 0
-        stream_labels = stream_labels if stream_labels else []
-        stream_counts = stream_counts if stream_counts else []
-        return aiohttp_jinja2.render_template('dashboard.html', request, {
-            'users': users_data,
-            'events': events,
-            'registrations': registrations,
-            'logs': logs,
-            'gender_count': gender_count,
-            'user_streams': user_streams,
-            'stream_labels': stream_labels,
-            'stream_counts': stream_counts,
-            'user_posts_analytics': user_posts_analytics,
-            'male_count': male_count,
-            'female_count': female_count,
-            'unknown_count': unknown_count,
-            'total_users': len(users),
-            'total_events': len(events),
-            'total_streams': sum(len(getattr(u, 'streams', []) or []) for u in users),
-            'total_posts': sum(1 for l in logs if l.activity_type in ('message', 'post')),
-        })
+    except Exception as e:
+        logger.error(f"Критическая ошибка в дашборде: {e}", exc_info=True)
+        return web.Response(text=f"Ошибка загрузки дашборда: {str(e)}", status=500)
 
 # --- Новый endpoint для API автообновления дашборда ---
 async def dashboard_data_api(request: web.Request):

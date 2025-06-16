@@ -9,6 +9,8 @@ from ..db.session import SessionLocal
 from ..db.models import UserActivityLog, User, GenderEnum
 from datetime import datetime
 from relove_bot.db.memory_index import user_memory_index
+from relove_bot.services.llm_service import llm_service
+from relove_bot.services.prompts import MESSAGE_SUMMARY_PROMPT
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -289,3 +291,29 @@ async def handle_help(message: types.Message):
         # "/my_registrations - Показать мои регистрации\\n"
     )
     await message.answer(help_text, parse_mode="HTML")
+
+async def analyze_message(message: str) -> str:
+    """
+    Анализирует сообщение пользователя.
+    
+    Args:
+        message: Текст сообщения
+        
+    Returns:
+        str: Результат анализа или пустая строка в случае ошибки
+    """
+    try:
+        result = await llm_service.analyze_text(
+            text=message,
+            system_prompt=MESSAGE_SUMMARY_PROMPT,
+            max_tokens=64
+        )
+        
+        if not result:
+            return ''
+            
+        return result.strip()
+        
+    except Exception as e:
+        logger.error(f"Ошибка при анализе сообщения: {e}", exc_info=True)
+        return ''

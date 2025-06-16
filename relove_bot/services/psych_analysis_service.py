@@ -1,14 +1,13 @@
 """
 Сервис для психологического анализа профиля пользователя.
 """
-from relove_bot.services.llm_service import LLMService
+from relove_bot.services.llm_service import llm_service
 from relove_bot.services.telegram_service import get_full_psychological_summary
 from relove_bot.db.repository import UserRepository
 
 class PsychAnalysisService:
     def __init__(self, session):
         self.repo = UserRepository(session)
-        self.llm = LLMService()
 
     async def analyze_user_profile(self, user_id, main_channel_id, tg_user=None):
         """

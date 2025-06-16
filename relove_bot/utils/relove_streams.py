@@ -3,8 +3,12 @@ import logging
 import json
 import re
 from typing import List, Dict, Any, Optional
-from relove_bot.services.llm_service import LLMService
+from relove_bot.services.llm_service import llm_service
 from relove_bot.config import settings
+from relove_bot.services.prompts import (
+    STREAMS_ANALYSIS_PROMPT,
+    STREAMS_INTERACTION_PROMPT
+)
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +20,8 @@ async def detect_relove_streams(user, summary=None):
     if not summary:
         summary = getattr(user, 'profile_summary', None) or ''
     prompt = f"Определи, какие потоки reLove прошёл пользователь на основе его профиля. Перечисли только названия потоков через запятую.\nПрофиль: {summary}"
-    llm = LLMService()
     try:
-        streams_str = await llm.analyze_text(prompt, system_prompt="Определи потоки пользователя", max_tokens=16)
+        streams_str = await llm_service.analyze_text(prompt, system_prompt="Определи потоки пользователя", max_tokens=16)
         streams = [s.strip().capitalize() for s in streams_str.split(',') if s.strip()]
         logger.info(f"Обнаружены потоки для user {getattr(user, 'id', None)}: {streams}")
         return streams
@@ -65,10 +68,8 @@ async def detect_relove_streams_by_posts(posts: list) -> dict:
 
 Ответ в формате JSON:"""
         
-        llm = LLMService()
-        
         # Получаем структурированный ответ
-        result_str = await llm.analyze_text(
+        result_str = await llm_service.analyze_text(
             prompt=prompt,
             system_prompt=system_prompt,
             max_tokens=128
@@ -117,3 +118,73 @@ async def detect_relove_streams_by_posts(posts: list) -> dict:
     except Exception as e:
         logger.warning(f"Не удалось определить потоки reLove по постам: {e}", exc_info=True)
         return {'interest': [], 'completed': []}
+
+async def get_user_streams(user_id: int) -> List[str]:
+    """
+    Получает потоки пользователя из базы данных.
+    
+    Args:
+        user_id: ID пользователя
+        
+    Returns:
+        List[str]: Список потоков пользователя
+    """
+    try:
+        # Получаем профиль пользователя
+        profile = await get_user_profile(user_id)
+        if not profile:
+            return []
+            
+        # Анализируем текстовые поля
+        text_parts = []
+        if profile.first_name:
+            text_parts.append(f"Имя: {profile.first_name}")
+        if profile.last_name:
+            text_parts.append(f"Фамилия: {profile.last_name}")
+        if profile.username:
+            text_parts.append(f"Логин: @{profile.username}")
+        if profile.bio:
+            text_parts.append(f"О себе: {profile.bio}")
+            
+        if not text_parts:
+            return []
+            
+        prompt = "\n".join(text_parts)
+        streams_str = await llm_service.analyze_text(prompt, system_prompt=STREAMS_ANALYSIS_PROMPT, max_tokens=16)
+        
+        if not streams_str:
+            return []
+            
+        # Разбиваем строку на потоки
+        streams = [s.strip() for s in streams_str.split(',')]
+        return [s for s in streams if s]
+        
+    except Exception as e:
+        logger.error(f"Ошибка при получении потоков пользователя: {e}", exc_info=True)
+        return []
+
+async def get_user_interests(user_id: int) -> List[str]:
+    """
+    Получает интересы пользователя через LLM
+    """
+    try:
+        # Добавляем задержку перед запросом
+        await asyncio.sleep(3)
+        
+        prompt = f"Перечисли интересы пользователя {user_id} в формате списка. Используй только русские слова."
+        logger.info(f"Отправляем запрос на получение интересов для пользователя {user_id}")
+        result = await llm_service.analyze_text(prompt)
+        
+        # Пробуем распарсить результат
+        if result:
+            interests = [s.strip() for s in result.split(',')]
+            return interests
+            
+        return []
+        
+    except Exception as e:
+        logger.error(f"Ошибка при получении интересов пользователя {user_id}: {e}")
+        if 'Rate limit' in str(e) or 'exceeded' in str(e):
+            logger.warning(f"Превышение лимита API при получении интересов пользователя {user_id}, увеличиваем задержку")
+            await asyncio.sleep(30)
+        return []

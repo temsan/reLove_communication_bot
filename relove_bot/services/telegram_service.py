@@ -22,10 +22,16 @@ from io import BytesIO
 
 from pydantic import SecretStr
 from relove_bot.config import settings
-from relove_bot.rag.llm import LLM
 from relove_bot.utils.api_rate_limiter import APIRateLimiter
 from relove_bot.db.models import GenderEnum
-from relove_bot.services.prompts import PSYCHOLOGICAL_ANALYSIS_PROMPT
+from relove_bot.services.prompts import (
+    PSYCHOLOGICAL_ANALYSIS_PROMPT,
+    PHOTO_ANALYSIS_PROMPT,
+    GENDER_PHOTO_ANALYSIS_PROMPT
+)
+from relove_bot.utils.telegram_client import get_client
+from relove_bot.utils.interests import get_user_streams, STREAMS
+from relove_bot.services.llm_service import llm_service
 
 # Инициализируем кэш и лимитер для модуля
 cache = {}
@@ -43,6 +49,7 @@ async def get_client():
     """
     Returns a Telegram client in user mode.
     Uses the session specified in settings.
+    Гарантирует подключение и авторизацию.
     """
     global _client
     if _client is None:
@@ -50,7 +57,6 @@ async def get_client():
         api_id = int(settings.tg_api_id)
         api_hash = settings.tg_api_hash.get_secret_value() if hasattr(settings.tg_api_hash, 'get_secret_value') else str(settings.tg_api_hash)
         session_name = settings.tg_session.get_secret_value() if hasattr(settings.tg_session, 'get_secret_value') else str(settings.tg_session)
-        
         _client = TelegramClient(
             session=session_name,
             api_id=api_id,
@@ -61,6 +67,10 @@ async def get_client():
             lang_code='en',
             system_lang_code='en',
         )
+    if not _client.is_connected():
+        await _client.connect()
+    if not await _client.is_user_authorized():
+        raise RuntimeError("Telegram client is not authorized. Пожалуйста, выполните авторизацию через scripts/auth_telegram.py")
     return _client
 
 async def get_bot_client():
@@ -125,40 +135,80 @@ logger = logging.getLogger(__name__)
 # Экспортируем сервис как объект
 telegram_service = sys.modules[__name__]
 
-
-
-async def analyze_photo_via_llm(photo_bytes: bytes) -> str:
+async def analyze_photo(self, photo_bytes: bytes, analysis_type: str = "gender") -> str:
     """
-    Отправляет фото в OpenAI Vision (через LLM.analyze_content) и возвращает summary.
+    Анализирует фотографию профиля пользователя.
+    
+    Args:
+        photo_bytes: Байты фотографии
+        analysis_type: Тип анализа ("gender" или "psychological")
+        
+    Returns:
+        str: Результат анализа или пустая строка в случае ошибки
     """
     try:
         # Проверяем кэш
-        cache_key = f"photo_analysis_{hash(photo_bytes)}"
+        cache_key = f"photo_analysis_{analysis_type}_{hash(photo_bytes)}"
         if cache_key in cache:
             logger.info(f"Используем кэшированный анализ фото")
             return cache[cache_key]
             
-        img_b64 = base64.b64encode(photo_bytes).decode()
-        llm = LLM()
+        # Конвертируем фото в base64
+        img_b64 = base64.b64encode(photo_bytes).decode('utf-8')
         
+        # Выбираем промпт в зависимости от типа анализа
+        if analysis_type == "gender":
+            system_prompt = GENDER_PHOTO_ANALYSIS_PROMPT
+            max_tokens = 10
+        else:  # psychological
+            system_prompt = "Кратко опиши психологические черты пользователя по фото профиля."
+            max_tokens = 128
+            
         # Ждем, пока не будет превышен лимит
         await rate_limiter.wait_for_limit(f"llm_{settings.openai_api_key.get_secret_value()[:5]}")
             
-        result = await llm.analyze_content(
-            image_base64=img_b64,
-            system_prompt="Кратко опиши психологические черты пользователя по фото профиля.",
-            max_tokens=128
+        result = await llm_service.analyze_text(
+            prompt="",
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            image_base64=img_b64
         )
         
         # Кэшируем результат
-        cache[cache_key] = result["summary"]
+        cache[cache_key] = result
         logger.info(f"Кэширован результат анализа фото")
             
-        return result["summary"]
+        return result
         
     except Exception as e:
         logger.error(f"Ошибка при анализе фото: {e}")
         return "Не удалось проанализировать фото"
+
+async def analyze_message(self, message: str) -> str:
+    """
+    Анализирует сообщение пользователя.
+    
+    Args:
+        message: Текст сообщения
+        
+    Returns:
+        str: Результат анализа или пустая строка в случае ошибки
+    """
+    try:
+        result = await self.llm.analyze_content(
+            text=message,
+            system_prompt=PSYCHOLOGICAL_ANALYSIS_PROMPT,
+            max_tokens=64
+        )
+        
+        if not result or 'error' in result:
+            return ''
+            
+        return result.get('summary', '').strip()
+        
+    except Exception as e:
+        logger.error(f"Ошибка при анализе сообщения: {e}", exc_info=True)
+        return ''
 
 async def openai_psychological_summary(text: str, image_url: str = None) -> str:
     """
@@ -167,19 +217,17 @@ async def openai_psychological_summary(text: str, image_url: str = None) -> str:
     """
     from . import prompts
     
-    llm = LLM()
-    
     # Получаем промпт в стиле "Безжалостное Зеркало Правды"
     prompt = prompts._get_text_prompt(text)
     
     try:
-        result = await llm.analyze_content(
-            text=text,
-            image_url=image_url,
+        result = await llm_service.analyze_text(
+            prompt=text,
             system_prompt=prompt,
-            max_tokens=1024  # Увеличиваем лимит токенов для более развернутого анализа
+            max_tokens=1024,  # Увеличиваем лимит токенов для более развернутого анализа
+            image_url=image_url
         )
-        return result["summary"]
+        return result
     except Exception as e:
         logging.error(f"Ошибка при генерации психологического профиля: {e}")
         return "Не удалось сгенерировать анализ. Пожалуйста, попробуйте позже."
@@ -323,8 +371,6 @@ async def get_full_psychological_summary(user_id: int, main_channel_id: Optional
                     logging.error(f"[get_full_psychological_summary] Ошибка LLM: {e}")
                 return None, None, []
 
-
-
 async def get_user_psychological_summary(user_id: int, tg_user: User, bio: str, posts_text: str) -> Tuple[Optional[str], Optional[bytes], List[str]]:
     """
     Получает психологический профайл пользователя с помощью LLM.
@@ -418,86 +464,72 @@ async def get_user_posts_in_channel(channel_id_or_username: str, user_id: int, l
     logger.info(f"Получено {len(posts)} постов пользователя {user_id} из канала {channel_id_or_username}")
     return posts
 
-async def get_user_profile_summary(user_id: int, main_channel_id: Optional[str] = None) -> tuple:
+async def get_user_profile_summary(client: TelegramClient, user_id: int, user_username: str = None) -> Tuple[str, GenderEnum, List[str]]:
     """
-    Получает психологический портрет пользователя.
-    
-    Args:
-        user_id: ID пользователя
-        main_channel_id: ID основного канала (опционально)
-    
-    Returns:
-        Кортеж (summary, photo_bytes, streams) или ("", None, []) в случае ошибки
+    Получает и анализирует профиль пользователя.
+    Возвращает кортеж (summary, gender, streams).
     """
-    client = None
-    client = None
     try:
-        logger.info(f"Инициализация клиента для пользователя {user_id}...")
-        client = await get_bot_client()
-        if not client or not client.is_connected():
-            logger.error("Не удалось подключиться к клиенту Telegram")
-            return "", None, []
-            
-        logger.info(f"Получение сущности пользователя {user_id}...")
-        try:
-            user = await client.get_entity(user_id)
-            if not user:
-                logger.error(f"Пользователь {user_id} не найден")
-                return "", None, []
-        except Exception as e:
-            logger.error(f"Ошибка при получении данных пользователя {user_id}: {e}")
-            return "", None, []
-            
-        logger.debug(f"Получение профиля пользователя {user_id} (username: {getattr(user, 'username', 'N/A')})")
-        
-        try:
-            logger.info(f"Запуск get_full_psychological_summary для пользователя {user_id}...")
-            result = await get_full_psychological_summary(user_id, main_channel_id=main_channel_id, tg_user=user)
-            
-            if not result or len(result) != 3:
-                logger.error(f"Некорректный формат результата для пользователя {user_id}")
-                return "", None, []
-                
-            summary, photo_bytes, streams = result
-            
-            # Проверяем типы возвращаемых значений
-            if not summary or not isinstance(summary, str):
-                logger.error(f"Некорректный тип summary для пользователя {user_id}")
-                return "", None, []
-                
-            if not isinstance(streams, list):
-                logger.warning(f"Некорректный тип streams для пользователя {user_id}, преобразуем в пустой список")
-                streams = []
-                
-            # Проверяем, что photo_bytes - это bytes или None
-            if photo_bytes is not None and not isinstance(photo_bytes, (bytes, bytearray)):
-                logger.warning(f"Некорректный тип photo_bytes для пользователя {user_id}, преобразуем в None")
-                photo_bytes = None
-                
-            logger.info(f"Успешно получен профиль для пользователя {user_id}")
-            return summary, photo_bytes, streams
-            
-        except asyncio.TimeoutError:
-            logger.error(f"Таймаут при получении профиля пользователя {user_id}")
-            return "", None, []
-        except Exception as e:
-            logger.error(f"Ошибка при обработке профиля пользователя {user_id}: {e}", exc_info=True)
-            return "", None, []
-        
-    except Exception as e:
-        logger.error(f"Ошибка при получении профиля пользователя {user_id}: {e}", exc_info=True)
-        return "", None, []
-        
-    finally:
-        if client:
-            try:
-                # is_connected is a synchronous method, don't use await
-                if client.is_connected():
-                    await client.disconnect()
-            except Exception as e:
-                logger.warning(f"Ошибка при отключении клиента: {e}")
-                pass
+        # Получаем информацию о пользователе
+        user = await client.get_entity(user_id)
+        if not user:
+            logger.error(f"Не удалось получить информацию о пользователе {user_id}")
+            return None, None, []
 
+        # Собираем информацию из профиля
+        bio = user.about if hasattr(user, 'about') and user.about else ""
+        first_name = user.first_name if hasattr(user, 'first_name') and user.first_name else ""
+        last_name = user.last_name if hasattr(user, 'last_name') and user.last_name else ""
+        
+        # Получаем последние посты пользователя
+        posts_text = ""
+        try:
+            # Получаем посты из личных сообщений
+            async for message in client.iter_messages(user, limit=10):
+                if message.text:
+                    posts_text += f"Сообщение: {message.text}\n"
+            
+            # Получаем посты из каналов, где пользователь активен
+            if user_username:
+                try:
+                    async for dialog in client.iter_dialogs():
+                        if dialog.is_channel or dialog.is_group:
+                            try:
+                                # Ищем сообщения, связанные с потоками
+                                async for message in client.iter_messages(dialog.entity, from_user=user, limit=10):
+                                    if message.text and any(stream.lower() in message.text.lower() for stream in ["женский", "мужской", "смешанный", "путь героя", "поток"]):
+                                        posts_text += f"Пост в {dialog.name}: {message.text}\n"
+                            except Exception as e:
+                                logger.debug(f"Не удалось получить сообщения из {dialog.name}: {str(e)}")
+                except Exception as e:
+                    logger.warning(f"Ошибка при получении постов из каналов: {str(e)}")
+        except Exception as e:
+            logger.error(f"Ошибка при получении постов пользователя {user_id}: {str(e)}")
+
+        # Формируем текст для анализа
+        text_for_analysis = f"Имя: {first_name} {last_name}\n"
+        if bio:
+            text_for_analysis += f"О себе: {bio}\n"
+        if posts_text:
+            text_for_analysis += f"Высказывания:\n{posts_text}"
+
+        # Генерируем summary
+        summary = await openai_psychological_summary(text=text_for_analysis, image_url=None)
+        if not summary or len(summary.strip()) < 10:
+            logger.warning(f"Не удалось сгенерировать summary для пользователя {user_id}")
+            return None, None, []
+
+        # Определяем пол
+        gender = await get_user_gender(summary)
+        
+        # Определяем потоки
+        streams = await get_user_streams(summary)
+        
+        return summary, gender, streams
+
+    except Exception as e:
+        logger.error(f"Ошибка при получении профиля пользователя {user_id}: {str(e)}")
+        return None, None, []
 
 async def get_user_gender(user_id: int, client=None, tg_user=None) -> GenderEnum:
     """
@@ -955,3 +987,76 @@ def _determine_gender_from_name(name: str) -> Optional[GenderEnum]:
         return GenderEnum.female
         
     return None
+
+async def get_relove_channel_posts(limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Получает последние посты из канала reLove.
+    
+    Args:
+        limit: Количество последних постов для получения
+        
+    Returns:
+        List[Dict[str, Any]]: Список постов с их содержимым и метаданными
+    """
+    try:
+        client = await get_client()
+        channel = await client.get_entity("reloveinfo")
+        
+        posts = []
+        async for message in client.iter_messages(channel, limit=limit):
+            if message.text:  # Пропускаем посты без текста
+                post = {
+                    'id': message.id,
+                    'date': message.date,
+                    'text': message.text,
+                    'views': message.views,
+                    'forwards': message.forwards,
+                    'reactions': message.reactions.count if message.reactions else 0
+                }
+                posts.append(post)
+        
+        return posts
+    except Exception as e:
+        logger.error(f"Ошибка при получении постов из канала reLove: {e}")
+        return []
+
+async def analyze_relove_channel_content() -> Dict[str, Any]:
+    """
+    Анализирует контент канала reLove для определения основных тем и концепций.
+    
+    Returns:
+        Dict[str, Any]: Словарь с основными темами и концепциями
+    """
+    try:
+        posts = await get_relove_channel_posts(limit=100)
+        
+        # Объединяем все тексты постов
+        all_text = "\n".join(post['text'] for post in posts)
+        
+        # Анализируем контент с помощью LLM
+        analysis_prompt = """
+        Проанализируй контент канала reLove и определи:
+        1. Основные темы и концепции
+        2. Стиль и тон общения
+        3. Ключевые термины и их значения
+        4. Эмоциональный окрас контента
+        5. Целевую аудиторию
+        6. Основные ценности и принципы
+        
+        Представь результат в структурированном виде.
+        """
+        
+        analysis = await llm_service.analyze_text(
+            prompt=all_text,
+            system_prompt=analysis_prompt,
+            max_tokens=500
+        )
+        
+        return {
+            'posts_count': len(posts),
+            'analysis': analysis,
+            'sample_posts': posts[:5]  # Первые 5 постов для примера
+        }
+    except Exception as e:
+        logger.error(f"Ошибка при анализе контента канала reLove: {e}")
+        return {}

@@ -2,7 +2,6 @@ import logging
 from typing import Tuple
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
-from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.storage.base import BaseStorage
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, BotCommandScopeDefault
@@ -19,7 +18,7 @@ def create_bot_and_dispatcher(storage: BaseStorage = None) -> Tuple[Bot, Dispatc
     :return: кортеж (bot, dispatcher)
     """
     try:
-        bot = Bot(token=settings.bot_token.get_secret_value(), default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        bot = Bot(token=settings.bot_token.get_secret_value(), parse_mode=ParseMode.HTML)
         if storage is None:
             storage = MemoryStorage()
         dp = Dispatcher(storage=storage)
@@ -36,6 +35,7 @@ bot, dp = create_bot_and_dispatcher()
 DEFAULT_COMMANDS = [
     BotCommand(command="start", description="🚀 Запустить/перезапустить бота"),
     BotCommand(command="help", description="❓ Получить справку"),
+    BotCommand(command="start_diagnostic", description="🎯 Пройти диагностику психотипа и пути героя"),
     # Добавляйте другие команды сюда
 ]
 
@@ -52,11 +52,15 @@ def include_routers(dispatcher: Dispatcher = None) -> None:
     if dispatcher is None:
         dispatcher = dp
     try:
-        from .handlers import common, admin  # Импорт внутри функции для избежания циклических зависимостей
+        from .handlers import common, admin, diagnostic_journey, diagnostic  # Импорт внутри функции для избежания циклических зависимостей
         dispatcher.include_router(common.router)
         logger.info("Common router included.")
         dispatcher.include_router(admin.router)
         logger.info("Admin router included.")
+        dispatcher.include_router(diagnostic_journey.router)
+        logger.info("Diagnostic journey router included.")
+        dispatcher.include_router(diagnostic.router)
+        logger.info("Diagnostic router included.")
         # TODO: Добавлять другие роутеры по мере их создания
     except Exception as e:
         logger.exception(f"Ошибка подключения роутеров: {e}")

@@ -36,6 +36,6 @@ class DbSessionMiddleware(BaseMiddleware):
             finally:
                 # Коммит здесь не нужен, т.к. сессия закрывается контекстным менеджером
                 # await session.commit() # Не нужно
-                await session.close() # Закрываем для надежности, хотя менеджер должен это делать
+                session.close() # Закрываем для надежности, хотя менеджер должен это делать
                 logger.debug("DB session closed after handler execution.")
             return result 

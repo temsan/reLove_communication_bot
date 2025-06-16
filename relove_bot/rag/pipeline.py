@@ -6,6 +6,8 @@ from .llm import LLM
 from ..db.models import User, UserActivityLog
 from sqlalchemy import select
 from datetime import datetime
+from relove_bot.services.llm_service import llm_service
+from relove_bot.services.prompts import RAG_TEXT_SUMMARY_PROMPT
 
 async def aggregate_profile_summary(user_id, session):
     # Собрать все сообщения пользователя
@@ -79,3 +81,44 @@ async def get_profile_summary(user_id, session):
     )
     row = result.scalar_one_or_none()
     return row or ""
+
+async def analyze_text(text: str) -> str:
+    """
+    Анализирует текст с помощью LLM
+    """
+    try:
+        result = await llm_service.analyze_text(
+            prompt=text,
+            system_prompt="Сделай краткое информативное summary для следующего текста.",
+            max_tokens=128
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Ошибка при анализе текста: {e}")
+        return ""
+
+async def process_text(text: str) -> str:
+    """
+    Обрабатывает текст с помощью RAG.
+    
+    Args:
+        text: Текст для обработки
+        
+    Returns:
+        str: Результат обработки или пустая строка в случае ошибки
+    """
+    try:
+        result = await llm_service.analyze_text(
+            text=text,
+            system_prompt=RAG_TEXT_SUMMARY_PROMPT,
+            max_tokens=64
+        )
+        
+        if not result:
+            return ''
+            
+        return result.strip()
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке текста: {e}", exc_info=True)
+        return ''

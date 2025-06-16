@@ -2,16 +2,25 @@
 Сервис для массового обновления профилей пользователей.
 """
 import logging
+from sqlalchemy.ext.asyncio import AsyncSession
 from relove_bot.db.repository import UserRepository
 from relove_bot.utils.gender import detect_gender
-from relove_bot.models.gender import GenderEnum
+from relove_bot.db.models import GenderEnum
+from relove_bot.services.prompts import PROFILE_STREAMS_PROMPT
+from typing import List, Dict, Union, Optional
+from relove_bot.services.llm_service import llm_service
+from relove_bot.utils.telegram_client import get_client
+from telethon.tl.functions.users import GetFullUserRequest
+from relove_bot.services.telegram_service import telegram_service
 
 
 logger = logging.getLogger(__name__)
 
 class ProfileService:
-    def __init__(self, session):
-        self.repo = UserRepository(session)
+    def __init__(self, session: AsyncSession):
+        self.session = session
+        self.user_repository = UserRepository(session)
+        self.llm_service = llm_service
 
     @staticmethod
     def validate_user_fields(user_dict):
@@ -21,102 +30,159 @@ class ProfileService:
                 missing.append(field)
         return missing
 
-    async def process_user(self, user_id, main_channel_id, tg_user=None):
-        if tg_user is None:
-            try:
-                logger.debug(f'Attempting to get entity for user_id: {user_id}')
-                tg_user = await client.get_entity(int(user_id))
-            except Exception as e:
-                logger.warning(f"Не удалось получить Telegram entity для user {user_id}: {e}")
-                # Пробуем получить по username, если он есть в базе
-                user_in_db = await self.repo.get_by_id(user_id)
-                username = getattr(user_in_db, 'username', None) if user_in_db else None
-                if username:
-                    try:
-                        tg_user = await client.get_entity(username)
-                        logger.info(f"Удалось получить entity по username={username} для user_id={user_id}")
-                    except Exception as e2:
-                        logger.warning(f"Не удалось получить Telegram entity по username={username} для user_id={user_id}: {e2}")
-                        tg_user = None
-                else:
-                    tg_user = None
-                    
-        user = await self.repo.get_by_id(user_id)
-        if not user and tg_user:
-            first_name = getattr(tg_user, 'first_name', None)
-            last_name = getattr(tg_user, 'last_name', None)
-            username = getattr(tg_user, 'username', None)
-            # Пропуск, если все три поля отсутствуют
-            if not any([first_name, last_name, username]):
-                logger.warning(f"Пропуск user_id={user_id}: нет ни first_name, ни last_name, ни username. Не создаём пользователя!")
-                return
-            user_data = {
-                "id": user_id,
-                "username": username,
-                "first_name": first_name,
-                "last_name": last_name,
-                "is_active": True
-            }
-            logger.info(f"Пробуем создать пользователя с данными: {user_data}")
-            # Требуем хотя бы одно из: first_name или username
-            if not (first_name or username):
-                logger.warning(f"Пропуск user_id={user_id}: отсутствуют и first_name, и username. Не создаём пользователя!")
-                return
-            missing_fields = self.validate_user_fields(user_data)
-            if missing_fields:
-                logger.warning(f"Отсутствуют обязательные поля для пользователя {user_id}: {', '.join(missing_fields)}. Пропускаем создание пользователя.")
-                return
-            user = User(**user_data)
-            self.repo.session.add(user)
-            await self.repo.session.commit()
-            logger.info(f"Создан новый пользователь {user_id} ({user.username})")
-        user_has_summary = user and user.profile_summary and user.profile_summary.strip()
-        user_has_gender = user and user.gender and str(user.gender) not in ('', 'unknown', 'None')
+    async def analyze_profile(self, user_id: int, main_channel_id: Optional[str] = None, tg_user=None) -> bool:
+        """
+        Анализирует профиль пользователя и обновляет его в базе данных.
         
-        result = {}
-        
-        if not user_has_summary:
-            # Получаем посты из личного канала
-            try:
-                channel_data = await get_personal_channel_posts(user_id)
-                if channel_data:
-                    posts = channel_data.get("posts", [])
-                    photo_summaries = channel_data.get("photo_summaries", [])
-                    if posts:
-                        user.profile_summary = "\n".join(posts)
-                    if photo_summaries:
-                        user.markers = user.markers or {}
-                        user.markers['photo_summaries'] = photo_summaries
-                    await self.repo.session.commit()
-                    result['summary'] = user.profile_summary
-            except Exception as e:
-                logger.warning(f"Не удалось получить посты из личного канала для user {user_id}: {e}")
+        Args:
+            user_id: ID пользователя
+            main_channel_id: ID основного канала
+            tg_user: Объект пользователя Telegram (опционально)
+            
+        Returns:
+            bool: True если профиль успешно обновлен, False в противном случае
+        """
+        try:
+            # Получаем пользователя из базы данных
+            user = await self.user_repository.get_user(user_id)
+            if not user:
+                logger.warning(f"Пользователь {user_id} не найден в базе данных")
+                return False
 
-            # --- Определяем потоки через LLM по тем же постам ---
+            # Получаем информацию о пользователе из Telegram
+            if not tg_user:
+                try:
+                    tg_user = await telegram_service.get_full_user(user_id)
+                except Exception as e:
+                    logger.warning(f"Не удалось получить информацию о пользователе {user_id} по ID: {e}")
+                    return False
+
+            if not tg_user:
+                logger.warning(f"Не удалось получить информацию о пользователе {user_id}")
+                return False
+
+            # Получаем био и посты пользователя
+            bio = getattr(tg_user, 'about', '') or ''
+            posts_text = ''
+
             try:
-                llm_service = LLMService()
-                posts_text = '\n'.join(posts) if posts else ''
-                prompt = (
-                    "На основе следующих постов пользователя определи, к каким потокам он относится: женский, мужской, смешанный. "
-                    "Ответь списком через запятую только из этих вариантов.\nПосты пользователя:\n" + posts_text
+                # Получаем посты из канала обсуждений
+                if main_channel_id:
+                    posts = await telegram_service.get_user_posts_in_channel(main_channel_id, user_id)
+                    posts_text = '\n'.join(posts) if posts else ''
+            except Exception as e:
+                logger.warning(f"Не удалось получить посты пользователя {user_id}: {e}")
+
+            # Получаем психологический анализ
+            try:
+                summary, photo_bytes, streams = await telegram_service.get_user_psychological_summary(
+                    user_id=user_id,
+                    tg_user=tg_user,
+                    bio=bio,
+                    posts_text=posts_text
                 )
-                streams_str = await llm_service.analyze_text(prompt, system_prompt="Определи потоки пользователя", max_tokens=16)
-                streams = [s.strip().capitalize() for s in streams_str.split(',') if s.strip()]
-                # Сохраняем потоки в поле streams модели User
-                user.streams = streams
-                await self.repo.session.commit()
-                result['streams'] = streams
             except Exception as e:
-                logger.warning(f"Не удалось определить потоки через LLM для user {user_id}: {e}")
+                logger.error(f"Ошибка при получении психологического анализа для пользователя {user_id}: {e}")
+                return False
 
-        if not user_has_gender:
-            # Если это бот, устанавливаем женский пол
-            if tg_user and getattr(tg_user, 'bot', False):
-                gender = GenderEnum.female
-                logger.info(f"Пользователь {user_id} является ботом, установлен женский пол")
-            else:
-                gender = await detect_gender(tg_user) if tg_user else GenderEnum.female
-            await self.repo.update_gender(user_id, gender)
-            result['gender'] = gender
+            if not summary:
+                logger.warning(f"Не удалось получить психологический анализ для пользователя {user_id}")
+                return False
 
-        return result
+            # Обновляем профиль пользователя
+            try:
+                await self.user_repository.update(
+                    user_id,
+                    {
+                        'psychological_summary': summary,
+                        'streams': streams or [],
+                        'photo_jpeg': photo_bytes if photo_bytes else None
+                    }
+                )
+                logger.info(f"Профиль пользователя {user_id} успешно обновлен")
+                return True
+            except Exception as e:
+                logger.error(f"Ошибка при обновлении профиля пользователя {user_id}: {e}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Ошибка при анализе профиля пользователя {user_id}: {e}")
+            return False
+
+    async def get_user_streams(self, user_id: int) -> List[str]:
+        """
+        Получает потоки пользователя.
+        
+        Args:
+            user_id: ID пользователя
+            
+        Returns:
+            List[str]: Список потоков пользователя
+        """
+        try:
+            # Получаем профиль пользователя
+            profile = await self.user_repository.get_user(user_id)
+            if not profile:
+                return []
+            
+            # Анализируем текстовые поля
+            text_parts = []
+            if profile.first_name:
+                text_parts.append(f"Имя: {profile.first_name}")
+            if profile.last_name:
+                text_parts.append(f"Фамилия: {profile.last_name}")
+            if profile.username:
+                text_parts.append(f"Логин: @{profile.username}")
+            if profile.bio:
+                text_parts.append(f"О себе: {profile.bio}")
+            
+            if not text_parts:
+                return []
+            
+            prompt = "\n".join(text_parts)
+            streams_str = await llm_service.analyze_text(prompt, system_prompt=PROFILE_STREAMS_PROMPT, max_tokens=16)
+            
+            if not streams_str:
+                return []
+            
+            # Разбиваем строку на потоки
+            streams = [s.strip() for s in streams_str.split(',')]
+            return [s for s in streams if s]
+            
+        except Exception as e:
+            logger.error(f"Ошибка при получении потоков пользователя: {e}", exc_info=True)
+            return []
+
+    async def get_user_posts(self, user_id: int, main_channel_id: Union[int, str]) -> List[str]:
+        """Получить посты пользователя из канала"""
+        try:
+            client = await get_client()
+            if not client.is_connected():
+                await client.connect()
+                
+            # Получаем канал по ID или username
+            try:
+                channel = await client.get_entity(main_channel_id)
+            except ValueError as e:
+                logger.warning(f"Не удалось получить канал {main_channel_id}: {str(e)}")
+                return []
+            except Exception as e:
+                logger.warning(f"Ошибка при получении канала {main_channel_id}: {str(e)}")
+                return []
+                
+            posts = []
+            try:
+                async for message in client.iter_messages(channel, from_user=user_id):
+                    if message and hasattr(message, 'text') and message.text:
+                        posts.append(message.text)
+            except Exception as e:
+                if "Chat admin privileges are required" in str(e):
+                    logger.warning(f"Недостаточно прав для получения постов пользователя {user_id} из канала {main_channel_id}")
+                else:
+                    logger.warning(f"Ошибка при получении постов пользователя {user_id}: {str(e)}")
+                return posts  # Возвращаем уже полученные посты
+                    
+            return posts
+        except Exception as e:
+            logger.warning(f"Не удалось получить посты пользователя {user_id}: {str(e)}")
+            return []
