@@ -1062,21 +1062,23 @@ class AnalysisCache:
             # Собираем информацию о пользователях
             user_info_map = {}
             for user_id, profile in results.items():
-                # Получаем оригинальное имя из первого сообщения пользователя, если оно есть
-                first_message = next((msg for msg in profile.get('messages', []) if 'original_name' in msg), None)
-                
-                if first_message and 'original_name' in first_message:
-                    # Используем оригинальное имя из сообщения
-                    username = first_message['original_name']
+                # Получаем имя из actor или из первого сообщения
+                actor_name = None
+                for msg in profile.get('messages', []):
+                    if 'actor' in msg and msg['actor']:
+                        actor_name = msg['actor']
+                        break
+                    if 'from' in msg and isinstance(msg['from'], str) and msg['from']:
+                        actor_name = msg['from']
+                        break
+                if actor_name:
+                    username = actor_name.strip()
                 else:
                     # Используем имя из профиля, если оно есть
                     username = profile.get('name', '').strip()
-                    
                     # Если имя пустое или неизвестное, используем ID
                     if not username or username.lower() in ['неизвестный', 'unknown']:
                         username = f'Участник {user_id}'
-                
-                # Сохраняем имя пользователя для отображения
                 user_info_map[user_id] = username
             
             # Обрабатываем каждого пользователя отдельно
@@ -1556,8 +1558,12 @@ def parse_args():
         9: 'Сентябрь', 10: 'Октябрь', 11: 'Ноябрь', 12: 'Декабрь'
     }
     
+    # Функция для очистки имени файла от запрещённых символов
+    def sanitize_filename(filename):
+        return re.sub(r'[<>:"/\\|?*]', '', filename)
+    
     # Формируем имя файла: "Название_чата Месяц ГГГГ"
-    filename = f"{event_name} {month_ru[chat_date.month]} {chat_date.year}.md"
+    filename = sanitize_filename(f"{event_name} {month_ru[chat_date.month]} {chat_date.year}.md")
     
     # Создаем директорию для отчетов, если её нет
     output_dir = Path(args.output_dir)
@@ -1679,9 +1685,17 @@ class ChatAnalyzerLLM:
             users.setdefault(user_id, []).append(msg)
         results = {}
         def msg_text_to_str(msg):
-            t = msg.get("text", "")
+            t = msg.get("text") or msg.get("message") or ""
             if isinstance(t, list):
-                return " ".join(str(x) if isinstance(x, str) else str(x.get('text', '')) for x in t)
+                parts = []
+                for x in t:
+                    if isinstance(x, str):
+                        parts.append(x)
+                    elif isinstance(x, dict):
+                        # Если есть вложенный текст
+                        if 'text' in x:
+                            parts.append(str(x['text']))
+                return " ".join(parts)
             return str(t)
         for user_id, user_messages in users.items():
             user_text = "\n".join([msg_text_to_str(msg) for msg in user_messages if msg.get("text")])
@@ -1722,10 +1736,37 @@ class ChatAnalyzerLLM:
                     else:
                         results[user_id] = {"analysis": f"Ошибка: {err_str}", "messages": user_messages}
                         break
+        # Собираем информацию о пользователях для отчёта
+        user_info_map = {}
+        for user_id, data in results.items():
+            actor_name = None
+            for msg in data.get('messages', []):
+                if 'actor' in msg and msg['actor']:
+                    actor_name = msg['actor']
+                    break
+                if 'from' in msg and isinstance(msg['from'], str) and msg['from']:
+                    actor_name = msg['from']
+                    break
+            if actor_name:
+                username = actor_name.strip()
+            else:
+                username = ''
+            if not username or username.lower() in ['неизвестный', 'unknown']:
+                username = f'Участник {user_id}'
+            user_info_map[user_id] = username
         report = "# Общий анализ пользователей\n"
         for user_id, data in results.items():
-            report += f"\n## Пользователь {user_id}\n"
-            report += f"Ответы LLM:\n{data['analysis']}\n"
+            # Пропускаем, если нет сообщений
+            if not data['messages']:
+                continue
+            report += f"\n## {user_info_map.get(user_id, f'Пользователь {user_id}')}\n"
+            # Форматируем ответы на 2 вопроса
+            answer = data['analysis']
+            if isinstance(answer, str):
+                report += answer.strip() + "\n"
+            elif isinstance(answer, list):
+                for idx, ans in enumerate(answer, 1):
+                    report += f"{idx}. {ans.strip()}\n"
         return {
             'status': 'ok',
             'results': results,
