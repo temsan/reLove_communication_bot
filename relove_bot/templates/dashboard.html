@@ -3,1334 +3,1265 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Админка reLove</title>
+    <title>reLove Админ-панель</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
-    body {
-      font-family: 'Inter', Arial, sans-serif;
-      background: #fff;
-      color: #1a1a1a;
-      margin: 0;
-      padding: 0;
+    
+    :root {
+        --glass-bg: rgba(255, 255, 255, 0.7);
+        --glass-border: rgba(255, 255, 255, 0.5);
+        --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+        --glass-blur: blur(8px);
+        --primary-gradient: linear-gradient(135deg, #e94e77 0%, #b721ff 100%);
+        --secondary-gradient: linear-gradient(135deg, #36d1c4 0%, #7f53ac 100%);
     }
 
-/* reLove фирменные карточки */
-.relove-card {
-  background: #fff;
-  border-radius: 1.6rem;
-  box-shadow: 0 2px 16px 0 rgba(127,83,172,0.09);
-  border: 2.5px solid transparent;
-  background-clip: padding-box;
-  padding: 1.4rem 1.8rem 1.3rem 1.8rem;
-  margin-bottom: 2rem;
-  color: #1a1a1a;
-  transition: box-shadow 0.2s, border 0.2s;
-  position: relative;
-}
-.relove-card.accent-1 { border-image: linear-gradient(90deg, #e94e77, #b721ff) 1; }
-.relove-card.accent-2 { border-image: linear-gradient(90deg, #36d1c4, #7f53ac) 1; }
-.relove-card.accent-3 { border-image: linear-gradient(90deg, #d72660, #ffaf7b) 1; }
-.relove-card:hover { box-shadow: 0 16px 48px 0 rgba(215,38,96,0.13); }
+    body {
+        font-family: 'Inter', Arial, sans-serif;
+        background: linear-gradient(135deg, #f5f7fa 0%, #e4e8f0 100%);
+        color: #1a1a1a;
+        margin: 0;
+        padding: 0;
+        min-height: 100vh;
+        position: relative;
+        overflow-x: hidden;
+    }
 
-/* Кнопки reLove */
-.relove-btn {
-  background: linear-gradient(90deg, #e94e77 0%, #b721ff 100%);
-  color: #fff;
-  border: none;
-  border-radius: 1.2rem;
-  font-weight: 600;
-  padding: 0.7em 2.1em;
-  font-size: 1.1em;
-  box-shadow: 0 2px 12px 0 rgba(127,83,172,0.09);
-  transition: background 0.2s, box-shadow 0.2s;
-}
-.relove-btn:hover {
-  background: linear-gradient(90deg, #d72660 0%, #7f53ac 100%);
-  box-shadow: 0 8px 24px 0 rgba(233,78,119,0.13);
-}
+    /* Анимированный фон */
+    body::before {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96c93d);
+        background-size: 400% 400%;
+        animation: gradientBG 15s ease infinite;
+        z-index: -1;
+        opacity: 0.1;
+    }
 
-/* Акцентное сердечко */
-.relove-heart {
-  color: #e94e77;
-  font-size: 1.6em;
-  vertical-align: middle;
-  filter: drop-shadow(0 1px 4px rgba(233,78,119,0.13));
-  font-family: 'Pacifico', cursive, sans-serif;
-}
+    @keyframes gradientBG {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    /* Плавающие элементы фона */
+    .floating-shapes {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: -1;
+    }
+
+    .shape {
+        position: absolute;
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        border-radius: 50%;
+        animation: float 20s infinite;
+        opacity: 0.1;
+    }
+
+    .shape:nth-child(1) {
+        width: 300px;
+        height: 300px;
+        top: -150px;
+        left: -150px;
+        animation-delay: 0s;
+    }
+
+    .shape:nth-child(2) {
+        width: 200px;
+        height: 200px;
+        top: 50%;
+        right: -100px;
+        animation-delay: -5s;
+    }
+
+    .shape:nth-child(3) {
+        width: 150px;
+        height: 150px;
+        bottom: -75px;
+        left: 50%;
+        animation-delay: -10s;
+    }
+
+    @keyframes float {
+        0% { transform: translate(0, 0) rotate(0deg); }
+        33% { transform: translate(100px, 100px) rotate(120deg); }
+        66% { transform: translate(-50px, 200px) rotate(240deg); }
+        100% { transform: translate(0, 0) rotate(360deg); }
+    }
+
+    /* Улучшенные карточки */
+    .relove-card {
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border: 1px solid var(--glass-border);
+        border-radius: 1.6rem;
+        box-shadow: var(--glass-shadow);
+        padding: 1.8rem;
+        margin-bottom: 2rem;
+        color: #1a1a1a;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .relove-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: var(--primary-gradient);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .relove-card::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+        transform: translateX(-100%);
+        transition: transform 0.6s ease;
+    }
+
+    .relove-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.2);
+    }
+
+    .relove-card:hover::before {
+        opacity: 1;
+    }
+
+    .relove-card:hover::after {
+        transform: translateX(100%);
+    }
+
+    /* Улучшенные кнопки */
+    .relove-btn {
+        background: var(--primary-gradient);
+        color: #fff;
+        border: none;
+        border-radius: 1.2rem;
+        font-weight: 600;
+        padding: 0.8em 2.2em;
+        font-size: 1.1em;
+        box-shadow: 0 4px 15px rgba(233, 78, 119, 0.2);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .relove-btn::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+        transition: 0.5s;
+    }
+
+    .relove-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(233, 78, 119, 0.3);
+    }
+
+    .relove-btn:hover::before {
+        left: 100%;
+    }
+
+    /* Улучшенные вкладки */
+    .relove-tabs {
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border: 1px solid var(--glass-border);
+        border-radius: 1.2rem;
+        overflow: hidden;
+        margin-bottom: 2rem;
+        box-shadow: var(--glass-shadow);
+        position: relative;
+    }
+
+    .relove-tabs::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+        transform: translateX(-100%);
+        transition: transform 0.6s ease;
+    }
+
+    .relove-tabs:hover::before {
+        transform: translateX(100%);
+    }
+
+    /* Улучшенные графики */
+    .chart-container {
+        position: relative;
+        margin: auto;
+        height: 300px;
+        width: 100%;
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border-radius: 1rem;
+        padding: 1rem;
+        transition: all 0.3s ease;
+    }
+
+    .chart-container:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.2);
+    }
+
+    /* reLove фирменные карточки */
+    .relove-card {
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border: 1px solid var(--glass-border);
+        border-radius: 1.6rem;
+        box-shadow: var(--glass-shadow);
+        padding: 1.8rem;
+        margin-bottom: 2rem;
+        color: #1a1a1a;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .relove-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: var(--primary-gradient);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+
+    .relove-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.2);
+    }
+
+    .relove-card:hover::before {
+        opacity: 1;
+    }
+
+    /* Акцентное сердечко */
+    .relove-heart {
+        color: #e94e77;
+        font-size: 1.6em;
+        vertical-align: middle;
+        filter: drop-shadow(0 2px 4px rgba(233, 78, 119, 0.2));
+        font-family: 'Pacifico', cursive, sans-serif;
+        animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+        100% { transform: scale(1); }
+    }
 
     .dashboard-title-bar {
-      background: linear-gradient(90deg, #ff9966 0%, #b721ff 100%);
-      border-radius: 2rem;
-      box-shadow: 0 2px 16px 0 rgba(127,83,172,0.09);
-      padding: 1.1rem 1.6rem 1.1rem 2.1rem;
-      margin: 0 0 2rem 0;
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      min-height: 68px;
-    }
-    .dashboard-title {
-  color: #fff;
-  font-size: 2.2rem;
-  font-family: 'Inter', Arial, sans-serif;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  text-shadow: none;
-  display: flex;
-  align-items: center;
-}
-.dashboard-title .relove-heart {
-  margin-left: 0.5rem;
-  font-size: 2.1rem;
-  vertical-align: middle;
-  filter: drop-shadow(0 1px 4px rgba(233,78,119,0.13));
-}
-    .relove-tabs .nav-link.relove-tab-btn {
-      border: none;
-      background: none;
-      color: #7f53ac;
-      font-weight: 500;
-      border-radius: 0;
-      padding: 0.7rem 1.2rem;
-      transition: color 0.2s;
-    }
-    .relove-tabs .nav-link.relove-tab-btn.active {
-      color: #fff;
-      background: #7f53ac;
-      border-radius: 1.2rem 1.2rem 0 0;
-    }
-    .modern-users-grid {
-      background: none;
-      padding: 0;
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-      gap: 1.2rem;
-      max-width: 1200px;
-    }
-    .modern-user-card {
-      background: #fff;
-      border-radius: 1.1rem;
-      box-shadow: 0 1px 7px 0 rgba(127,83,172,0.06);
-      border: 1px solid #f1f1f4;
-      transition: box-shadow 0.14s, border-color 0.10s;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      min-height: 200px;
-    }
-    .modern-user-card:hover {
-      box-shadow: 0 6px 20px 0 rgba(127,83,172,0.09);
-      border-color: #7f53ac;
-    }
-    .modern-user-photo-wrap {
-      width: 100%;
-      height: 110px;
-      background: #f5f5fa;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-bottom: 1px solid #f1f1f4;
-    }
-    .modern-user-photo {
-      width: 70%;
-      height: 70%;
-      object-fit: cover;
-      border-radius: 0.6rem;
-      background: #f4f4f7;
-      border: none;
-      box-shadow: 0 1px 4px 0 rgba(127,83,172,0.03);
-    }
-    .modern-user-photo--empty {
-      background: #f4f4f7;
-      border: 1px dashed #e0e0e0;
-      border-radius: 0.6rem;
-      color: #bbb;
-      font-size: 1.2rem;
-      font-weight: 500;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 70%;
-      height: 70%;
-    }
-    input[type='text'], .form-control {
-      border-radius: 0.7rem;
-      border: 1px solid #e0e0e0;
-      background: #fafbfc;
-      padding: 0.5rem 1rem;
-      font-size: 1rem;
-    }
-    input[type='text']:focus, .form-control:focus {
-      outline: none;
-      border-color: #7f53ac;
-      background: #fff;
-    }
-    button, .btn {
-      border-radius: 0.7rem;
-      background: #7f53ac;
-      color: #fff;
-      border: none;
-      font-weight: 500;
-      padding: 0.5rem 1.4rem;
-      transition: background 0.18s;
-    }
-    button:hover, .btn:hover {
-      background: #d72660;
-      color: #fff;
-    }
-    .modern-user-info {
-      width: 100%;
-      padding: 0.3em 0.4em 0.3em 0.4em;
-      background: transparent;
-      text-align: left;
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-end;
-      align-items: flex-start;
-      gap: 0.03em;
-    }
-    .modern-user-name {
-      font-size: 0.93em;
-      font-weight: 500;
-      color: #181828;
-      margin-bottom: 0.03em;
-      letter-spacing: 0.01em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 100%;
-    }
-    .modern-user-username {
-      font-size: 0.78em;
-      color: #7f53ac;
-      opacity: 1;
-      font-weight: 500;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 100%;
-    }
-    /* Tooltip саммари */
-    .modern-user-summary-tooltip {
-      display: none;
-      position: absolute;
-      left: 50%;
-      top: -12px;
-      transform: translate(-50%, -100%) scale(0.97);
-      min-width: 120px;
-      max-width: 220px;
-      background: #fff;
-      color: #222;
-      border: 1px solid #ececf5;
-      border-radius: 0.6rem;
-      box-shadow: 0 2px 10px 0 rgba(127,83,172,0.07);
-      padding: 0.3em 0.6em 0.3em 0.6em;
-      z-index: 99;
-      font-size: 0.90em;
-      text-align: left;
-      pointer-events: auto;
-      opacity: 0;
-      transition: opacity 0.13s, transform 0.18s;
-      max-height: 180px;
-      overflow-y: auto;
-      word-break: break-word;
-    }
-    .modern-user-photo-wrap:hover .modern-user-summary-tooltip {
-      display: block;
-      opacity: 1;
-      pointer-events: auto;
-      transform: translate(-50%, -105%) scale(1);
-      animation: fadeInSummaryModern 0.14s;
-      margin-bottom: 2px;
-      max-height: 400px;
-    }
-    @keyframes fadeInSummaryModern {
-      from { opacity: 0; transform: translate(-50%, -100%) scale(0.96); }
-      to { opacity: 1; transform: translate(-50%, -128%) scale(1); }
-    }
-    .modern-user-summary-label {
-      color: #7f53ac;
-      font-size: 0.85em;
-      font-weight: 600;
-      margin-bottom: 0.18em;
-      letter-spacing: 0.01em;
-    }
-    .modern-user-summary-text {
-      color: #222;
-      font-size: 0.85em;
-      font-weight: 400;
-      white-space: pre-line;
-      word-break: break-word;
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      -ms-line-clamp: 3;
-      line-clamp: 3;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-height: 3.8em;
-    }
-    .modern-user-summary-tooltip::after {
-      content: '';
-      position: absolute;
-      left: 50%;
-      top: 100%;
-      transform: translateX(-50%) rotate(45deg);
-      width: 10px;
-      height: 10px;
-      background: #fff;
-      border-left: 1px solid #ececf5;
-      border-bottom: 1px solid #ececf5;
-      box-shadow: 0 1px 3px 0 rgba(127,83,172,0.04);
-      border-radius: 0 0 0.3em 0;
-      z-index: 100;
-      pointer-events: none;
-      clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
-    }
-
-.modern-user-card {
-  background: #fff;
-  color: white;
-  aspect-ratio: 0.7 / 1;
-  width: 100%;
-  position: relative;
-  overflow: hidden;
-  border-radius: 1.2rem;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  min-width: 0;
-  max-width: 540px;
-  min-height: 0;
-  max-height: 820px;
-  margin: 0 auto;
-  border-radius: 2.5rem;
-  overflow: hidden;
-  position: relative;
-  box-shadow: 0 4px 24px 0 rgba(127,83,172,0.08);
-  border: none;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: stretch;
-  align-items: stretch;
-}
-
-.modern-user-summary {
-  font-size: clamp(0.7rem, 0.9vw, 0.89rem);
-  line-height: 1.19;
-  color: #bfc3d9;
-  font-weight: 400;
-  padding: 0.7em 1em 1em 1em;
-  word-break: break-word;
-  overflow-wrap: break-word;
-  overflow: visible;
-  text-overflow: initial;
-  min-height: 3.3em;
-  max-height: none;
-  display: block;
-}
-    .user-photo-bg {
-      position: absolute;
-      inset: 0;
-      background-size: cover;
-      background-position: center;
-      transition: transform 0.3s ease;
-      z-index: 1;
-      background-position: center;
-      filter: brightness(0.55);
-      z-index: 0;
-      transition: filter .2s;
-      border-radius: 1.5rem;
-      box-shadow: none;
-      border: none;
-    }
-    .user-photo-bg--empty {
-      background: linear-gradient(135deg, #e0e6fa 70%, #f8e1f6 100%);
-    }
-    .user-photo-overlay {
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(180deg, rgba(0,0,0,0.48) 60%, rgba(127,83,172,0.25) 100%);
-      z-index: 1;
-    }
-    .user-photo-content {
-      color: #fff !important;
-      text-shadow: 0 2px 12px #000a;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    }
-    .user-photo-name, .user-photo-username, .user-photo-badge, .user-photo-summary-label, .user-photo-summary-text {
-      color: #fff !important;
-    }
-    .user-photo-username {
-      opacity: 0.92;
-    }
-    .user-photo-badge {
-      background: rgba(127,83,172,0.55);
-      color: #fff;
-      border: none;
-      font-weight: 500;
-      font-size: 1.01rem;
-      margin-bottom: 0.2rem;
-    }
-    .user-photo-summary-bubble {
-      display: none;
-      position: absolute;
-      left: 100%;
-      top: 50%;
-      transform: translateY(-50%) scale(0.85);
-      min-width: 270px;
-      max-width: 400px;
-      background: #fff;
-      color: #222;
-      border-radius: 1.2rem;
-      box-shadow: 0 8px 32px 0 rgba(60,40,120,0.20);
-      z-index: 20;
-      padding: 1.4rem 1.4rem 1.2rem 1.4rem;
-      text-align: left;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.16s, transform 0.18s;
-      margin-left: 22px;
-      font-size: 1.18rem;
-    }
-    .user-photo-card:hover .user-photo-summary-bubble {
-      display: block;
-      opacity: 1;
-      pointer-events: auto;
-      transform: translateY(-50%) scale(1);
-      animation: bubbleGrow 0.18s;
-    }
-    @keyframes bubbleGrow {
-      from { opacity: 0; transform: translateY(-50%) scale(0.85); }
-      to   { opacity: 1; transform: translateY(-50%) scale(1); }
-    }
-    .user-photo-summary-bubble-arrow {
-      position: absolute;
-      left: -18px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 28px;
-      height: 28px;
-      pointer-events: none;
-      z-index: 21;
-      overflow: visible;
-    }
-    .user-photo-summary-bubble-arrow::before {
-      content: '';
-      position: absolute;
-      left: 6px;
-      top: 50%;
-      transform: translateY(-50%) rotate(-45deg);
-      width: 20px;
-      height: 20px;
-      background: #fff;
-      border-radius: 0 0 0 1rem;
-      box-shadow: -2px 2px 10px 0 rgba(60,40,120,0.10);
-      z-index: 22;
-      border: 1.5px solid #e0e6fa;
-    }
-    .user-photo-summary-bubble-inner {
-      width: 100%;
-      max-height: 240px;
-      overflow-y: auto;
-    }
-    .user-photo-summary-label {
-      color: #7f53ac;
-      font-size: 1.1rem;
-      font-weight: 700;
-      opacity: 1;
-      margin-bottom: 0.7em;
-      letter-spacing: 0.02em;
-    }
-    .user-photo-summary-text {
-      color: #222;
-      font-size: 1.13rem;
-      opacity: 0.98;
-      white-space: pre-line;
-      word-break: break-word;
-      font-weight: 400;
-    }
-
-    .dashboard-header {
-        background: linear-gradient(90deg, #d72660 0%, #7f53ac 100%);
-        color: #fff;
-        border-radius: 1.5rem;
-        box-shadow: 0 4px 24px 0 rgba(215,38,96,0.10);
-        padding: 2.2rem 1.5rem 1.2rem 1.5rem;
-        margin-bottom: 2rem;
-        letter-spacing: 1px;
-        position: relative;
-    }
-    .dashboard-header h1 {
-        font-weight: 800;
-        font-size: 2.5rem;
-        letter-spacing: 2px;
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border: 1px solid var(--glass-border);
+        border-radius: 2rem;
+        box-shadow: var(--glass-shadow);
+        padding: 1.4rem 2rem;
+        margin: 0 0 2rem 0;
         display: flex;
         align-items: center;
-        gap: 0.8rem;
-    }
-    .dashboard-header .relove-heart {
-        font-size: 2.7rem;
-        color: #fff;
-        text-shadow: 0 2px 12px #d72660cc;
-        margin-left: 0.2em;
-        vertical-align: middle;
-        animation: relove-heartbeat 1.2s infinite;
-    }
-    @keyframes relove-heartbeat {
-        0%, 100% { transform: scale(1); }
-        10% { transform: scale(1.15); }
-        20% { transform: scale(0.92); }
-        30% { transform: scale(1.12); }
-        40% { transform: scale(0.98); }
-        50% { transform: scale(1.1); }
-        60% { transform: scale(0.96); }
-        70% { transform: scale(1.04); }
-        80% { transform: scale(0.98); }
-        90% { transform: scale(1.02); }
-    }
-    .relove-card {
-  background: linear-gradient(90deg, #e94e77 0%, #7f53ac 100%);
-  border-radius: 1.6rem;
-  box-shadow: 0 2px 16px 0 rgba(127,83,172,0.09);
-  padding: 1.4rem 1.8rem 1.3rem 1.8rem;
-  margin-bottom: 2rem;
-  color: #fff;
-  border: none;
-  display: flex;
-  flex-direction: column;
-  min-height: 210px;
-}
-.relove-card-title {
-  font-size: 1.35rem;
-  font-weight: 700;
-  margin-bottom: 1rem;
-  color: #fff;
-  letter-spacing: 0.01em;
-  text-shadow: 0 1px 8px rgba(127,83,172,0.09);
-}
-.relove-card .btn,
-.relove-btn, .btn.btn-danger, .btn.btn-success, .btn.btn-warning, .btn.btn-info, .btn.btn-primary, .btn.btn-secondary, .btn.btn-dark {
-  background: #7f53ac;
-  color: #fff;
-  border-radius: 1.2rem;
-  border: none;
-  font-weight: 600;
-  padding: 0.65rem 1.5rem;
-  box-shadow: 0 1px 6px 0 rgba(127,83,172,0.08);
-  transition: background 0.18s, box-shadow 0.18s;
-}
-.relove-card .btn:hover,
-.relove-btn:hover, .btn.btn-danger:hover, .btn.btn-success:hover, .btn.btn-warning:hover, .btn.btn-info:hover, .btn.btn-primary:hover, .btn.btn-secondary:hover, .btn.btn-dark:hover {
-  background: #e94e77;
-  color: #fff;
-  box-shadow: 0 3px 16px 0 rgba(127,83,172,0.13);
-}
-.relove-card .badge {
-  background: rgba(255,255,255,0.14);
-  color: #fff;
-}
-.relove-card {
-  transition: transform .18s, box-shadow .18s;
-  position: relative;
-  overflow: visible;
-  min-height: 120px;
-  padding: 1.2rem 1rem 1.1rem 1rem;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-    .relove-card:hover {
-        transform: translateY(-6px) scale(1.03);
-        box-shadow: 0 16px 48px 0 rgba(215,38,96,0.18);
-    }
-    .relove-heart-frame {
-        width: 82px; height: 74px;
-        background: linear-gradient(135deg, #d72660 0%, #7f53ac 100%);
-        clip-path: path('M41,74 C-10,44 0,10 41,29 C82,10 92,44 41,74 Z');
-        display: flex; align-items: center; justify-content: center;
-        margin-bottom: 1.2rem;
-        box-shadow: 0 4px 16px 0 rgba(215,38,96,0.13);
+        justify-content: flex-start;
+        min-height: 68px;
         position: relative;
-        z-index: 2;
-        border: 3px solid #fff;
+        overflow: hidden;
     }
-    .relove-heart-frame img {
-        width: 62px; height: 62px; object-fit: cover;
-        border-radius: 50%;
-        border: 3px solid #fff;
-        box-shadow: 0 2px 8px 0 rgba(127,83,172,0.12);
-    }
-    .relove-username {
-        font-family: 'Pacifico', cursive, sans-serif;
-        color: #d72660;
-        font-size: 1.1rem;
-        margin-bottom: 0.4rem;
-    }
-    .relove-name {
-        font-weight: 700;
-        font-size: 1.3rem;
-        color: #7f53ac;
-        margin-bottom: 0.3rem;
-    }
-    .relove-badges .badge {
-        margin: 0 0.15rem 0.3rem 0.15rem;
-        font-size: 0.93rem;
-        border-radius: 1rem;
-        padding: 0.45em 1.1em;
-    }
-    .relove-badges .badge-gender {
-        background: linear-gradient(90deg, #d72660 0%, #7f53ac 100%);
-        color: #fff;
-    }
-    .relove-badges .badge-streams {
-        background: linear-gradient(90deg, #fbb1b1 0%, #f8e1f6 100%);
-        color: #d72660;
-        border: 1px solid #fbb1b1;
-    }
-    .relove-badges .badge-posts {
-        background: #e0e6fa;
-        color: #7f53ac;
-        border: 1px solid #e0e6fa;
-    }
-    .relove-summary-card {
-        background: linear-gradient(120deg, #fff 60%, #f8e1f6 100%);
-        border-radius: 1.2rem;
-        box-shadow: 0 1px 8px 0 rgba(127,83,172,0.07);
-        margin-top: 1.2rem;
-        padding: 1rem 1.2rem 0.7rem 1.2rem;
-        min-height: 85px;
-        position: relative;
-    }
-    .relove-summary-card:before {
-        content: '\2665';
+
+    .dashboard-title-bar::before {
+        content: '';
         position: absolute;
-        top: -18px; left: 14px;
-        color: #d72660;
-        font-size: 1.3rem;
-        opacity: 0.18;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: var(--primary-gradient);
+        opacity: 0.1;
         z-index: 0;
     }
-    .relove-summary-title {
-        font-size: 0.97rem;
-        color: #d72660;
-        font-weight: 600;
-        margin-bottom: 0.3rem;
-        letter-spacing: 0.5px;
-    }
-    .relove-summary-text {
-        color: #7f53ac;
-        font-size: 1.05rem;
-        white-space: pre-line;
-        z-index: 2;
+
+    .dashboard-title {
+        color: #1a1a1a;
+        font-size: 2.2rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
         position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
     }
-    .relove-heart-emoji {
+
+    .dashboard-title .relove-heart {
+        margin-left: 0.5rem;
+        font-size: 2.1rem;
+        vertical-align: middle;
+        filter: drop-shadow(0 1px 4px rgba(233,78,119,0.13));
+    }
+
+    /* Вкладки */
+    .relove-tab-btn {
+        color: #1a1a1a;
+        border: none;
+        padding: 1.2rem 2rem;
+        font-weight: 500;
+        transition: all 0.3s ease;
+        background: transparent;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .relove-tab-btn::before {
+        content: '';
         position: absolute;
-        top: 8px; right: 18px;
-        font-size: 1.6rem;
-        opacity: 0.25;
-        pointer-events: none;
+        bottom: 0;
+        left: 50%;
+        width: 0;
+        height: 2px;
+        background: var(--primary-gradient);
+        transition: all 0.3s ease;
+        transform: translateX(-50%);
     }
-</style>
-<link href="https://fonts.googleapis.com/css2?family=Pacifico&display=swap" rel="stylesheet">
 
+    .relove-tab-btn:hover::before {
+        width: 80%;
+    }
+
+    .relove-tab-btn.active {
+        background: rgba(233, 78, 119, 0.1);
+        color: #e94e77;
+        font-weight: 600;
+    }
+
+    .relove-tab-btn.active::before {
+        width: 100%;
+    }
+
+    /* Статистические карточки */
+    .stat-card {
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border: 1px solid var(--glass-border);
+        border-radius: 1.2rem;
+        padding: 1.8rem;
+        margin-bottom: 1.5rem;
+        box-shadow: var(--glass-shadow);
+        transition: all 0.3s ease;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.2);
+    }
+
+    .stat-card .title {
+        font-size: 0.9rem;
+        color: #6c757d;
+        margin-bottom: 0.8rem;
+    }
+
+    .stat-card .value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #1a1a1a;
+        background: var(--primary-gradient);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    /* Формы и инпуты */
+    .form-control, .form-select {
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border: 1px solid var(--glass-border);
+        border-radius: 1rem;
+        padding: 0.8rem 1.2rem;
+        transition: all 0.3s ease;
+    }
+
+    .form-control:focus, .form-select:focus {
+        background: var(--glass-bg);
+        border-color: #e94e77;
+        box-shadow: 0 0 0 0.2rem rgba(233, 78, 119, 0.15);
+    }
+
+    /* Таблица */
+    .table {
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border-radius: 1rem;
+        overflow: hidden;
+    }
+
+    .table thead th {
+        background: rgba(233, 78, 119, 0.1);
+        border-bottom: 2px solid var(--glass-border);
+        color: #1a1a1a;
+        font-weight: 600;
+    }
+
+    .table tbody tr {
+        transition: all 0.3s ease;
+    }
+
+    .table tbody tr:hover {
+        background: rgba(233, 78, 119, 0.05);
+    }
+
+    .user-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+        backdrop-filter: blur(5px);
+        -webkit-backdrop-filter: blur(5px);
+    }
+
+    .user-avatar:hover {
+        transform: scale(1.1);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        border: 2px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .user-avatar-placeholder {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: bold;
+        color: rgba(255, 255, 255, 0.8);
+        border: 2px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+        backdrop-filter: blur(5px);
+        -webkit-backdrop-filter: blur(5px);
+    }
+
+    .user-avatar-placeholder:hover {
+        transform: scale(1.1);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        border: 2px solid rgba(255, 255, 255, 0.2);
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.1));
+    }
+
+    .table td {
+        vertical-align: middle;
+        padding: 1rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        transition: all 0.3s ease;
+    }
+
+    .table tr:hover td {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .table {
+        border-collapse: separate;
+        border-spacing: 0;
+        width: 100%;
+        margin-bottom: 1rem;
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 10px;
+        overflow: hidden;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+
+    .table thead th {
+        background: rgba(255, 255, 255, 0.05);
+        color: rgba(255, 255, 255, 0.8);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        padding: 1rem;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+    }
+    </style>
+</head>
 <body>
-<!-- Верхнее меню убрано по просьбе пользователя -->
-<div style="height:58px;"></div>
-<div class="container py-3">
-    <div class="dashboard-title-bar mb-4">
-        <span class="dashboard-title">Аналитика пользователей <span class="relove-heart">❤</span></span>
+    <!-- Плавающие элементы фона -->
+    <div class="floating-shapes">
+        <div class="shape"></div>
+        <div class="shape"></div>
+        <div class="shape"></div>
     </div>
-    <!-- Вкладки -->
-    <ul class="nav nav-tabs mb-3 relove-tabs" id="dashboardTabs" role="tablist" style="border-radius: 1.2rem; overflow: hidden; background: linear-gradient(90deg, #ffe1e1 0%, #f8e1f6 100%);">
-      <li class="nav-item" role="presentation">
-        <button class="nav-link relove-tab-btn {% if active_tab == 'analytics' or not active_tab %}active{% endif %}" id="analytics-tab" data-bs-toggle="tab" data-bs-target="#analytics" type="button" role="tab" aria-controls="analytics" aria-selected="true">Аналитика</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link relove-tab-btn {% if active_tab == 'users' %}active{% endif %}" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab" aria-controls="users" aria-selected="false">Пользователи</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link relove-tab-btn {% if active_tab == 'mailing' %}active{% endif %}" id="mailing-tab" data-bs-toggle="tab" data-bs-target="#mailing" type="button" role="tab" aria-controls="mailing" aria-selected="false">Рассылка</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link relove-tab-btn {% if active_tab == 'automation' %}active{% endif %}" id="automation-tab" data-bs-toggle="tab" data-bs-target="#automation" type="button" role="tab" aria-controls="automation" aria-selected="false">Автоматизация</button>
-      </li>
-    </ul>
-    <div class="tab-content" id="dashboardTabsContent">
-  <!-- Аналитика -->
-  <div class="tab-pane fade show active" id="analytics" role="tabpanel" aria-labelledby="analytics-tab">
-    <div class="row mb-4 justify-content-center g-3 flex-nowrap overflow-auto" style="gap: 1.5rem;">
-      <div class="col-auto" style="min-width:200px;">
-        <div class="card relove-card relove-metric text-center">
-          <div class="card-body">
-            <div class="relove-metric-icon">❤️</div>
-            <div class="relove-metric-value">{{ total_users }}</div>
-            <div class="relove-metric-label">Пользователей</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-auto" style="min-width:200px;">
-        <div class="card relove-card relove-metric text-center">
-          <div class="card-body">
-            <div class="relove-metric-icon">♂️</div>
-            <div class="relove-metric-value">{{ male_count }}</div>
-            <div class="relove-metric-label">Мужчин</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-auto" style="min-width:200px;">
-        <div class="card relove-card relove-metric text-center">
-          <div class="card-body">
-            <div class="relove-metric-icon">♀️</div>
-            <div class="relove-metric-value">{{ female_count }}</div>
-            <div class="relove-metric-label">Женщин</div>
-          </div>
-        </div>
-      </div>
-      <div class="col-auto" style="min-width:200px;">
-        <div class="card relove-card relove-metric text-center">
-          <div class="card-body">
-            <div class="relove-metric-icon">❓</div>
-            <div class="relove-metric-value">{{ unknown_count }}</div>
-            <div class="relove-metric-label">Не указано</div>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="row g-4">
-      <div class="col-12 col-lg-6">
-        <div class="card chart-card">
-          <div class="card-body">
-            <h5 class="card-title">Распределение по полу</h5>
-            <canvas id="gender-chart" style="max-height:340px;"></canvas>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-lg-6">
-        <div class="card chart-card">
-          <div class="card-body">
-            <h5 class="card-title">Распределение по потокам</h5>
-            <canvas id="streams-chart" style="max-height:340px;"></canvas>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-  <!-- Пользователи -->
-  <div class="tab-pane fade" id="users" role="tabpanel" aria-labelledby="users-tab">
-    <form class="relove-form search-form mb-4" method="get" action="/admin/search">
-      <div class="input-group">
-        <input type="text" class="form-control" name="query" placeholder="ID, имя, username, поток..." style="border-radius: 1rem 0 0 1rem;">
-        <button class="relove-btn" type="submit">Искать</button>
-      </div>
-    </form>
-    <div class="modern-users-grid"></div>
-    <style>
-.user-list-grid-modern {
-  width: 100%; 
-  margin: 0 auto;
-  display: grid; 
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 16px; 
-  padding: 0 0 20px 0; 
-  max-width: 1400px;
-}
-@media (max-width:1200px) {
-  .user-list-grid-modern { grid-template-columns:repeat(4,1fr); }
-}
-@media (max-width:900px) {
-  .user-list-grid-modern { grid-template-columns:repeat(3,1fr); }
-}
-@media (max-width:600px) {
-  .user-list-grid-modern { grid-template-columns:repeat(2,1fr); }
-}
-@media (max-width:400px) {
-  .user-list-grid-modern { grid-template-columns:1fr; }
-}
-@media (min-width:700px) {
-  .user-list-grid-modern { grid-template-columns:1fr 1fr; gap:28px; }
-}
-@media (min-width:1100px) {
-  .user-list-grid-modern { grid-template-columns:repeat(3,1fr); }
-}
-</style>
-  </div>
-  <!-- Рассылка -->
-  <div class="tab-pane fade" id="mailing" role="tabpanel" aria-labelledby="mailing-tab">
-    <div class="row justify-content-center">
-      <div class="col-md-7 col-lg-6">
-        <form method="post" action="/admin/mailing" class="relove-form">
-          <h5 class="mb-3">Создать рассылку</h5>
-          <div class="mb-3">
-            <label for="genderSelect" class="form-label">Пол</label>
-            <select class="form-select" id="genderSelect" name="gender">
-              <option value="">Любой</option>
-              <option value="male">Мужской</option>
-              <option value="female">Женский</option>
-              <option value="unknown">Не указан</option>
-            </select>
-          </div>
-          <div class="mb-3">
-            <label for="streamsSelect" class="form-label">Потоки</label>
-            <select multiple class="form-select" id="streamsSelect" name="streams">
-              {% for stream in stream_labels %}
-              <option value="{{ stream }}">{{ stream }}</option>
-              {% endfor %}
-            </select>
-            <div class="form-text">Можно выбрать несколько потоков (Ctrl/Command + клик)</div>
-          </div>
-          <div class="mb-3">
-            <label for="mailingText" class="form-label">Текст сообщения</label>
-            <textarea class="form-control" id="mailingText" name="message" rows="4" required></textarea>
-          </div>
-          <div class="d-flex justify-content-end">
-            <button type="submit" class="btn btn-danger">Разослать</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
-  <!-- Автоматизация -->
-  <div class="tab-pane fade" id="automation" role="tabpanel" aria-labelledby="automation-tab">
-    <div class="row g-4">
-      <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
-  <div class="relove-card-title">Массовый анализ профилей</div>
-          <div class="card-body">
-            <p class="card-text">Запустить массовый сбор и анализ профилей пользователей открытого канала.</p>
-            <form method="post" action="/dashboard/auto_analyze">
-              <button type="submit" class="btn btn-primary">Запустить анализ профилей</button>
-            </form>
-            <div class="mt-2">
-              <span class="badge bg-secondary">Статус: {{ auto_analyze_status|default('Не запущено') }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
-  <div class="relove-card-title">Массовое определение пола</div>
-          <div class="card-body">
-            <p class="card-text">Автоматически определить пол у всех пользователей по профилю.</p>
-            <form method="post" action="/dashboard/auto_gender">
-              <button type="submit" class="btn btn-info">Запустить определение пола</button>
-            </form>
-            <div class="mt-2">
-              <span class="badge bg-secondary">Статус: {{ auto_gender_status|default('Не запущено') }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
-  <div class="relove-card-title">Массовое психологическое профилирование</div>
-          <div class="card-body">
-            <p class="card-text">Собрать психологические портреты всех пользователей.</p>
-            <form method="post" action="/dashboard/auto_psych">
-              <button type="submit" class="btn btn-warning">Запустить профилирование</button>
-            </form>
-            <div class="mt-2">
-              <span class="badge bg-secondary">Статус: {{ auto_psych_status|default('Не запущено') }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
-  <div class="relove-card-title">Автоматическая рассылка приветствий</div>
-          <div class="card-body">
-            <p class="card-text">Включить/отключить автоматическую рассылку приветственных сообщений новым участникам.</p>
-            <form method="post" action="/dashboard/auto_welcome">
-              <button type="submit" class="btn btn-success">Запустить рассылку приветствий</button>
-            </form>
-            <div class="mt-2">
-              <span class="badge bg-secondary">Статус: {{ auto_welcome_status|default('Не запущено') }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
-  <div class="relove-card-title">Шаблон приветственного сообщения</div>
-          <div class="card-body">
-            <form method="post" action="/dashboard/welcome_template">
-              <div class="mb-3">
-                <label for="welcomeTemplate" class="form-label">Текст приветствия</label>
-                <textarea class="form-control" id="welcomeTemplate" name="welcome_template" rows="3">{{ welcome_template }}</textarea>
-              </div>
-              <button type="submit" class="btn btn-secondary">Сохранить шаблон</button>
-            </form>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
-  <div class="relove-card-title">Массовая рассылка о событиях</div>
-          <div class="card-body">
-            <form method="post" action="/dashboard/broadcast_events">
-              <div class="mb-3">
-                <label for="eventText" class="form-label">Текст события</label>
-                <textarea class="form-control" id="eventText" name="event_text" rows="2" required></textarea>
-              </div>
-              <button type="submit" class="btn btn-danger">Разослать всем</button>
-            </form>
-            <div class="mt-2">
-              <span class="badge bg-secondary">Статус: {{ broadcast_events_status|default('Не запущено') }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
-  <div class="relove-card-title">Массовое создание напоминаний</div>
-          <div class="card-body">
-            <form method="post" action="/dashboard/auto_reminders">
-              <div class="mb-3">
-                <label for="reminderText" class="form-label">Текст напоминания</label>
-                <textarea class="form-control" id="reminderText" name="reminder_text" rows="2" required></textarea>
-              </div>
-              <div class="mb-3">
-                <label for="reminderTimestamp" class="form-label">Время отправки (UNIX timestamp)</label>
-                <input type="number" class="form-control" id="reminderTimestamp" name="reminder_time" required>
-              </div>
-              <button type="submit" class="btn btn-dark">Создать напоминания</button>
-            </form>
-            <div class="mt-2">
-              <span class="badge bg-secondary">Статус: {{ auto_reminders_status|default('Не запущено') }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="col-12 col-lg-6">
-        <div class="relove-card mb-3" style="background: linear-gradient(90deg, #ff9966 0%, #ff5e62 100%);">
-  <div class="relove-card-title">Интеграция с каналами</div>
-  <div class="card-body">
-    <p>Текущие каналы и чаты для интеграции:</p>
-    <ul class="list-group mb-2">
-      {% for channel in channels %}
-      <li class="list-group-item">ID: <b>{{ channel.id }}</b> — {{ channel.title }}</li>
-      {% endfor %}
-    </ul>
-    <span class="badge bg-secondary">Статус: {{ channels_status|default('OK') }}</span>
-  </div>
-</div>
-      </div>
-    </div>
-  </div>
 
-      <!-- Аналитика -->
-      <!-- ... (существующий код аналитики) ... -->
-      <!-- Автоматизация -->
-      <div class="tab-pane fade" id="automation" role="tabpanel" aria-labelledby="automation-tab">
-        <div class="row g-4">
-          <div class="col-12 col-lg-6">
-            <div class="card border-primary mb-3">
-              <div class="card-header bg-primary text-white">Массовый анализ профилей</div>
-              <div class="card-body">
-                <p class="card-text">Запустить массовый сбор и анализ профилей пользователей открытого канала.</p>
-                <form method="post" action="/dashboard/auto_analyze">
-                  <button type="submit" class="btn btn-primary">Запустить анализ профилей</button>
-                </form>
-                <div class="mt-2">
-                  <span class="badge bg-secondary">Статус: {{ auto_analyze_status|default('Не запущено') }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="col-12 col-lg-6">
-            <div class="card border-info mb-3">
-              <div class="card-header bg-info text-dark">Массовое определение пола</div>
-              <div class="card-body">
-                <p class="card-text">Автоматически определить пол у всех пользователей по профилю.</p>
-                <form method="post" action="/dashboard/auto_gender">
-                  <button type="submit" class="btn btn-info">Запустить определение пола</button>
-                </form>
-                <div class="mt-2">
-                  <span class="badge bg-secondary">Статус: {{ auto_gender_status|default('Не запущено') }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="col-12 col-lg-6">
-            <div class="card border-warning mb-3">
-              <div class="card-header bg-warning text-dark">Массовое психологическое профилирование</div>
-              <div class="card-body">
-                <p class="card-text">Собрать психологические портреты всех пользователей.</p>
-                <form method="post" action="/dashboard/auto_psych">
-                  <button type="submit" class="btn btn-warning">Запустить профилирование</button>
-                </form>
-                <div class="mt-2">
-                  <span class="badge bg-secondary">Статус: {{ auto_psych_status|default('Не запущено') }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="col-12 col-lg-6">
-            <div class="card border-success mb-3">
-              <div class="card-header bg-success text-white">Автоматическая рассылка приветствий</div>
-              <div class="card-body">
-                <p class="card-text">Включить/отключить автоматическую рассылку приветственных сообщений новым участникам.</p>
-                <form method="post" action="/dashboard/auto_welcome">
-                  <button type="submit" class="btn btn-success">Запустить рассылку приветствий</button>
-                </form>
-                <div class="mt-2">
-                  <span class="badge bg-secondary">Статус: {{ auto_welcome_status|default('Не запущено') }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="col-12 col-lg-6">
-            <div class="card border-secondary mb-3">
-              <div class="card-header bg-secondary text-white">Шаблон приветственного сообщения</div>
-              <div class="card-body">
-                <form method="post" action="/dashboard/welcome_template">
-                  <div class="mb-3">
-                    <label for="welcomeTemplate" class="form-label">Текст приветствия</label>
-                    <textarea class="form-control" id="welcomeTemplate" name="welcome_template" rows="3">{{ welcome_template }}</textarea>
-                  </div>
-                  <button type="submit" class="btn btn-secondary">Сохранить шаблон</button>
-                </form>
-              </div>
-            </div>
-          </div>
-          <div class="col-12 col-lg-6">
-            <div class="card border-danger mb-3">
-              <div class="card-header bg-danger text-white">Массовая рассылка о событиях</div>
-              <div class="card-body">
-                <form method="post" action="/dashboard/broadcast_events">
-                  <div class="mb-3">
-                    <label for="eventText" class="form-label">Текст события</label>
-                    <textarea class="form-control" id="eventText" name="event_text" rows="2" required></textarea>
-                  </div>
-                  <button type="submit" class="btn btn-danger">Разослать всем</button>
-                </form>
-                <div class="mt-2">
-                  <span class="badge bg-secondary">Статус: {{ broadcast_events_status|default('Не запущено') }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="col-12 col-lg-6">
-            <div class="card border-dark mb-3">
-              <div class="card-header bg-dark text-white">Массовое создание напоминаний</div>
-              <div class="card-body">
-                <form method="post" action="/dashboard/auto_reminders">
-                  <div class="mb-3">
-                    <label for="reminderText" class="form-label">Текст напоминания</label>
-                    <textarea class="form-control" id="reminderText" name="reminder_text" rows="2" required></textarea>
-                  </div>
-                  <div class="mb-3">
-                    <label for="reminderTimestamp" class="form-label">Время отправки (UNIX timestamp)</label>
-                    <input type="number" class="form-control" id="reminderTimestamp" name="reminder_time" required>
-                  </div>
-                  <button type="submit" class="btn btn-dark">Создать напоминания</button>
-                </form>
-                <div class="mt-2">
-                  <span class="badge bg-secondary">Статус: {{ auto_reminders_status|default('Не запущено') }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="col-12 col-lg-6">
-            <div class="card border-info mb-3">
-              <div class="card-header bg-info text-dark">Интеграция с каналами</div>
-              <div class="card-body">
-                <p>Текущие каналы и чаты для интеграции:</p>
-                <ul class="list-group mb-2">
-                  {% for channel in channels %}
-                  <li class="list-group-item">ID: <b>{{ channel.id }}</b> — {{ channel.title }}</li>
-                  {% endfor %}
-                </ul>
-                <span class="badge bg-secondary">Статус: {{ channels_status|default('OK') }}</span>
-              </div>
+    <div class="container py-3">
+        <div class="dashboard-title-bar mb-4">
+            <span class="dashboard-title">reLove Админ-панель <span class="relove-heart">❤</span></span>
         </div>
-      </div>
 
-    
+        <!-- Вкладки -->
+        <ul class="nav nav-tabs mb-3 relove-tabs" id="dashboardTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link relove-tab-btn active" id="overview-tab" data-bs-toggle="tab" data-bs-target="#overview" type="button" role="tab">Обзор</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link relove-tab-btn" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab">Пользователи</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link relove-tab-btn" id="streams-tab" data-bs-toggle="tab" data-bs-target="#streams" type="button" role="tab">Потоки</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link relove-tab-btn" id="psychology-tab" data-bs-toggle="tab" data-bs-target="#psychology" type="button" role="tab">Психология</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link relove-tab-btn" id="automation-tab" data-bs-toggle="tab" data-bs-target="#automation" type="button" role="tab">Автоматизация</button>
+            </li>
+        </ul>
 
-      <!-- Аналитика -->
-      <div class="tab-pane fade show active" id="analytics" role="tabpanel" aria-labelledby="analytics-tab">
-        <div class="row mb-4 justify-content-center g-3 flex-nowrap overflow-auto" style="gap: 1.5rem;">
-            <div class="col-auto" style="min-width:200px;">
-                <div class="card relove-card relove-metric text-center">
-                    <div class="card-body">
-                        <div class="relove-metric-icon">❤️</div>
-                        <div class="relove-metric-value">{{ total_users }}</div>
-                        <div class="relove-metric-label">Пользователей</div>
+        <div class="tab-content" id="dashboardTabsContent">
+            <!-- Вкладка "Обзор" -->
+            <div class="tab-pane fade show active" id="overview" role="tabpanel">
+                <div class="row">
+                    <!-- Статистика пользователей -->
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="title">Всего пользователей</div>
+                            <div class="value">{{ total_users }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="title">Активных сегодня</div>
+                            <div class="value">{{ active_users_today }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="title">Новых за неделю</div>
+                            <div class="value">{{ new_users_week }}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card">
+                            <div class="title">Проанализировано</div>
+                            <div class="value">{{ analyzed_users }}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Графики -->
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="relove-card">
+                            <h5>Распределение по потокам</h5>
+                            <div class="chart-container">
+                                <canvas id="streamsChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="relove-card">
+                            <h5>Распределение по полу</h5>
+                            <div class="chart-container">
+                                <canvas id="genderChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt-4">
+                    <div class="col-md-6">
+                        <div class="relove-card">
+                            <h5>Активность по дням</h5>
+                            <div class="chart-container">
+                                <canvas id="activityChart"></canvas>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="col-auto" style="min-width:200px;">
-                <div class="card relove-card relove-metric text-center">
-                    <div class="card-body">
-                        <div class="relove-metric-icon">♂️</div>
-                        <div class="relove-metric-value">{{ male_count }}</div>
-                        <div class="relove-metric-label">Мужчин</div>
+
+            <!-- Вкладка "Пользователи" -->
+            <div class="tab-pane fade" id="users" role="tabpanel">
+                <div class="row">
+                    <div class="col-12">
+                        <div class="relove-card">
+                            <h5>Поиск пользователей</h5>
+                            <form method="get" action="/dashboard/search" class="mb-3">
+                                <div class="input-group mb-3">
+                                    <input type="text" class="form-control" name="query" placeholder="Поиск по имени, username или ID...">
+                                    <select class="form-select" name="gender" style="max-width: 150px;">
+                                        <option value="">Все полы</option>
+                                        <option value="male">Мужской</option>
+                                        <option value="female">Женский</option>
+                                    </select>
+                                    <button class="btn relove-btn" type="submit">Найти</button>
+                                </div>
+                            </form>
+                            <div class="table-responsive">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Имя</th>
+                                            <th>Username</th>
+                                            <th>Потоки</th>
+                                            <th>Психотип</th>
+                                            <th>Действия</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="usersTableBody">
+                                        {% for user in users[:10] %}
+                                        <tr id="user-{{ user.id }}">
+                                            <td>
+                                                {% if user.photo_jpeg %}
+                                                <img src="data:image/jpeg;base64,{{ user.photo_jpeg }}" class="user-avatar" alt="Avatar">
+                                                {% else %}
+                                                <div class="user-avatar-placeholder">{{ user.first_name|first|upper }}</div>
+                                                {% endif %}
+                                            </td>
+                                            <td>{{ user.first_name }} {{ user.last_name }}</td>
+                                            <td>{{ user.username or '-' }}</td>
+                                            <td>{{ user.gender or 'Не указан' }}</td>
+                                            <td>
+                                                <span class="status-badge {{ 'bg-success' if user.is_active else 'bg-danger' }}">
+                                                    {{ 'Активен' if user.is_active else 'Неактивен' }}
+                                                </span>
+                                            </td>
+                                            <td class="streams-list">{{ user.streams|join(', ') if user.streams else '-' }}</td>
+                                            <td>
+                                                <div class="btn-group">
+                                                    <button class="btn btn-sm btn-primary" onclick="viewUserDetails('{{ user.id }}')">
+                                                        <i class="fas fa-eye"></i>
+                                                    </button>
+                                                    <button class="btn btn-sm btn-info" onclick="analyzeUser('{{ user.id }}')">
+                                                        <i class="fas fa-brain"></i>
+                                                    </button>
+                                                    <button class="btn btn-sm {{ 'btn-danger' if user.is_active else 'btn-success' }}"
+                                                            data-user-id="{{ user.id }}"
+                                                            data-status="{{ 'inactive' if user.is_active else 'active' }}"
+                                                            onclick="updateUserStatus(this.dataset.userId, this.dataset.status)">
+                                                        <i class="fas {{ 'fa-user-slash' if user.is_active else 'fa-user-check' }}"></i>
+                                                    </button>
+                                                    <div class="btn-group">
+                                                        <button class="btn btn-sm btn-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                                                            <i class="fas fa-stream"></i>
+                                                        </button>
+                                                        <ul class="dropdown-menu">
+                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Мужской', 'add')">Добавить в Мужской</a></li>
+                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Женский', 'add')">Добавить в Женский</a></li>
+                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Смешанный', 'add')">Добавить в Смешанный</a></li>
+                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Путь Героя', 'add')">Добавить в Путь Героя</a></li>
+                                                            <li><hr class="dropdown-divider"></li>
+                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Мужской', 'remove')">Удалить из Мужского</a></li>
+                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Женский', 'remove')">Удалить из Женского</a></li>
+                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Смешанный', 'remove')">Удалить из Смешанного</a></li>
+                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Путь Героя', 'remove')">Удалить из Пути Героя</a></li>
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                                <div class="d-flex justify-content-between align-items-center mt-3">
+                                    <div>
+                                        <span class="text-muted">Показано <span id="currentPage">1</span> из <span id="totalPages">{{ (users|length / 10)|round(0, 'ceil')|int }}</span> страниц</span>
+                                    </div>
+                                    <div class="btn-group">
+                                        <button class="btn btn-outline-primary" onclick="changePage(-1)" id="prevPage">Предыдущая</button>
+                                        <button class="btn btn-outline-primary" onclick="changePage(1)" id="nextPage">Следующая</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="col-auto" style="min-width:200px;">
-                <div class="card relove-card relove-metric text-center">
-                    <div class="card-body">
-                        <div class="relove-metric-icon">♀️</div>
-                        <div class="relove-metric-value">{{ female_count }}</div>
-                        <div class="relove-metric-label">Женщин</div>
+
+            <!-- Вкладка "Потоки" -->
+            <div class="tab-pane fade" id="streams" role="tabpanel">
+                <div class="row">
+                    {% for stream in ['Мужской', 'Женский', 'Смешанный', 'Путь Героя'] %}
+                    <div class="col-md-6">
+                        <div class="relove-card">
+                            <h5>{{ stream }}</h5>
+                            <div class="mb-3">
+                                <strong>Участников:</strong> {{ stream_stats[stream].participants }}
+                            </div>
+                            <div class="mb-3">
+                                <strong>Активных:</strong> {{ stream_stats[stream].active }}
+                            </div>
+                            <div class="mb-3">
+                                <strong>Завершили:</strong> {{ stream_stats[stream].completed }}
+                            </div>
+                            <button class="btn relove-btn" onclick="showStreamDetails('{{ stream }}')">Подробнее</button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Вкладка "Психология" -->
+            <div class="tab-pane fade" id="psychology" role="tabpanel">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="relove-card">
+                            <h5>Распределение психотипов</h5>
+                            <div class="chart-container">
+                                <canvas id="psychotypesChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="relove-card">
+                            <h5>Эмоциональный анализ</h5>
+                            <div class="chart-container">
+                                <canvas id="emotionsChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="relove-card">
+                            <h5>Массовый психологический анализ</h5>
+                            <form method="post" action="/dashboard/analyze_all">
+                                <button type="submit" class="btn relove-btn">Запустить анализ всех пользователей</button>
+                            </form>
+                            <div class="mt-3">
+                                <span class="badge bg-secondary">Статус: {{ analysis_status|default('Не запущено') }}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="col-auto" style="min-width:200px;">
-                <div class="card relove-card relove-metric text-center">
-                    <div class="card-body">
-                        <div class="relove-metric-icon">❓</div>
-                        <div class="relove-metric-value">{{ unknown_count }}</div>
-                        <div class="relove-metric-label">Не указано</div>
+
+            <!-- Вкладка "Автоматизация" -->
+            <div class="tab-pane fade" id="automation" role="tabpanel">
+                <div class="relove-card">
+                    <h3>Настройки автоматизации</h3>
+                    <form id="automationForm" class="mt-4">
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="autoAnalysis">
+                            <label class="form-check-label" for="autoAnalysis">
+                                Автоматический анализ пользователей
+                            </label>
+                            <small class="form-text text-muted d-block">
+                                Система будет автоматически анализировать профили и сообщения пользователей
+                            </small>
+                        </div>
+                        
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="autoReminders">
+                            <label class="form-check-label" for="autoReminders">
+                                Автоматические напоминания
+                            </label>
+                            <small class="form-text text-muted d-block">
+                                Система будет отправлять напоминания пользователям о важных событиях
+                            </small>
+                        </div>
+                        
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="autoStreams">
+                            <label class="form-check-label" for="autoStreams">
+                                Автоматическое управление потоками
+                            </label>
+                            <small class="form-text text-muted d-block">
+                                Система будет автоматически распределять пользователей по потокам
+                            </small>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Сохранить настройки
+                        </button>
+                    </form>
+                </div>
+                
+                <div class="relove-card">
+                    <h3>Расписание автоматизации</h3>
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Задача</th>
+                                    <th>Расписание</th>
+                                    <th>Статус</th>
+                                    <th>Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Анализ новых пользователей</td>
+                                    <td>Каждый день в 00:00</td>
+                                    <td><span class="badge bg-success">Активно</span></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-warning">
+                                            <i class="fas fa-pause"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Отправка напоминаний</td>
+                                    <td>Каждый день в 10:00</td>
+                                    <td><span class="badge bg-success">Активно</span></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-warning">
+                                            <i class="fas fa-pause"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Обновление потоков</td>
+                                    <td>Каждую неделю в понедельник</td>
+                                    <td><span class="badge bg-success">Активно</span></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-warning">
+                                            <i class="fas fa-pause"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
         </div>
-        <div class="row g-4">
-            <div class="col-12 col-lg-6">
-                <div class="card chart-card">
-                    <div class="card-body">
-                        <h5 class="card-title">Распределение по полу</h5>
-                        <canvas id="gender-chart" style="max-height:340px;"></canvas>
-                    </div>
-                </div>
-            </div>
-            <div class="col-12 col-lg-6">
-                <div class="card chart-card">
-                    <div class="card-body">
-                        <h5 class="card-title">Распределение по потокам</h5>
-                        <canvas id="streams-chart" style="max-height:340px;"></canvas>
-                    </div>
-                </div>
-            </div>
-        </div>
-      </div>
-      <!-- Пользователи -->
-      <div class="tab-pane fade" id="users" role="tabpanel" aria-labelledby="users-tab">
-        <form class="relove-form search-form mb-4" method="get" action="/admin/search">
-          <div class="input-group">
-            <input type="text" class="form-control" name="query" placeholder="ID, имя, username, поток..." style="border-radius: 1rem 0 0 1rem;">
-            <button class="relove-btn" type="submit">Искать</button>
-          </div>
-        </form>
-        <div class="modern-users-grid"></div>
-<style>
-.user-list-grid-modern {
-  width: 100%; 
-  margin: 0 auto;
-  display: grid; 
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 16px; 
-  padding: 0 0 20px 0; 
-  max-width: 1400px;
-}
-@media (max-width:1200px) {
-  .user-list-grid-modern { grid-template-columns:repeat(4,1fr); }
-}
-@media (max-width:900px) {
-  .user-list-grid-modern { grid-template-columns:repeat(3,1fr); }
-}
-@media (max-width:600px) {
-  .user-list-grid-modern { grid-template-columns:repeat(2,1fr); }
-}
-@media (max-width:400px) {
-  .user-list-grid-modern { grid-template-columns:1fr; }
-}
-@media (min-width:700px) {
-  .user-list-grid-modern { grid-template-columns:1fr 1fr; gap:28px; }
-}
-@media (min-width:1100px) {
-  .user-list-grid-modern { grid-template-columns:repeat(3,1fr); }
-  .user-list-grid {
-    max-width: 100%;
-    padding: 0 2vw 18px 2vw;
-  }
-  .user-card-vertical {
-    padding: 8px 2vw 8px 2vw;
-  }
-  .user-photo-vertical {
-    width: 44px;
-    height: 44px;
-  }
-  .user-summary-vertical {
-    font-size: 0.87em;
-    padding: 0.33em 0.5em 0.33em 0.5em;
-  }
-}
-</style>
-      </div>
-      <!-- Рассылка -->
-      <div class="tab-pane fade" id="mailing" role="tabpanel" aria-labelledby="mailing-tab">
-        <div class="row justify-content-center">
-          <div class="col-md-7 col-lg-6">
-            <form method="post" action="/admin/mailing" class="relove-form">
-              <h5 class="mb-3">Создать рассылку</h5>
-              <div class="mb-3">
-                <label for="genderSelect" class="form-label">Пол</label>
-                <select class="form-select" id="genderSelect" name="gender">
-                  <option value="">Любой</option>
-                  <option value="male">Мужской</option>
-                  <option value="female">Женский</option>
-                  <option value="unknown">Не указан</option>
-                </select>
-              </div>
-              <div class="mb-3">
-                <label for="streamsSelect" class="form-label">Потоки</label>
-                <select multiple class="form-select" id="streamsSelect" name="streams">
-                  {% for stream in stream_labels %}
-                  <option value="{{ stream }}">{{ stream }}</option>
-                  {% endfor %}
-                </select>
-                <div class="form-text">Можно выбрать несколько потоков (Ctrl/Command + клик)</div>
-              </div>
-              <div class="mb-3">
-                <label for="mailingText" class="form-label">Текст сообщения</label>
-                <textarea class="form-control" id="mailingText" name="message" rows="4" required></textarea>
-              </div>
-              <div class="d-flex justify-content-end">
-                <button type="submit" class="btn btn-danger">Разослать</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
     </div>
-</div>
-<script>
-let genderChart, streamsChart;
 
-function renderGenderChart(male, female, unknown) {
-    const ctx = document.getElementById('gender-chart').getContext('2d');
-    if (genderChart) genderChart.destroy();
-    genderChart = new Chart(ctx, {
-        type: 'pie',
-        data: {
-            labels: ['Мужчины', 'Женщины', 'Не указано'],
-            datasets: [{
-                data: [male, female, unknown],
-                backgroundColor: [
-                    '#e94e77', // розовый reLove
-                    '#b721ff', // фиолетовый reLove
-                    '#36d1c4'  // мятный reLove
-                ],
-                borderColor: [
-                    '#fff0f8',
-                    '#f3e6ff',
-                    '#e0fffa'
-                ],
-                borderWidth: 3,
-                hoverOffset: 16,
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: { position: 'bottom', labels: { color: '#b721ff', font: { size: 16, weight: 'bold' } } },
-                tooltip: {
-                    backgroundColor: '#fff0f8',
-                    titleColor: '#e94e77',
-                    bodyColor: '#1a1a1a',
-                    borderColor: '#b721ff',
-                    borderWidth: 2
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Инициализация графиков
+        document.addEventListener('DOMContentLoaded', function() {
+            // График распределения по потокам
+            const streamLabels = JSON.parse('{{ stream_labels|tojson|safe }}');
+            const streamCounts = JSON.parse('{{ stream_counts|tojson|safe }}');
+            new Chart(document.getElementById('streamsChart'), {
+                type: 'pie',
+                data: {
+                    labels: streamLabels,
+                    datasets: [{
+                        data: streamCounts,
+                        backgroundColor: ['#e94e77', '#7f53ac', '#36d1c4', '#ff9966']
+                    }]
                 }
+            });
+
+            // График распределения по полу
+            const genderData = {
+                labels: ['Мужской', 'Женский', 'Не указан'],
+                datasets: [{
+                    data: [
+                        parseInt('{{ male_count }}'),
+                        parseInt('{{ female_count }}'),
+                        parseInt('{{ unknown_count }}')
+                    ],
+                    backgroundColor: ['#36d1c4', '#e94e77', '#7f53ac']
+                }]
+            };
+            new Chart(document.getElementById('genderChart'), {
+                type: 'pie',
+                data: genderData,
+                options: {
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+
+            // График активности
+            const activityLabels = JSON.parse('{{ activity_labels|tojson|safe }}');
+            const activityData = JSON.parse('{{ activity_data|tojson|safe }}');
+            new Chart(document.getElementById('activityChart'), {
+                type: 'line',
+                data: {
+                    labels: activityLabels,
+                    datasets: [{
+                        label: 'Активность',
+                        data: activityData,
+                        borderColor: '#e94e77',
+                        tension: 0.4
+                    }]
+                }
+            });
+
+            // График психотипов
+            const psychotypeLabels = JSON.parse('{{ psychotype_labels|tojson|safe }}');
+            const psychotypeCounts = JSON.parse('{{ psychotype_counts|tojson|safe }}');
+            new Chart(document.getElementById('psychotypesChart'), {
+                type: 'bar',
+                data: {
+                    labels: psychotypeLabels,
+                    datasets: [{
+                        label: 'Количество',
+                        data: psychotypeCounts,
+                        backgroundColor: '#7f53ac'
+                    }]
+                }
+            });
+
+            // График эмоций
+            const emotionLabels = JSON.parse('{{ emotion_labels|tojson|safe }}');
+            const emotionData = JSON.parse('{{ emotion_data|tojson|safe }}');
+            new Chart(document.getElementById('emotionsChart'), {
+                type: 'radar',
+                data: {
+                    labels: emotionLabels,
+                    datasets: [{
+                        label: 'Эмоциональный профиль',
+                        data: emotionData,
+                        backgroundColor: 'rgba(233,78,119,0.2)',
+                        borderColor: '#e94e77'
+                    }]
+                }
+            });
+        });
+
+        // Функции для работы с пользователями
+        let currentPage = 1;
+        const usersPerPage = 10;
+        const allUsers = JSON.parse('{{ users|tojson|safe }}');
+        const totalPages = Math.ceil(allUsers.length / usersPerPage);
+
+        function updatePagination() {
+            document.getElementById('currentPage').textContent = currentPage;
+            document.getElementById('totalPages').textContent = totalPages;
+            document.getElementById('prevPage').disabled = currentPage === 1;
+            document.getElementById('nextPage').disabled = currentPage === totalPages;
+        }
+
+        function renderUsers() {
+            const start = (currentPage - 1) * usersPerPage;
+            const end = start + usersPerPage;
+            const pageUsers = allUsers.slice(start, end);
+            
+            const tbody = document.getElementById('usersTableBody');
+            tbody.innerHTML = '';
+            
+            pageUsers.forEach(user => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${user.id}</td>
+                    <td>${user.first_name || ''} ${user.last_name || ''}</td>
+                    <td>@${user.username || ''}</td>
+                    <td>${Array.isArray(user.streams) ? user.streams.join(', ') : ''}</td>
+                    <td>${user.psychotype || ''}</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary" onclick="showUserDetails('${user.id}')">Детали</button>
+                        <button class="btn btn-sm btn-warning" onclick="analyzeUser('${user.id}')">Анализ</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+            
+            updatePagination();
+        }
+
+        function changePage(delta) {
+            const newPage = currentPage + delta;
+            if (newPage >= 1 && newPage <= totalPages) {
+                currentPage = newPage;
+                renderUsers();
             }
         }
-    });
-}
-function renderStreamsChart(labels, counts) {
-    const ctx = document.getElementById('streams-chart').getContext('2d');
-    if (streamsChart) streamsChart.destroy();
-    streamsChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Пользователей',
-                data: counts,
-                backgroundColor: [
-                    '#e94e77', // розовый
-                    '#b721ff', // фиолетовый
-                    '#36d1c4', // мятный
-                    '#ffd6ec', // светло-розовый
-                    '#7f53ac', // тёмно-фиолетовый
-                    '#ffaf7b'  // персиковый
-                ],
-                borderRadius: 8,
-                borderSkipped: false,
-                borderColor: '#fff0f8',
-                borderWidth: 2,
-                hoverBackgroundColor: '#b721ff',
-                hoverBorderColor: '#e94e77',
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    backgroundColor: '#fff0f8',
-                    titleColor: '#e94e77',
-                    bodyColor: '#1a1a1a',
-                    borderColor: '#b721ff',
-                    borderWidth: 2
+
+        // Инициализация пагинации при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            updatePagination();
+            renderUsers();
+        });
+
+        function showUserDetails(userId) {
+            // Реализация просмотра деталей пользователя
+            console.log('Просмотр деталей пользователя:', userId);
+        }
+
+        function analyzeUser(userId) {
+            // Реализация анализа пользователя
+            console.log('Анализ пользователя:', userId);
+        }
+
+        function showStreamDetails(stream) {
+            // Реализация просмотра деталей потока
+            console.log('Просмотр деталей потока:', stream);
+        }
+
+        // Функции для работы с API
+        async function analyzeUser(userId) {
+            try {
+                const response = await fetch(`/api/user/${userId}/analyze`);
+                const data = await response.json();
+                if (response.ok) {
+                    showAnalysisModal(data);
+                } else {
+                    showError(data.error);
                 }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    grid: { color: '#ffd6ec' },
-                    ticks: { color: '#b721ff', font: { size: 15 } }
-                },
-                x: {
-                    grid: { color: '#f3e6ff' },
-                    ticks: { color: '#e94e77', font: { size: 15 } }
-                }
+            } catch (error) {
+                showError('Ошибка при анализе пользователя');
             }
         }
-    });
-}
 
-async function fetchDashboardData() {
-    console.log('fetchDashboardData: отправка запроса на /api/dashboard_data');
-    try {
-        const resp = await fetch('/api/dashboard_data?_=' + Date.now());
-        if (!resp.ok) return;
-        const data = await resp.json();
-        // Обновление графиков
-        renderGenderChart(data.male_count, data.female_count, data.unknown_count);
-        renderStreamsChart(data.stream_labels, data.stream_counts);
-        // Обновление пользователей
-        const usersGrid = document.querySelector('.modern-users-grid');
-        if (usersGrid && Array.isArray(data.users)) {
-            usersGrid.innerHTML = data.users.map(user => `
-  <div class="modern-user-card">
-    <div class="modern-user-photo-wrap">
-      ${user.photo_jpeg ? `<img class='modern-user-photo' src="data:image/jpeg;base64,${user.photo_jpeg}" alt="Фото">` : `<span class='modern-user-photo--empty'>👤</span>`}
-      <div class="modern-user-summary">${user.profile_summary ? user.profile_summary : '—'}</div>
-    </div>
-  </div>
-`).join('');
+        async function viewUserDetails(userId) {
+            try {
+                const response = await fetch(`/api/user/${userId}/details`);
+                const data = await response.json();
+                if (response.ok) {
+                    showUserDetailsModal(data);
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Ошибка при получении данных пользователя');
+            }
         }
-    } catch (e) { /* ignore */ }
-}
-document.addEventListener('DOMContentLoaded', function() {
-    // Первичная загрузка данных пользователей и графиков
-    fetchDashboardData();
-    // Периодическое обновление
-    setInterval(fetchDashboardData, 15000);
-});
-</script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+        async function updateUserStatus(userId, status) {
+            try {
+                const response = await fetch(`/api/user/${userId}/status`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ status })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    showSuccess('Статус пользователя обновлен');
+                    // Обновляем UI
+                    const statusBadge = document.querySelector(`#user-${userId} .status-badge`);
+                    if (statusBadge) {
+                        statusBadge.className = `status-badge ${status === 'active' ? 'bg-success' : 'bg-danger'}`;
+                        statusBadge.textContent = status === 'active' ? 'Активен' : 'Неактивен';
+                    }
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Ошибка при обновлении статуса');
+            }
+        }
+
+        async function manageStreams(userId, streamName, action) {
+            try {
+                const response = await fetch('/api/streams/manage', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        user_id: userId,
+                        stream_name: streamName,
+                        action: action
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    showSuccess(`Поток ${action === 'add' ? 'добавлен' : 'удален'}`);
+                    // Обновляем UI
+                    const streamsList = document.querySelector(`#user-${userId} .streams-list`);
+                    if (streamsList) {
+                        streamsList.textContent = data.streams.join(', ');
+                    }
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Ошибка при управлении потоками');
+            }
+        }
+
+        async function getAutomationSettings() {
+            try {
+                const response = await fetch('/api/automation/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ action: 'get' })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    return data;
+                } else {
+                    showError(data.error);
+                    return null;
+                }
+            } catch (error) {
+                showError('Ошибка при получении настроек автоматизации');
+                return null;
+            }
+        }
+
+        async function updateAutomationSettings(settings) {
+            try {
+                const response = await fetch('/api/automation/settings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: 'update',
+                        settings: settings
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    showSuccess('Настройки автоматизации обновлены');
+                } else {
+                    showError(data.error);
+                }
+            } catch (error) {
+                showError('Ошибка при обновлении настроек автоматизации');
+            }
+        }
+
+        // Вспомогательные функции для UI
+        function showAnalysisModal(data) {
+            const modal = document.createElement('div');
+            modal.className = 'modal fade';
+            modal.innerHTML = `
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Анализ пользователя</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p><strong>Психотип:</strong> ${data.psychotype}</p>
+                            <p><strong>Эмоциональное состояние:</strong> ${data.emotional_state}</p>
+                            <p><strong>Уровень активности:</strong> ${data.activity_level}</p>
+                            <p><strong>Интересы:</strong> ${data.interests.join(', ')}</p>
+                            <p><strong>Рекомендации:</strong> ${data.recommendations.join(', ')}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            new bootstrap.Modal(modal).show();
+        }
+
+        function showUserDetailsModal(data) {
+            const modal = document.createElement('div');
+            modal.className = 'modal fade';
+            modal.innerHTML = `
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Детали пользователя</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p><strong>ID:</strong> ${data.id}</p>
+                            <p><strong>Имя пользователя:</strong> ${data.username}</p>
+                            <p><strong>Имя:</strong> ${data.first_name}</p>
+                            <p><strong>Фамилия:</strong> ${data.last_name}</p>
+                            <p><strong>Пол:</strong> ${data.gender}</p>
+                            <p><strong>Дата регистрации:</strong> ${data.registration_date}</p>
+                            <p><strong>Последняя активность:</strong> ${data.last_activity}</p>
+                            <p><strong>Потоки:</strong> ${data.streams.join(', ')}</p>
+                            <p><strong>Психотип:</strong> ${data.psychotype}</p>
+                            <p><strong>Эмоциональное состояние:</strong> ${data.emotional_state}</p>
+                            <p><strong>Уровень активности:</strong> ${data.activity_level}</p>
+                            <p><strong>Резюме профиля:</strong> ${data.profile_summary}</p>
+                            <p><strong>Статус:</strong> ${data.is_active ? 'Активен' : 'Неактивен'}</p>
+                            <p><strong>Завершен:</strong> ${data.completed ? 'Да' : 'Нет'}</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            new bootstrap.Modal(modal).show();
+        }
+
+        function showSuccess(message) {
+            const toast = document.createElement('div');
+            toast.className = 'toast align-items-center text-white bg-success border-0';
+            toast.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            `;
+            document.body.appendChild(toast);
+            new bootstrap.Toast(toast).show();
+        }
+
+        function showError(message) {
+            const toast = document.createElement('div');
+            toast.className = 'toast align-items-center text-white bg-danger border-0';
+            toast.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            `;
+            document.body.appendChild(toast);
+            new bootstrap.Toast(toast).show();
+        }
+
+        // Инициализация при загрузке страницы
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Загружаем настройки автоматизации
+            const automationSettings = await getAutomationSettings();
+            if (automationSettings) {
+                // Заполняем форму настроек автоматизации
+                document.getElementById('autoAnalysis').checked = automationSettings.auto_analysis || false;
+                document.getElementById('autoReminders').checked = automationSettings.auto_reminders || false;
+                document.getElementById('autoStreams').checked = automationSettings.auto_streams || false;
+            }
+            
+            // Обработчики событий для форм
+            document.getElementById('automationForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const settings = {
+                    auto_analysis: document.getElementById('autoAnalysis').checked,
+                    auto_reminders: document.getElementById('autoReminders').checked,
+                    auto_streams: document.getElementById('autoStreams').checked
+                };
+                await updateAutomationSettings(settings);
+            });
+        });
+    </script>
 </body>
 </html>

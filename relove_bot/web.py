@@ -14,6 +14,7 @@ from aiohttp.web_request import Request
 from aiohttp.web_response import Response
 from aiohttp.web import HTTPFound
 from .config import settings
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +177,11 @@ async def dashboard(request: web.Request):
                     photo_b64 = None
                     if hasattr(u, 'photo_jpeg') and u.photo_jpeg:
                         try:
-                            photo_b64 = base64.b64encode(u.photo_jpeg).decode('utf-8')
+                            if isinstance(u.photo_jpeg, bytes):
+                                photo_b64 = base64.b64encode(u.photo_jpeg).decode('utf-8')
+                            elif isinstance(u.photo_jpeg, str):
+                                # Если это уже base64 строка, используем её как есть
+                                photo_b64 = u.photo_jpeg
                         except Exception as e:
                             logger.error(f"Ошибка кодирования фото для пользователя {u.id}: {e}")
                     
@@ -194,6 +199,8 @@ async def dashboard(request: web.Request):
                         'profile_summary': u.profile_summary or '',
                         'streams_count': streams_count,
                         'post_count': post_count,
+                        'is_active': getattr(u, 'is_active', False),
+                        'streams': streams if isinstance(streams, list) else []
                     })
                 except Exception as e:
                     logger.error(f"Ошибка обработки данных пользователя {u.id}: {e}")
@@ -221,6 +228,51 @@ async def dashboard(request: web.Request):
             total_streams = sum(len(streams) for streams in user_streams.values() if isinstance(streams, list))
             total_posts = sum(1 for l in logs if l.activity_type in ('message', 'post'))
 
+            # Статистика по потокам
+            stream_stats = {
+                'Мужской': {'participants': 0, 'active': 0, 'completed': 0},
+                'Женский': {'participants': 0, 'active': 0, 'completed': 0},
+                'Смешанный': {'participants': 0, 'active': 0, 'completed': 0},
+                'Путь Героя': {'participants': 0, 'active': 0, 'completed': 0}
+            }
+
+            # Подсчет статистики по потокам
+            for user in users:
+                streams = getattr(user, 'streams', []) or []
+                if isinstance(streams, list):
+                    for stream in streams:
+                        if stream in stream_stats:
+                            stream_stats[stream]['participants'] += 1
+                            if getattr(user, 'is_active', False):
+                                stream_stats[stream]['active'] += 1
+                            if getattr(user, 'completed', False):
+                                stream_stats[stream]['completed'] += 1
+
+            # Подготовка данных для графиков активности
+            activity_data = []
+            activity_labels = []
+            for log in sorted(logs, key=lambda x: x.timestamp):
+                if log.activity_type in ('message', 'post'):
+                    activity_data.append(1)
+                    activity_labels.append(log.timestamp.strftime('%Y-%m-%d'))
+
+            # Подготовка данных для психотипов
+            psychotype_labels = ['Интроверт', 'Экстраверт', 'Амбиверт']
+            psychotype_counts = [0, 0, 0]
+            for user in users:
+                psychotype = getattr(user, 'psychotype', '')
+                if psychotype in psychotype_labels:
+                    idx = psychotype_labels.index(psychotype)
+                    psychotype_counts[idx] += 1
+
+            # Подготовка данных для эмоционального анализа
+            emotion_labels = ['Радость', 'Грусть', 'Гнев', 'Страх', 'Удивление']
+            emotion_data = [0, 0, 0, 0, 0]
+            for user in users:
+                emotions = getattr(user, 'emotions', {}) or {}
+                for i, emotion in enumerate(emotion_labels):
+                    emotion_data[i] += emotions.get(emotion, 0)
+
             return aiohttp_jinja2.render_template('dashboard.html', request, {
                 'users': users_data,
                 'events': events,
@@ -238,6 +290,16 @@ async def dashboard(request: web.Request):
                 'total_events': total_events,
                 'total_streams': total_streams,
                 'total_posts': total_posts,
+                'stream_stats': stream_stats,
+                'activity_data': activity_data,
+                'activity_labels': activity_labels,
+                'psychotype_labels': psychotype_labels,
+                'psychotype_counts': psychotype_counts,
+                'emotion_labels': emotion_labels,
+                'emotion_data': emotion_data,
+                'active_users_today': sum(1 for u in users if getattr(u, 'is_active', False)),
+                'new_users_week': sum(1 for u in users if getattr(u, 'created_at', None) and (datetime.now() - u.created_at).days <= 7),
+                'analyzed_users': sum(1 for u in users if getattr(u, 'profile_summary', None))
             })
     except Exception as e:
         logger.error(f"Критическая ошибка в дашборде: {e}", exc_info=True)
@@ -382,6 +444,193 @@ async def analyze_gender_middleware(request, handler):
         raise web.HTTPFound('/admin')
     return await handler(request)
 
+async def analyze_user(request: web.Request):
+    user_id = request.match_info.get('user_id')
+    if not user_id:
+        return web.json_response({'error': 'User ID is required'}, status=400)
+    
+    try:
+        async with AsyncSessionFactory() as session:
+            repo = UserRepository(session)
+            user = await repo.get_user_by_id(int(user_id))
+            if not user:
+                return web.json_response({'error': 'User not found'}, status=404)
+            
+            # Анализ профиля пользователя
+            analysis = {
+                'psychotype': user.psychotype or 'Не определен',
+                'emotional_state': user.emotional_state or 'Не определен',
+                'activity_level': user.activity_level or 'Не определен',
+                'interests': user.interests or [],
+                'recommendations': user.recommendations or []
+            }
+            
+            return web.json_response(analysis)
+    except Exception as e:
+        logger.error(f"Error analyzing user {user_id}: {e}")
+        return web.json_response({'error': str(e)}, status=500)
+
+async def user_details(request: web.Request):
+    user_id = request.match_info.get('user_id')
+    if not user_id:
+        return web.json_response({'error': 'User ID is required'}, status=400)
+    
+    try:
+        async with AsyncSessionFactory() as session:
+            repo = UserRepository(session)
+            user = await repo.get_user_by_id(int(user_id))
+            if not user:
+                return web.json_response({'error': 'User not found'}, status=404)
+            
+            # Получаем детальную информацию о пользователе
+            details = {
+                'id': user.id,
+                'username': user.username,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'gender': user.gender,
+                'registration_date': user.registration_date.isoformat() if user.registration_date else None,
+                'last_activity': user.last_activity.isoformat() if user.last_activity else None,
+                'streams': user.streams or [],
+                'psychotype': user.psychotype,
+                'emotional_state': user.emotional_state,
+                'activity_level': user.activity_level,
+                'profile_summary': user.profile_summary,
+                'is_active': user.is_active,
+                'completed': user.completed
+            }
+            
+            return web.json_response(details)
+    except Exception as e:
+        logger.error(f"Error getting user details {user_id}: {e}")
+        return web.json_response({'error': str(e)}, status=500)
+
+async def update_user_status(request: web.Request):
+    user_id = request.match_info.get('user_id')
+    if not user_id:
+        return web.json_response({'error': 'User ID is required'}, status=400)
+    
+    try:
+        data = await request.json()
+        status = data.get('status')
+        if not status:
+            return web.json_response({'error': 'Status is required'}, status=400)
+        
+        async with AsyncSessionFactory() as session:
+            repo = UserRepository(session)
+            user = await repo.get_user_by_id(int(user_id))
+            if not user:
+                return web.json_response({'error': 'User not found'}, status=404)
+            
+            # Обновляем статус пользователя
+            user.is_active = status == 'active'
+            await session.commit()
+            
+            return web.json_response({'success': True})
+    except Exception as e:
+        logger.error(f"Error updating user status {user_id}: {e}")
+        return web.json_response({'error': str(e)}, status=500)
+
+async def manage_streams(request: web.Request):
+    try:
+        data = await request.json()
+        action = data.get('action')
+        stream_name = data.get('stream_name')
+        user_id = data.get('user_id')
+        
+        if not all([action, stream_name, user_id]):
+            return web.json_response({'error': 'All fields are required'}, status=400)
+        
+        async with AsyncSessionFactory() as session:
+            repo = UserRepository(session)
+            user = await repo.get_user_by_id(int(user_id))
+            if not user:
+                return web.json_response({'error': 'User not found'}, status=404)
+            
+            streams = user.streams or []
+            if action == 'add' and stream_name not in streams:
+                streams.append(stream_name)
+            elif action == 'remove' and stream_name in streams:
+                streams.remove(stream_name)
+            
+            user.streams = streams
+            await session.commit()
+            
+            return web.json_response({'success': True, 'streams': streams})
+    except Exception as e:
+        logger.error(f"Error managing streams: {e}")
+        return web.json_response({'error': str(e)}, status=500)
+
+async def automation_settings(request: web.Request):
+    try:
+        data = await request.json()
+        action = data.get('action')
+        settings = data.get('settings')
+        
+        if not action:
+            return web.json_response({'error': 'Action is required'}, status=400)
+        
+        async with AsyncSessionFactory() as session:
+            if action == 'get':
+                # Получаем текущие настройки автоматизации
+                settings = await session.execute("SELECT * FROM automation_settings")
+                settings = settings.fetchone()
+                return web.json_response(settings or {})
+            
+            elif action == 'update':
+                if not settings:
+                    return web.json_response({'error': 'Settings are required'}, status=400)
+                
+                # Обновляем настройки автоматизации
+                await session.execute(
+                    "UPDATE automation_settings SET settings = :settings WHERE id = 1",
+                    {'settings': settings}
+                )
+                await session.commit()
+                return web.json_response({'success': True})
+            
+            else:
+                return web.json_response({'error': 'Invalid action'}, status=400)
+    except Exception as e:
+        logger.error(f"Error managing automation settings: {e}")
+        return web.json_response({'error': str(e)}, status=500)
+
+def create_dashboard_app() -> web.Application:
+    """Создаёт и конфигурирует aiohttp web приложение только для дашборда."""
+    import os
+    templates_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+    app = web.Application()
+    aiohttp_jinja2.setup(
+        app,
+        loader=jinja2.FileSystemLoader(templates_path),
+        filters={
+            'b64encode': b64encode
+        }
+    )
+
+    # --- Роуты для дашборда ---
+    app.router.add_get('/dashboard', dashboard)
+    app.router.add_get('/', lambda request: web.HTTPFound('/dashboard'))  # Перенаправление с корня на дашборд
+
+    # Добавить статические файлы (css/js/images)
+    static_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+    app.router.add_static('/static/', static_path, name='static')
+
+    # --- Роут для API данных дашборда ---
+    app.router.add_get('/api/dashboard_data', dashboard_data_api)
+
+
+    # Добавляем обработчики startup и shutdown
+    async def startup_wrapper(app):
+        from relove_bot.db.database import setup_database
+        await setup_database()
+    
+    app.on_startup.clear()
+    app.on_startup.append(startup_wrapper)
+    
+    logger.info("Dashboard application created")
+    return app
+
 def create_app(bot: Bot, dp: Dispatcher) -> web.Application:
     """Создаёт и конфигурирует aiohttp web приложение с кастомным фильтром b64encode для Jinja2."""
     import os
@@ -412,6 +661,13 @@ def create_app(bot: Bot, dp: Dispatcher) -> web.Application:
     # --- Новый роут для API данных дашборда ---
     app.router.add_get('/api/dashboard_data', dashboard_data_api)
 
+    # Добавляем новые маршруты
+    app.router.add_get('/api/user/{user_id}/analyze', analyze_user)
+    app.router.add_get('/api/user/{user_id}/details', user_details)
+    app.router.add_post('/api/user/{user_id}/status', update_user_status)
+    app.router.add_post('/api/streams/manage', manage_streams)
+    app.router.add_post('/api/automation/settings', automation_settings)
+
     # Настраиваем приложение aiogram (необходимо для SimpleRequestHandler)
     setup_application(app, dp, bot=bot)
 
@@ -425,4 +681,5 @@ def create_app(bot: Bot, dp: Dispatcher) -> web.Application:
     app.on_shutdown.append(on_shutdown)
 
     logger.info(f"aiohttp application created. Webhook path: {settings.webhook_path}")
+    return app
     return app 

@@ -1,19 +1,21 @@
 import asyncio
 from aiohttp import web as aiohttp_web
-from relove_bot.web import create_app
-from relove_bot.bot import bot, dp
-from relove_bot.db.database import setup_database
+from relove_bot.web import create_dashboard_app
 
 async def start_dashboard():
-    # Инициализируем базу данных
-    await setup_database()
+    # Создаем приложение дашборда
+    app = create_dashboard_app()
     
-    app = create_app(bot, dp)
+    # Настраиваем и запускаем сервер
     runner = aiohttp_web.AppRunner(app)
     await runner.setup()
     site = aiohttp_web.TCPSite(runner, '0.0.0.0', 8080)
     await site.start()
-    print('Веб-дэшборд запущен на http://localhost:8080/dashboard')
+    
+    print('Веб-дашборд запущен на http://localhost:8080')
+    print('Перейдите по адресу http://localhost:8080/dashboard для просмотра')
+    
+    # Бесконечный цикл, чтобы приложение не завершалось
     await asyncio.Event().wait()
 
 if __name__ == "__main__":

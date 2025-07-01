@@ -214,131 +214,10 @@ class LLM:
         else:
             raise ValueError("Generate method is only supported for local provider")
 
-    async def analyze_content(
-        self,
-        text: str = None,
-        image_url: str = None,
-        image_base64: str = None,
-        model: str = None,
-        max_tokens: int = 512,
-        temperature: float = 0.4,
-        system_prompt: str = RAG_SUMMARY_PROMPT,
-        timeout: int = 60,
-        user_info: dict = None
-    ) -> dict:
-        """
-        Универсальный анализ: текст, изображение или оба сразу.
-        
-        Args:
-            text: Текст для анализа
-            image_url: URL изображения (если есть)
-            image_base64: Изображение в формате base64 (если есть)
-            model: Имя модели для использования (если отличается от настройки по умолчанию)
-            max_tokens: Максимальное количество токенов в ответе
-            temperature: Температура генерации (0-1)
-            system_prompt: Системный промпт
-            timeout: Таймаут в секундах
-            
-        Returns:
-            dict: Словарь с ключами:
-                - summary (str): Текст ответа
-                - usage (dict): Информация об использовании токенов
-                - finish_reason (str): Причина завершения
-                - raw_response: Сырой ответ от API
-                - error (str, optional): Сообщение об ошибке, если произошла ошибка
-        """
-        try:
-            # Проверяем, что хотя бы один из параметров передан
-            if not any([text, image_url, image_base64]):
-                raise ValueError("Необходимо указать хотя бы один из параметров: text, image_url или image_base64")
-
-            # Обрабатываем image_base64 в зависимости от его типа
-            processed_image_base64 = None
-            if image_base64:
-                if isinstance(image_base64, bytes):
-                    # Если пришли байты, кодируем в base64 строку
-                    processed_image_base64 = base64.b64encode(image_base64).decode('utf-8')
-                elif isinstance(image_base64, str):
-                    # Если строка, проверяем на наличие префикса data:image/
-                    if 'base64,' in image_base64:
-                        processed_image_base64 = image_base64.split('base64,', 1)[1]
-                    else:
-                        processed_image_base64 = image_base64
-                else:
-                    logger.warning(f"Неподдерживаемый тип image_base64: {type(image_base64)}")
-
-            # Сохраняем информацию о пользователе для использования в API
-            if user_info:
-                self.user_info = user_info
-                
-            # Выбираем метод анализа в зависимости от провайдера
-            if self.provider == 'local':
-                result = await self._analyze_content_local(
-                    text=text,
-                    system_prompt=system_prompt,
-                    max_tokens=max_tokens
-                )
-            else:
-                result = await self._analyze_content_api(
-                    text=text,
-                    image_url=image_url,
-                    image_base64=processed_image_base64,
-                    model=model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    system_prompt=system_prompt,
-                    timeout=timeout
-                )
-            
-            # Проверяем, что результат не пустой
-            if not result or not isinstance(result, dict):
-                error_msg = f"Получен пустой или некорректный ответ от модели: {result}"
-                logger.error(error_msg)
-                return {
-                    'summary': '',
-                    'usage': {},
-                    'finish_reason': 'error',
-                    'error': error_msg
-                }
-            
-            # Логируем информацию об использовании токенов, если доступна
-            if 'usage' in result and result['usage']:
-                usage = result['usage']
-                logger.debug(f"Использовано токенов: {usage.get('total_tokens', 'N/A')} "
-                           f"(prompt: {usage.get('prompt_tokens', 'N/A')}, "
-                           f"completion: {usage.get('completion_tokens', 'N/A')})")
-            
-            return result
-            
-        except Exception as e:
-            error_msg = f"Ошибка при анализе контента: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            
-            # Проверяем, есть ли дополнительные детали об ошибке
-            error_details = str(e)
-            if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                try:
-                    error_data = e.response.json()
-                    if 'error' in error_data and 'message' in error_data['error']:
-                        error_details += f"\n{error_data['error']['message']}"
-                    else:
-                        error_details += f"\nResponse: {e.response.text}"
-                except:
-                    error_details += f"\nResponse: {e.response.text}"
-            
-            return {
-                'summary': '',
-                'usage': {},
-                'finish_reason': 'error',
-                'error': error_details
-            }
-
     @llm_rate_limiter
     async def _analyze_content_api(
         self,
-        text: str = None,
-        image_url: str = None,
-        image_base64: str = None,
+        content: str,
         model: str = None,
         max_tokens: int = 512,
         temperature: float = 0.4,
@@ -346,200 +225,116 @@ class LLM:
         timeout: int = 60
     ) -> dict:
         """
-        Анализ через API (OpenAI или HuggingFace)
+        Анализ контента через API.
         
+        Args:
+            content: Текст для анализа
+            model: Имя модели для использования
+            max_tokens: Максимальное количество токенов
+            temperature: Температура генерации
+            system_prompt: Системный промпт
+            timeout: Таймаут в секундах
+            
         Returns:
-            dict: Словарь с ключами:
-                - summary (str): Текст ответа
-                - usage (dict): Информация об использовании токенов
-                - finish_reason (str): Причина завершения
-                - raw_response: Сырой ответ от API
+            dict: Результат анализа
         """
         try:
-            # Добавляем задержку между запросами (3 секунды)
-            await asyncio.sleep(3)
-            
-            messages = []
-            
-            # Добавляем системный промпт, если он задан
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            
-            # Создаем контент для пользовательского сообщения
-            content_parts = []
-            
-            # Добавляем текст, если он есть
-            if text:
-                content_parts.append({"type": "text", "text": text})
-            
-            # Добавляем информацию о пользователе в текст, если есть изображение
-            user_info = []
-            if hasattr(self, 'user_info'):
-                if self.user_info.get('first_name'):
-                    user_info.append(f"Имя: {self.user_info['first_name']}")
-                if self.user_info.get('last_name'):
-                    user_info.append(f"Фамилия: {self.user_info['last_name']}")
-                if self.user_info.get('username'):
-                    user_info.append(f"Логин: @{self.user_info['username']}")
-            
-            # Добавляем текст с информацией о пользователе, если нет другого текста, но есть изображение
-            if not text and (image_url or image_base64):
-                prompt_text = "Проанализируй фотографию пользователя"
-                if user_info:
-                    prompt_text += " " + ", ".join(user_info)
-                content_parts.append({"type": "text", "text": prompt_text})
-            
-            # Добавляем изображение, если есть
-            if image_base64:
-                try:
-                    # Убедимся, что image_base64 - строка и не содержит префикс data:image/...
-                    if isinstance(image_base64, str):
-                        # Проверяем, что строка не пустая
-                        if not image_base64.strip():
-                            logger.warning("Пустая строка image_base64")
-                        else:
-                            content_parts.append({
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{image_base64}"
-                                }
-                            })
-                    else:
-                        logger.warning(f"Неподдерживаемый тип image_base64: {type(image_base64)}")
-                except Exception as e:
-                    logger.error(f"Ошибка при обработке изображения: {str(e)}", exc_info=True)
-                    raise ValueError(f"Ошибка обработки изображения: {str(e)}") from e
-            elif image_url:
-                content_parts.append({
-                    "type": "image_url",
-                    "image_url": {"url": image_url}
-                })
-            
-            if not content_parts:
-                raise ValueError("Необходимо указать text и/или image_url/image_base64 для анализа.")
-            
-            # Формируем сообщение с правильной структурой
-            messages.append({
-                "role": "user",
-                "content": content_parts
-            })
-            model = model or self.model_name
-            
-            # Убедимся, что модель в правильном формате для OpenRouter
-            if 'gpt-4' in model.lower() and not model.startswith('openai/'):
-                model = f'openai/{model}'
-            
-            logger.debug(f"Отправка запроса к API с моделью: {model}")
-            logger.debug(f"Сообщения: {messages}")
-            
-            try:
-                # Добавляем таймаут для запроса
-                response = await asyncio.wait_for(
-                    self.client.chat.completions.create(
-                        model=model,
-                        messages=messages,
-                        max_tokens=max_tokens,
+            if self.provider == 'openai':
+                response = await self.client.chat.completions.create(
+                    model=model or self.model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": content}
+                    ],
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                return response.choices[0].message.content
+            elif self.provider == 'huggingface':
+                response = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self.client.text_generation(
+                        f"{system_prompt}\n\n{content}",
+                        max_new_tokens=max_tokens,
                         temperature=temperature,
-                    ),
+                        return_full_text=False
+                    )
+                )
+                return response
+            else:
+                raise ValueError(f"Unsupported provider for content analysis: {self.provider}")
+        except Exception as e:
+            logger.error(f"Ошибка при анализе контента: {e}")
+            return ""
+
+    async def analyze_content(
+        self,
+        content: str,
+        model: str = None,
+        max_tokens: int = 512,
+        temperature: float = 0.4,
+        system_prompt: str = RAG_SUMMARY_PROMPT,
+        timeout: int = 60
+    ) -> dict:
+        """
+        Анализ контента.
+        
+        Args:
+            content: Текст для анализа
+            model: Имя модели для использования
+            max_tokens: Максимальное количество токенов
+            temperature: Температура генерации
+            system_prompt: Системный промпт
+            timeout: Таймаут в секундах
+            
+        Returns:
+            dict: Результат анализа
+        """
+        try:
+            if self.provider in ['openai', 'huggingface']:
+                result = await self._analyze_content_api(
+                    content=content,
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system_prompt=system_prompt,
                     timeout=timeout
                 )
-                
-                # Проверяем, что ответ не пустой
-                if not response:
-                    raise ValueError("Пустой ответ от API")
-                    
-                # Преобразуем ответ в словарь, если это необходимо
-                if hasattr(response, 'model_dump'):
-                    response_dict = response.model_dump()
-                elif hasattr(response, 'dict'):
-                    response_dict = response.dict()
-                else:
-                    response_dict = dict(response)
-                
-            except asyncio.TimeoutError:
-                error_msg = f"Превышено время ожидания ответа от API ({timeout} сек)"
-                logger.error(error_msg)
-                raise ValueError(error_msg)
-                
-            except Exception as e:
-                logger.error(f"Ошибка при вызове API: {str(e)}", exc_info=True)
-                
-                # Проверяем, есть ли дополнительные детали об ошибке
-                error_msg = str(e)
-                if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                    try:
-                        error_data = e.response.json()
-                        if 'error' in error_data and 'message' in error_data['error']:
-                            error_msg = error_data['error']['message']
-                        else:
-                            error_msg += f"\nResponse: {e.response.text}"
-                    except Exception as json_err:
-                        error_msg += f"\nResponse: {e.response.text}"
-                
-                raise ValueError(f"Ошибка API: {error_msg}") from e
-                
-            # Логируем полученный ответ для отладки
-            logger.debug(f"Получен ответ от API: {response_dict}")
-            
-            # Извлекаем текст ответа с учетом разных форматов ответа
-            content = ''
-            finish_reason = 'stop'
-            usage = {}
-            
-            # Обработка стандартного формата OpenAI
-            if 'choices' in response_dict and response_dict['choices']:
-                choice = response_dict['choices'][0]
-                if isinstance(choice, dict):
-                    if 'message' in choice:
-                        message = choice['message']
-                        if isinstance(message, dict) and 'content' in message:
-                            content = message['content']
-                        elif isinstance(message, str):
-                            content = message
-                    elif 'text' in choice:
-                        content = choice['text']
-                    finish_reason = choice.get('finish_reason', 'stop')
-            
-            # Обработка прямого ответа с текстом
-            elif 'text' in response_dict:
-                content = response_dict['text']
-            
-            # Извлекаем информацию об использовании токенов
-            if 'usage' in response_dict and response_dict['usage']:
-                usage = response_dict['usage']
-            
-            # Убираем лишние пробелы и переносы
-            content = content.strip() if content else ''
-            
-            return {
-                'summary': content,
-                'usage': usage,
-                'finish_reason': finish_reason,
-                'raw_response': response_dict
-            }
-            
+            else:
+                result = await self._analyze_content_local(
+                    content=content,
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system_prompt=system_prompt
+                )
+            return result
         except Exception as e:
-            logger.error(f"Ошибка при анализе контента через API: {str(e)}", exc_info=True)
+            logger.error(f"Ошибка при анализе контента: {e}")
             return {
-                'summary': '',
-                'usage': {},
-                'finish_reason': 'error',
-                'error': str(e)
+                "summary": "",
+                "usage": {"total_tokens": 0},
+                "finish_reason": "error",
+                "error": str(e)
             }
 
     async def _analyze_content_local(
         self,
-        text: str = None,
-        system_prompt: str = RAG_SUMMARY_PROMPT,
-        max_tokens: int = 512
+        content: str,
+        model: str = None,
+        max_tokens: int = 512,
+        temperature: float = 0.4,
+        system_prompt: str = RAG_SUMMARY_PROMPT
     ) -> dict:
         """
         Анализ через локальную модель
         
         Args:
-            text: Текст для анализа
-            system_prompt: Системный промпт
+            content: Текст для анализа
+            model: Имя модели для использования
             max_tokens: Максимальное количество токенов
+            temperature: Температура генерации
+            system_prompt: Системный промпт
             
         Returns:
             dict: Словарь с ключами:
@@ -547,7 +342,7 @@ class LLM:
                 - usage (dict): Информация об использовании токенов
                 - finish_reason (str): Причина завершения
         """
-        if not text:
+        if not content:
             return {
                 'summary': '',
                 'usage': {},
@@ -561,7 +356,7 @@ class LLM:
             {system_prompt}
 
             Text:
-            {text}
+            {content}
             """
 
             # Используем локальную модель
@@ -573,7 +368,7 @@ class LLM:
                 prompt,
                 max_length=max_tokens,
                 num_return_sequences=1,
-                temperature=0.7,
+                temperature=temperature,
                 do_sample=True,
                 top_p=0.9,
                 top_k=50,
@@ -744,45 +539,3 @@ class LLM:
         except Exception as e:
             logger.error(f"Ошибка при получении ответа ассистента: {e}", exc_info=True)
             return ''
-
-    async def _analyze_content_api(self, content: str) -> Dict[str, Any]:
-        """Анализ контента через API с обработкой ошибок и повторными попытками"""
-        max_retries = 3
-        retry_delay = 5  # секунды
-        
-        for attempt in range(max_retries):
-            try:
-                # Добавляем задержку между запросами
-                await asyncio.sleep(3)
-                
-                response = await asyncio.wait_for(
-                    self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[
-                            {"role": "system", "content": self.system_prompt},
-                            {"role": "user", "content": content}
-                        ],
-                        temperature=0.7,
-                        max_tokens=1000
-                    ),
-                    timeout=30
-                )
-                
-                return json.loads(response.choices[0].message.content)
-                
-            except asyncio.TimeoutError:
-                logger.warning(f"Таймаут запроса (попытка {attempt + 1}/{max_retries})")
-                if attempt == max_retries - 1:
-                    raise ValueError("Превышено время ожидания ответа от API")
-                    
-            except openai.RateLimitError as e:
-                logger.warning(f"Превышен лимит запросов (попытка {attempt + 1}/{max_retries})")
-                if attempt == max_retries - 1:
-                    raise ValueError(f"Ошибка API: {str(e)}")
-                await asyncio.sleep(retry_delay * (attempt + 1))  # Увеличиваем задержку с каждой попыткой
-                
-            except Exception as e:
-                logger.error(f"Ошибка при вызове API: {str(e)}")
-                if attempt == max_retries - 1:
-                    raise ValueError(f"Ошибка API: {str(e)}")
-                await asyncio.sleep(retry_delay)

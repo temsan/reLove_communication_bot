@@ -15,11 +15,28 @@ import warnings
 import argparse
 import httpx
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Union
 from tqdm import tqdm
 from dotenv import load_dotenv
+import glob
+from pathlib import Path
+
+# === ДОБАВЛЕНО: импорт для LLM ===
+from relove_bot.services.llm_service import llm_service
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(Path('temp/chat_analysis.log'), encoding='utf-8')
+    ]
+)
+logger = logging.getLogger(__name__)
+logger.info("Инициализация скрипта анализа чата")
 
 class AnalysisCache:
     """Класс для кеширования результатов анализа чата.
@@ -1457,7 +1474,7 @@ def parse_args():
     """
     # Сначала загружаем переменные окружения, чтобы использовать их как значения по умолчанию
     load_dotenv()
-    default_export_path = os.getenv('CHAT_EXPORT_PATH') or settings.chat_export_path
+    default_export_path = os.getenv('CHAT_EXPORT_PATH')
     
     # Текущая дата по умолчанию
     current_date = datetime.now()
@@ -1564,156 +1581,156 @@ def parse_args():
 async def main():
     """Основная функция для запуска анализа чата."""
     logger.info("=== Начало работы скрипта анализа чата ===")
-    
     try:
         # Парсим аргументы командной строки
         logger.info("Обработка аргументов командной строки...")
         args = parse_args()
-        chat_export_path = args.input
-        output_file = args.report_path
-        
-        logger.info(f"Используемый путь к файлу: {chat_export_path}")
-        logger.info(f"Файл для сохранения отчета: {output_file}")
-        
-        # Проверяем существование файла
-        if not os.path.exists(chat_export_path):
-            error_msg = f"Файл с экспортом чата не найден: {chat_export_path}"
+        chat_export_path = Path(args.input)
+        output_file = Path(args.report_path)
+
+        logger.info(f"Используемый путь к файлу/папке: {chat_export_path.absolute()}")
+        logger.info(f"Файл для сохранения отчета: {output_file.absolute()}")
+
+        if not chat_export_path.exists():
+            error_msg = f"Путь не найден: {chat_export_path.absolute()}"
             logger.error(error_msg)
             print(f"Ошибка: {error_msg}")
             return 1
-        
-        # Инициализируем кеш
-        cache = AnalysisCache(cache_dir=args.cache_dir)
-        
-        # Очищаем старый кеш, если запрошено
-        if args.clean_cache:
-            removed = cache.cleanup_old_cache()
-            logger.info(f"Удалено устаревших файлов кеша: {removed}")
-            print(f"Очистка кеша: удалено {removed} устаревших файлов")
-        
-        # Загружаем данные из файла
-        logger.info("Загрузка данных из файла...")
-        try:
-            with open(chat_export_path, 'r', encoding='utf-8') as f:
-                chat_data = json.load(f)
-            
-            # Проверяем структуру загруженных данных
-            if not isinstance(chat_data, dict):
-                raise ValueError("Некорректный формат данных: ожидался словарь")
-                
-            if 'messages' not in chat_data:
-                logger.warning("В данных не найден ключ 'messages'. Пытаемся продолжить...")
-                
-            logger.info(f"Загружено сообщений: {len(chat_data.get('messages', []))}")
-            
-        except json.JSONDecodeError as e:
-            error_msg = f"Ошибка при разборе JSON: {str(e)}"
-            logger.error(error_msg)
-            print(f"Ошибка: {error_msg}")
-            return 1
-        except Exception as e:
-            error_msg = f"Ошибка при загрузке файла: {str(e)}"
-            logger.error(error_msg)
-            print(f"Ошибка: {error_msg}")
-            return 1
-        
-        # Проверяем кеш, если он не отключен
-        use_cache = not args.no_cache
-        result = None
-        
-        # Для кеширования всего чата используем фиксированный идентификатор
-        chat_id = "chat_analysis"
-        
-        if use_cache:
-            logger.info("Проверка кеша...")
-            result = cache.load_result(chat_export_path, chat_id)
-            if result:
-                logger.info("Найден валидный кеш, используем его")
-            else:
-                logger.info("Актуального кеша не найдено, выполняем анализ")
-        else:
-            logger.info("Использование кеша отключено, выполняем анализ")
-        
-        # Если в кеше не нашли или кеш отключен, выполняем анализ
-        if not result:
-            # Инициализируем анализатор
-            logger.info("Инициализация анализатора чата...")
+
+        if chat_export_path.is_dir():
+            # Корректно получаем все .json-файлы в папке, избегая ошибок прав
+            all_messages = []
+            json_files = []
+            for fname in os.listdir(chat_export_path):
+                fpath = chat_export_path / fname
+                if fpath.is_file() and fpath.suffix == '.json':
+                    json_files.append(fpath)
+            if not json_files:
+                print(f"В директории {chat_export_path} не найдено .json файлов!")
+                return 1
+            print(f"Найдено файлов для анализа: {len(json_files)}")
+            for file_path in json_files:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    msgs = data.get('messages', [])
+                    all_messages.extend(msgs)
+                except Exception as e:
+                    print(f"Ошибка при чтении файла {file_path}: {e}")
+            if not all_messages:
+                print("Нет сообщений для анализа!")
+                return 1
             analyzer = ChatAnalyzerLLM()
-            
-            # Запускаем анализ с указанным форматом
-            logger.info(f"Запуск анализа чата из файла: {chat_export_path}")
+            results = await analyzer.analyze_chat({'messages': all_messages})
+            report = results['report']
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_file, 'w', encoding='utf-8-sig') as f:
+                f.write(report)
+            print(f"Общий отчёт сохранён: {output_file}")
+            if not output_file.exists() or output_file.stat().st_size == 0:
+                print(f"ВНИМАНИЕ: Файл отчёта не создан или пустой: {output_file}")
+            else:
+                print("Анализ завершён! Отчёт успешно сформирован.")
+            return 0
+        elif chat_export_path.is_file():
+            # Путь — это файл, анализируем только его
             try:
-                logger.info("=== Начало анализа чата ===")
-                result = await analyzer.analyze_chat(
-                    chat_data, 
-                    use_cache=use_cache,
-                    output_format=args.format
-                )
-                logger.info("Анализ завершен успешно")
-                
-                # Сохраняем результат в кеш, если он не отключен
-                if use_cache:
-                    cache_path = cache.save_result(chat_export_path, chat_id, result)
-                    if cache_path:
-                        logger.info(f"Результат анализа сохранен в кеш: {cache_path}")
-                    else:
-                        logger.warning("Не удалось сохранить результат в кеш")
-                
+                with open(chat_export_path, 'r', encoding='utf-8') as f:
+                    chat_data = json.load(f)
+                if not isinstance(chat_data, dict):
+                    raise ValueError("Некорректный формат данных: ожидался словарь")
+                if 'messages' not in chat_data:
+                    logger.warning("В данных не найден ключ 'messages'. Пытаемся продолжить...")
+                logger.info(f"Загружено сообщений: {len(chat_data.get('messages', []))}")
             except Exception as e:
-                error_msg = f"Ошибка при анализе чата: {str(e)}"
-                logger.error(error_msg, exc_info=True)
+                error_msg = f"Ошибка при загрузке файла: {str(e)}"
+                logger.error(error_msg)
                 print(f"Ошибка: {error_msg}")
                 return 1
-        
-        # Проверяем результат анализа
-        if not result:
-            logger.error("Анализ завершился с пустым результатом")
-            print("Ошибка: Анализ завершился с пустым результатом")
-            return 1
-            
-        if 'error' in result:
-            logger.error(f"Ошибка при анализе: {result['error']}")
-            print(f"Ошибка: {result['error']}")
-            return 1
-            
-        # Выводим основную информацию о результате
-        logger.info("\n=== Результат анализа ===")
-        logger.info(f"Статус: {result.get('status', 'не указан')}")
-        logger.info(f"Найдено участников: {len(result.get('results', {}))}")
-        
-        # Проверяем наличие отчета в результате
-        logger.info("Проверка результата анализа...")
-        if 'report' not in result or not result['report']:
-            error_msg = "Не удалось сгенерировать отчет: отсутствуют данные отчета"
+            analyzer = ChatAnalyzerLLM()
+            results = await analyzer.analyze_chat(chat_data)
+            report = results['report']
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_file, 'w', encoding='utf-8-sig') as f:
+                f.write(report)
+            print(f"Отчёт сохранён: {output_file}")
+            if not output_file.exists() or output_file.stat().st_size == 0:
+                print(f"ВНИМАНИЕ: Файл отчёта не создан или пустой: {output_file}")
+            else:
+                print("Анализ завершён! Отчёт успешно сформирован.")
+            return 0
+        else:
+            error_msg = f"Путь {chat_export_path} не является ни файлом, ни папкой."
             logger.error(error_msg)
             print(f"Ошибка: {error_msg}")
             return 1
-        
-        # Сохранение отчета в файл с правильной кодировкой
-        try:
-            # Создаем папку для отчетов, если её нет
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            with open(output_file, 'w', encoding='utf-8-sig') as f:
-                f.write(result['report'])
-                
-            logger.info(f"Отчет успешно сохранен в файл: {output_file}")
-            print(f"\nОтчет успешно сохранен в файл: {output_file}")
-            print("\nДля просмотра отчета выполните команду:")
-            print(f"type \"{output_file}\"")
-            return 0
-            
-        except Exception as e:
-            error_msg = f"Ошибка при сохранении отчета: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            print(f"Ошибка: {error_msg}")
-            return 1
-        
     except Exception as e:
-        error_msg = f"Критическая ошибка: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        print(f"Ошибка: {error_msg}")
+        logger.error(f"Ошибка при выполнении анализа: {str(e)}")
+        print(f"Ошибка: {e}")
         return 1
+
+
+class ChatAnalyzerLLM:
+    async def analyze_chat(self, chat_data, use_cache=True, output_format='md'):
+        messages = chat_data.get('messages', [])
+        users = {}
+        for msg in messages:
+            user_id = str(msg.get("from_id") or msg.get("user_id") or msg.get("from", "unknown"))
+            users.setdefault(user_id, []).append(msg)
+        results = {}
+        def msg_text_to_str(msg):
+            t = msg.get("text", "")
+            if isinstance(t, list):
+                return " ".join(str(x) if isinstance(x, str) else str(x.get('text', '')) for x in t)
+            return str(t)
+        for user_id, user_messages in users.items():
+            user_text = "\n".join([msg_text_to_str(msg) for msg in user_messages if msg.get("text")])
+            prompt = (
+                "На основе сообщений пользователя, пожалуйста, кратко и своими словами ответь на два вопроса:\n"
+                "1. Почему человек пришёл в Релав? Опиши его внутреннюю мотивацию или проблему, которая его привела.\n"
+                "2. Какой результат или изменения он/она получил(а) после участия?\n"
+                "Не копируй текст пользователя, а сделай выводы и обобщения.\n"
+                f"\n\nСообщения пользователя:\n{user_text}"
+            )
+            batch_size = len(user_messages)
+            while batch_size > 0:
+                try:
+                    analysis = await llm_service.analyze_text(prompt=prompt, system_prompt=None, max_tokens=512)
+                    results[user_id] = {"analysis": analysis, "messages": user_messages}
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    if 'maximum context length' in err_str or 'context length' in err_str or 'token' in err_str:
+                        # Слишком много токенов — уменьшаем батч
+                        if batch_size > 10:
+                            batch_size = batch_size // 2
+                        else:
+                            batch_size -= 1
+                        if batch_size <= 0:
+                            results[user_id] = {"analysis": "Ошибка: слишком много данных для анализа", "messages": user_messages}
+                            break
+                        # Формируем новый батч
+                        batch_msgs = user_messages[:batch_size]
+                        user_text = "\n".join([msg_text_to_str(msg) for msg in batch_msgs if msg.get("text")])
+                        prompt = (
+                            "На основе сообщений пользователя, пожалуйста, кратко и своими словами ответь на два вопроса:\n"
+                            "1. Почему человек пришёл в Релав? Опиши его внутреннюю мотивацию или проблему, которая его привела.\n"
+                            "2. Какой результат или изменения он/она получил(а) после участия?\n"
+                            "Не копируй текст пользователя, а сделай выводы и обобщения.\n"
+                            f"\n\nСообщения пользователя:\n{user_text}"
+                        )
+                    else:
+                        results[user_id] = {"analysis": f"Ошибка: {err_str}", "messages": user_messages}
+                        break
+        report = "# Общий анализ пользователей\n"
+        for user_id, data in results.items():
+            report += f"\n## Пользователь {user_id}\n"
+            report += f"Ответы LLM:\n{data['analysis']}\n"
+        return {
+            'status': 'ok',
+            'results': results,
+            'report': report
+        }
 
 
 if __name__ == "__main__":

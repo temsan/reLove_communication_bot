@@ -16,7 +16,7 @@ async def get_client():
         # Получаем значения из настроек с правильной обработкой SecretStr
         api_id = int(settings.tg_api_id)
         api_hash = settings.tg_api_hash.get_secret_value() if hasattr(settings.tg_api_hash, 'get_secret_value') else str(settings.tg_api_hash)
-        session_name = 'relove_session'
+        session_name = settings.tg_session if hasattr(settings, 'tg_session') else 'relove_bot'
         
         _client = TelegramClient(
             session=session_name,

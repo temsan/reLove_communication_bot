@@ -16,18 +16,24 @@ class GenderEnum(enum.Enum):
     female = "female"
 
 class PsychotypeEnum(enum.Enum):
-    strategist = "strategist"
-    creator = "creator"
-    guardian = "guardian"
-    explorer = "explorer"
-    transformer = "transformer"
+    ANALYTICAL = "Аналитический"
+    EMOTIONAL = "Эмоциональный"
+    INTUITIVE = "Интуитивный"
+    PRACTICAL = "Практический"
 
 class JourneyStageEnum(enum.Enum):
-    ordinary_world = "ordinary_world"
-    call_to_adventure = "call_to_adventure"
-    refusal = "refusal"
-    meeting_mentor = "meeting_mentor"
-    crossing_threshold = "crossing_threshold"
+    ORDINARY_WORLD = "Обычный мир"
+    CALL_TO_ADVENTURE = "Зов к приключению"
+    REFUSAL = "Отказ от призыва"
+    MEETING_MENTOR = "Встреча с наставником"
+    CROSSING_THRESHOLD = "Пересечение порога"
+    TESTS_ALLIES_ENEMIES = "Испытания, союзники, враги"
+    APPROACH = "Приближение к сокровенной пещере"
+    ORDEAL = "Испытание"
+    REWARD = "Награда"
+    ROAD_BACK = "Дорога назад"
+    RESURRECTION = "Воскресение"
+    RETURN_WITH_ELIXIR = "Возвращение с эликсиром"
 
 class User(Base):
     __tablename__ = "users"
@@ -51,9 +57,16 @@ class User(Base):
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
+    # Поля для отслеживания конверсии
+    has_started_journey: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_completed_journey: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_visited_platform: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_purchased_flow: Mapped[bool] = mapped_column(Boolean, default=False)
+
     registrations: Mapped[List["Registration"]] = relationship(back_populates="user")
     activity_logs: Mapped[List["UserActivityLog"]] = relationship(back_populates="user")
     diagnostic_results: Mapped[List["DiagnosticResult"]] = relationship("DiagnosticResult", back_populates="user")
+    journey_progress: Mapped[List["JourneyProgress"]] = relationship("JourneyProgress", back_populates="user")
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username}, name={self.first_name}, gender={self.gender})>"
@@ -180,3 +193,26 @@ class DiagnosticQuestion(Base):
 
     def __repr__(self):
         return f"<DiagnosticQuestion(id={self.id}, text={self.text[:50]}...)>"
+
+class JourneyProgress(Base):
+    __tablename__ = "journey_progress"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"))
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+    
+    # Прогресс по этапам
+    current_stage: Mapped[JourneyStageEnum] = mapped_column(SQLEnum(JourneyStageEnum))
+    completed_stages: Mapped[Optional[List[JourneyStageEnum]]] = mapped_column(JSON)  # Список завершенных этапов
+    stage_start_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True))  # Время начала текущего этапа
+    
+    # Метрики вовлеченности
+    total_interactions: Mapped[int] = mapped_column(Integer, default=0)
+    emotional_responses: Mapped[Optional[List[str]]] = mapped_column(JSON)  # Записанные эмоциональные реакции
+    logical_patterns_broken: Mapped[Optional[List[str]]] = mapped_column(JSON)  # Разрушенные логические паттерны
+    
+    # Связи
+    user: Mapped["User"] = relationship(back_populates="journey_progress")
+
+    def __repr__(self):
+        return f"<JourneyProgress(id={self.id}, user_id={self.user_id}, current_stage={self.current_stage})>"

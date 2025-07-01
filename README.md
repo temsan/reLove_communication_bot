@@ -1,4 +1,111 @@
-# reLove Communication Bot
+# ReLove Communication Bot
+
+Телеграм-бот для психологической диагностики и интеграции с платформой relove.ru.
+
+## Установка
+
+1. Клонируйте репозиторий:
+```bash
+git clone https://github.com/your-username/relove_communication_bot.git
+cd relove_communication_bot
+```
+
+2. Создайте виртуальное окружение и установите зависимости:
+```bash
+python -m venv venv
+source venv/bin/activate  # для Linux/Mac
+venv\Scripts\activate     # для Windows
+pip install -r requirements.txt
+```
+
+3. Создайте файл `.env` в корневой директории проекта со следующими настройками:
+```env
+# Bot settings
+BOT_TOKEN=your_bot_token_here
+ADMIN_IDS=123456789,987654321  # Comma-separated list of admin user IDs
+
+# Database settings
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASS=your_db_password_here
+DB_NAME=relove_bot
+DB_ECHO=false
+
+# Redis settings (optional)
+USE_REDIS=false
+REDIS_URL=redis://localhost:6379/0
+
+# Logging settings
+LOG_LEVEL=INFO
+LOG_FORMAT=%(asctime)s - %(name)s - %(levelname)s - %(message)s
+LOG_DIR=logs
+LOG_FILE=bot.log
+
+# Webhook settings (optional)
+WEBHOOK_HOST=https://your-domain.com
+WEBHOOK_SECRET=your_webhook_secret_here
+```
+
+4. Создайте базу данных PostgreSQL:
+```bash
+createdb relove_bot
+```
+
+5. Примените миграции:
+```bash
+alembic upgrade head
+```
+
+## Запуск
+
+1. Запустите бота:
+```bash
+python -m relove_bot.bot
+```
+
+## Структура проекта
+
+```
+relove_bot/
+├── alembic/              # Миграции базы данных
+├── core/                 # Основные компоненты
+├── db/                   # Модели и сессии базы данных
+├── handlers/             # Обработчики команд
+├── keyboards/            # Клавиатуры
+├── middlewares/          # Middleware компоненты
+├── states/               # Состояния FSM
+├── bot.py               # Основной файл бота
+├── config.py            # Конфигурация
+└── web.py               # Веб-интерфейс (опционально)
+```
+
+## Разработка
+
+1. Создание новой миграции:
+```bash
+alembic revision --autogenerate -m "description"
+```
+
+2. Применение миграций:
+```bash
+alembic upgrade head
+```
+
+3. Откат миграции:
+```bash
+alembic downgrade -1
+```
+
+## Логирование
+
+Логи сохраняются в директории `logs/` в формате:
+- `bot.log` - основной лог бота
+- `web.log` - лог веб-интерфейса (если используется)
+
+## Лицензия
+
+MIT
 
 ## Стандарт работы с Telegram сущностями (tg_user, channel, peer и др.)
 

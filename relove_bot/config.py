@@ -1,16 +1,22 @@
 from typing import Literal, Optional, Set, List
 from pydantic import Field, SecretStr, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import os
 
 class Settings(BaseSettings):
     # Model configuration
     model_provider: Literal['openai', 'huggingface', 'local'] = Field('openai', env='MODEL_PROVIDER', description="Provider for LLM model (openai, huggingface, local)")
-    model_name: str = Field("meta-llama/llama-3.3-8b-instruct:free", env='MODEL_NAME', description="Название модели для OpenRouter")
+    model_name: str = Field("meta-llama/llama-4-scout:free", env='MODEL_NAME', description="Название модели для OpenRouter")
     """
     Application settings loaded from environment variables.
     """
     # Load settings from .env and ignore extra variables
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='ignore',
+        protected_namespaces=('settings_',)
+    )
 
     llm_attempts: int = Field(1, env='LLM_ATTEMPTS', description="Number of attempts to run LLM")
 
@@ -64,6 +70,21 @@ class Settings(BaseSettings):
 
     chat_export_path: str = Field('scripts/result.json', env='CHAT_EXPORT_PATH', description='Путь к файлу с экспортом чата (JSON)')
 
+    # New settings from the code block
+    USE_REDIS: bool = False
+    REDIS_URL: Optional[str] = None
+
+    # Logging settings
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    LOG_DIR: str = "logs"
+    LOG_FILE: str = "bot.log"
+
+    @property
+    def log_file_path(self) -> str:
+        """Получение пути к файлу лога"""
+        return os.path.join(self.LOG_DIR, self.LOG_FILE)
+
     @field_validator('webhook_host', 'webhook_secret', mode='before')
     @classmethod
     def empty_str_to_none(cls, v):
@@ -74,24 +95,18 @@ class Settings(BaseSettings):
     @field_validator('admin_ids', mode='before')
     @classmethod
     def parse_admin_ids(cls, v):
-        # Если v — dict (неправильная загрузка env), возвращаем пустой набор
-        if isinstance(v, dict):
-            return set()
-        # Parse comma-separated string
-        if isinstance(v, str):
-            if not v:
-                return set()
-            try:
-                return {int(admin_id.strip()) for admin_id in v.split(',')}
-            except ValueError:
-                raise ValueError("ADMIN_IDS must be a comma-separated list of integers.")
-        # Single integer
-        if isinstance(v, int):
-            return {v}
-        # List or set
-        if isinstance(v, (list, set)):
-            return set(v)
+        if isinstance(v, (str, int)):
+            if isinstance(v, str):
+                return {int(x.strip()) for x in v.split(',') if x.strip()}
+            return {int(v)}
         return v
+
+    @field_validator('LOG_LEVEL')
+    def validate_log_level(cls, v):
+        valid_levels = {'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'}
+        if v.upper() not in valid_levels:
+            raise ValueError(f'LOG_LEVEL must be one of {valid_levels}')
+        return v.upper()
 
 # Create a single instance of the settings to be imported elsewhere
 settings = Settings()
@@ -121,3 +136,6 @@ if __name__ == "__main__":
     print(f"Telegram API ID: {settings.tg_api_id}")
     print(f"Telegram API Hash: {settings.tg_api_hash.get_secret_value()[:5]}...")
     print(f"Telethon Session: {settings.tg_session}")
+
+# Создаем директорию для логов, если она не существует
+os.makedirs(settings.LOG_DIR, exist_ok=True)

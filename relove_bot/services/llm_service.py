@@ -95,7 +95,7 @@ class LLMService:
                                 "Authorization": f"Bearer {self.api_key.get_secret_value()}",
                                 "Content-Type": "application/json",
                                 "HTTP-Referer": "https://relove.com",
-                                "X-Title": "reLove Bot"
+                                "X-Title": "reLove_communication_bot"
                             },
                             json=payload,
                             timeout=30  # Увеличиваем таймаут
@@ -230,7 +230,7 @@ class LLMService:
             
             # Отправляем запрос к LLM
             result = await self.llm.analyze_content(
-                text=prompt,
+                content=prompt,
                 system_prompt=GENDER_TEXT_ANALYSIS_PROMPT,
                 max_tokens=10
             )
@@ -266,7 +266,7 @@ class LLMService:
             
             # Отправляем запрос к LLM
             result = await self.llm.analyze_content(
-                text=img_b64,
+                content=img_b64,
                 system_prompt=GENDER_PHOTO_ANALYSIS_PROMPT,
                 max_tokens=10
             )
@@ -305,15 +305,20 @@ class LLMService:
             
             # Отправляем запрос к LLM
             result = await self.llm.analyze_content(
-                text=analysis_prompt,
+                content=analysis_prompt,
                 system_prompt=system_prompt or PSYCHOLOGICAL_ANALYSIS_PROMPT,
                 max_tokens=max_tokens
             )
             
-            if not result or 'error' in result:
+            if not result:
                 return ''
                 
-            return result.get('summary', '').strip()
+            if isinstance(result, dict):
+                return result.get('summary', '').strip()
+            elif isinstance(result, str):
+                return result.strip()
+            else:
+                return str(result).strip()
             
         except Exception as e:
             logger.error(f"Ошибка при анализе текста: {e}", exc_info=True)
@@ -338,7 +343,7 @@ class LLMService:
             
             # Отправляем запрос к LLM
             result = await self.llm.analyze_content(
-                text=analysis_prompt,
+                content=analysis_prompt,
                 system_prompt=PSYCHOLOGICAL_ANALYSIS_PROMPT,
                 max_tokens=max_tokens,
                 image_base64=image_base64
@@ -391,13 +396,18 @@ class LLMService:
             else:
                 full_prompt = prompt
             result = await self.llm.analyze_content(
-                text=full_prompt,
+                content=full_prompt,
                 max_tokens=1000,
                 temperature=0.7
             )
-            if not result or 'error' in result:
+            if not result:
                 return {}
-            return result
+            if isinstance(result, dict):
+                return result
+            elif isinstance(result, str):
+                return {'summary': result}
+            else:
+                return {'summary': str(result)}
         except Exception as e:
             logger.error(f"Ошибка при анализе контента: {e}", exc_info=True)
             return {}
