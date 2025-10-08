@@ -187,5 +187,8 @@ Thumbs.db
 reports/
 temp/
 
+# Chat exports (large JSON files)
+reLoveReason/
+
 # Telethon
 /telethon_src/
