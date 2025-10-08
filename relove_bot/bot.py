@@ -14,7 +14,8 @@ from .handlers import (
     psychological_journey,
     platform_integration,
     common,
-    admin
+    admin,
+    provocative_natasha
 )
 from .middlewares.database import DatabaseMiddleware
 from .middlewares.logging import LoggingMiddleware
@@ -60,12 +61,19 @@ dp.include_router(common.router)
 dp.include_router(admin.router)
 dp.include_router(psychological_journey.router)
 dp.include_router(platform_integration.router)
+dp.include_router(provocative_natasha.router)
 
 # Список команд бота
 DEFAULT_COMMANDS = [
     BotCommand(command="start", description="🚀 Запустить/перезапустить бота"),
     BotCommand(command="help", description="❓ Получить справку"),
     BotCommand(command="start_journey", description="🎯 Пройти диагностику психотипа и пути героя"),
+    BotCommand(command="natasha", description="🔥 Провокативная сессия с Наташей"),
+    BotCommand(command="my_session_summary", description="📊 Сводка текущей сессии"),
+    BotCommand(command="my_metaphysical_profile", description="🌌 Мой метафизический профиль"),
+    BotCommand(command="streams", description="🌀 Потоки reLove"),
+    BotCommand(command="analyze_readiness", description="📈 Анализ готовности к потокам"),
+    BotCommand(command="end_session", description="🛑 Завершить сессию"),
     BotCommand(command="platform", description="🌟 Перейти на платформу relove.ru"),
 ]
 

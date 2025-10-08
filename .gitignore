@@ -129,7 +129,7 @@ docs/_static/
 docs/_templates/
 
 # Environments
-.env
+# .env
 .venv
 env/
 venv/

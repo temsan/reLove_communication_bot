@@ -42,4 +42,40 @@ def get_question_keyboard() -> InlineKeyboardMarkup:
             )
         ]
     ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def get_stream_selection_keyboard() -> InlineKeyboardMarkup:
+    """Создает клавиатуру для выбора потока reLove"""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                text="🦸 Путь Героя",
+                callback_data="stream_hero_path"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🌌 Прошлые Жизни",
+                callback_data="stream_past_lives"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="❤️ Открытие Сердца",
+                callback_data="stream_heart_opening"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="🌑 Трансформация Тени",
+                callback_data="stream_shadow_work"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="✨ Пробуждение",
+                callback_data="stream_awakening"
+            )
+        ]
+    ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard) 

@@ -404,6 +404,7 @@
         font-weight: 700;
         color: #1a1a1a;
         background: var(--primary-gradient);
+        background-clip: text;
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
@@ -523,6 +524,82 @@
         padding: 1rem;
         border-bottom: 2px solid rgba(255, 255, 255, 0.1);
     }
+    /* Галерея юзерпиков */
+    .gallery-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 16px;
+    }
+    .gallery-card {
+        position: relative;
+        border-radius: 16px;
+        overflow: hidden;
+        background: var(--glass-bg);
+        border: 1px solid var(--glass-border);
+        box-shadow: var(--glass-shadow);
+        aspect-ratio: 1/1;
+    }
+    .gallery-img, .gallery-placeholder {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+    .gallery-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 28px;
+        background: linear-gradient(135deg, rgba(233, 78, 119, 0.15), rgba(127, 83, 172, 0.15));
+        color: #1a1a1a;
+    }
+    .gallery-overlay {
+        position: absolute;
+        left: 0; right: 0; bottom: 0;
+        padding: 10px 12px;
+        background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.45) 60%, rgba(0,0,0,0.7) 100%);
+        color: #fff;
+        transform: translateY(0%);
+        transition: transform 0.25s ease;
+    }
+    .gallery-card:hover .gallery-overlay { transform: translateY(0); }
+    .gallery-name { font-weight: 700; font-size: 0.95rem; }
+    .gallery-meta { font-size: 0.8rem; opacity: 0.9; }
+    .gallery-summary { font-size: 0.8rem; opacity: 0.95; margin-top: 4px; max-height: 3.2em; overflow: hidden; }
+    .gallery-loader { text-align: center; padding: 16px; color: #666; }
+
+    /* Плашки во вкладке Пользователи */
+    .users-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 16px;
+    }
+    .user-card {
+        display: flex;
+        gap: 12px;
+        align-items: stretch;
+        padding: 12px;
+        border-radius: 16px;
+        background: var(--glass-bg);
+        border: 1px solid var(--glass-border);
+        box-shadow: var(--glass-shadow);
+        transition: transform .2s ease, box-shadow .2s ease;
+        min-height: 96px;
+    }
+    .user-card:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(31,38,135,0.18); }
+    .user-card .avatar {
+        width: 72px; height: 72px; border-radius: 12px; overflow: hidden; flex: 0 0 auto;
+        display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.15);
+        font-weight: 700; font-size: 22px; color: #1a1a1a; background-image: var(--primary-gradient);
+        background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .user-card .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .user-card .content { flex: 1 1 auto; min-width: 0; }
+    .user-card .name { font-weight: 700; margin: 0; font-size: 1rem; color: rgba(0,0,0,0.85); }
+    .user-card .meta { font-size: .85rem; color: rgba(0,0,0,0.6); margin-top: 2px; }
+    .user-card .summary { font-size: .85rem; color: rgba(0,0,0,0.75); margin-top: 6px; max-height: 3.2em; overflow: hidden; }
+    .user-card .actions { display: flex; gap: 6px; align-items: center; margin-left: 8px; }
     </style>
 </head>
 <body>
@@ -546,6 +623,7 @@
             <li class="nav-item" role="presentation">
                 <button class="nav-link relove-tab-btn" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab">Пользователи</button>
             </li>
+            
             <li class="nav-item" role="presentation">
                 <button class="nav-link relove-tab-btn" id="streams-tab" data-bs-toggle="tab" data-bs-target="#streams" type="button" role="tab">Потоки</button>
             </li>
@@ -619,102 +697,27 @@
                 </div>
             </div>
 
+            <!-- Вкладка "Галерея" -->
+            
+
             <!-- Вкладка "Пользователи" -->
             <div class="tab-pane fade" id="users" role="tabpanel">
-                <div class="row">
-                    <div class="col-12">
-                        <div class="relove-card">
-                            <h5>Поиск пользователей</h5>
-                            <form method="get" action="/dashboard/search" class="mb-3">
-                                <div class="input-group mb-3">
-                                    <input type="text" class="form-control" name="query" placeholder="Поиск по имени, username или ID...">
-                                    <select class="form-select" name="gender" style="max-width: 150px;">
-                                        <option value="">Все полы</option>
-                                        <option value="male">Мужской</option>
-                                        <option value="female">Женский</option>
-                                    </select>
-                                    <button class="btn relove-btn" type="submit">Найти</button>
-                                </div>
-                            </form>
-                            <div class="table-responsive">
-                                <table class="table">
-                                    <thead>
-                                        <tr>
-                                            <th>ID</th>
-                                            <th>Имя</th>
-                                            <th>Username</th>
-                                            <th>Потоки</th>
-                                            <th>Психотип</th>
-                                            <th>Действия</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="usersTableBody">
-                                        {% for user in users[:10] %}
-                                        <tr id="user-{{ user.id }}">
-                                            <td>
-                                                {% if user.photo_jpeg %}
-                                                <img src="data:image/jpeg;base64,{{ user.photo_jpeg }}" class="user-avatar" alt="Avatar">
-                                                {% else %}
-                                                <div class="user-avatar-placeholder">{{ user.first_name|first|upper }}</div>
-                                                {% endif %}
-                                            </td>
-                                            <td>{{ user.first_name }} {{ user.last_name }}</td>
-                                            <td>{{ user.username or '-' }}</td>
-                                            <td>{{ user.gender or 'Не указан' }}</td>
-                                            <td>
-                                                <span class="status-badge {{ 'bg-success' if user.is_active else 'bg-danger' }}">
-                                                    {{ 'Активен' if user.is_active else 'Неактивен' }}
-                                                </span>
-                                            </td>
-                                            <td class="streams-list">{{ user.streams|join(', ') if user.streams else '-' }}</td>
-                                            <td>
-                                                <div class="btn-group">
-                                                    <button class="btn btn-sm btn-primary" onclick="viewUserDetails('{{ user.id }}')">
-                                                        <i class="fas fa-eye"></i>
-                                                    </button>
-                                                    <button class="btn btn-sm btn-info" onclick="analyzeUser('{{ user.id }}')">
-                                                        <i class="fas fa-brain"></i>
-                                                    </button>
-                                                    <button class="btn btn-sm {{ 'btn-danger' if user.is_active else 'btn-success' }}"
-                                                            data-user-id="{{ user.id }}"
-                                                            data-status="{{ 'inactive' if user.is_active else 'active' }}"
-                                                            onclick="updateUserStatus(this.dataset.userId, this.dataset.status)">
-                                                        <i class="fas {{ 'fa-user-slash' if user.is_active else 'fa-user-check' }}"></i>
-                                                    </button>
-                                                    <div class="btn-group">
-                                                        <button class="btn btn-sm btn-secondary dropdown-toggle" data-bs-toggle="dropdown">
-                                                            <i class="fas fa-stream"></i>
-                                                        </button>
-                                                        <ul class="dropdown-menu">
-                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Мужской', 'add')">Добавить в Мужской</a></li>
-                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Женский', 'add')">Добавить в Женский</a></li>
-                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Смешанный', 'add')">Добавить в Смешанный</a></li>
-                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Путь Героя', 'add')">Добавить в Путь Героя</a></li>
-                                                            <li><hr class="dropdown-divider"></li>
-                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Мужской', 'remove')">Удалить из Мужского</a></li>
-                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Женский', 'remove')">Удалить из Женского</a></li>
-                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Смешанный', 'remove')">Удалить из Смешанного</a></li>
-                                                            <li><a class="dropdown-item" href="#" onclick="manageStreams('{{ user.id }}', 'Путь Героя', 'remove')">Удалить из Пути Героя</a></li>
-                                                        </ul>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                                <div class="d-flex justify-content-between align-items-center mt-3">
-                                    <div>
-                                        <span class="text-muted">Показано <span id="currentPage">1</span> из <span id="totalPages">{{ (users|length / 10)|round(0, 'ceil')|int }}</span> страниц</span>
-                                    </div>
-                                    <div class="btn-group">
-                                        <button class="btn btn-outline-primary" onclick="changePage(-1)" id="prevPage">Предыдущая</button>
-                                        <button class="btn btn-outline-primary" onclick="changePage(1)" id="nextPage">Следующая</button>
-                                    </div>
-                                </div>
-                            </div>
+                <div class="relove-card">
+                    <h5>Поиск пользователей</h5>
+                    <form method="get" action="/dashboard/search" class="mb-3">
+                        <div class="input-group mb-3">
+                            <input type="text" class="form-control" name="query" placeholder="Поиск по имени, username или ID...">
+                            <select class="form-select" name="gender" style="max-width: 150px;">
+                                <option value="">Все полы</option>
+                                <option value="male">Мужской</option>
+                                <option value="female">Женский</option>
+                            </select>
+                            <button class="btn relove-btn" type="submit">Найти</button>
                         </div>
-                    </div>
+                    </form>
+
+                    <div id="usersGrid" class="users-grid"></div>
+                    <div id="usersLoader" class="gallery-loader">Загрузка...</div>
                 </div>
             </div>
 
@@ -958,59 +961,94 @@
             });
         });
 
-        // Функции для работы с пользователями
-        let currentPage = 1;
-        const usersPerPage = 10;
-        const allUsers = JSON.parse('{{ users|tojson|safe }}');
-        const totalPages = Math.ceil(allUsers.length / usersPerPage);
+        // Ленивая подгрузка пользователей во вкладке Пользователи
+        const usersGrid = document.getElementById('usersGrid');
+        const usersLoader = document.getElementById('usersLoader');
+        let usersOffset = 0;
+        const usersLimit = 36;
+        let usersLoading = false;
+        let usersEnded = false;
 
-        function updatePagination() {
-            document.getElementById('currentPage').textContent = currentPage;
-            document.getElementById('totalPages').textContent = totalPages;
-            document.getElementById('prevPage').disabled = currentPage === 1;
-            document.getElementById('nextPage').disabled = currentPage === totalPages;
-        }
-
-        function renderUsers() {
-            const start = (currentPage - 1) * usersPerPage;
-            const end = start + usersPerPage;
-            const pageUsers = allUsers.slice(start, end);
-            
-            const tbody = document.getElementById('usersTableBody');
-            tbody.innerHTML = '';
-            
-            pageUsers.forEach(user => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${user.id}</td>
-                    <td>${user.first_name || ''} ${user.last_name || ''}</td>
-                    <td>@${user.username || ''}</td>
-                    <td>${Array.isArray(user.streams) ? user.streams.join(', ') : ''}</td>
-                    <td>${user.psychotype || ''}</td>
-                    <td>
-                        <button class="btn btn-sm btn-primary" onclick="showUserDetails('${user.id}')">Детали</button>
-                        <button class="btn btn-sm btn-warning" onclick="analyzeUser('${user.id}')">Анализ</button>
-                    </td>
+        function renderUserCards(items) {
+            const frag = document.createDocumentFragment();
+            items.forEach(user => {
+                const card = document.createElement('div');
+                card.className = 'user-card';
+                const initials = (user.first_name || user.username || '?').trim().slice(0,1).toUpperCase();
+                const avatar = user.photo_jpeg
+                    ? `<img src="data:image/jpeg;base64,${user.photo_jpeg}" alt="${user.first_name||''}">`
+                    : initials;
+                const username = user.username ? '@' + user.username : '';
+                const gender = user.gender || '';
+                const summary = (user.profile_summary || '').toString();
+                card.innerHTML = `
+                    <div class="avatar">${avatar}</div>
+                    <div class="content">
+                        <p class="name">${user.first_name || ''} ${user.last_name || ''} <span class="text-muted">${username}</span></p>
+                        <div class="meta">${gender}</div>
+                        <div class="summary">${summary}</div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn btn-sm btn-primary" onclick="showUserDetails('${user.id}')" title="Детали"><i class="fas fa-eye"></i></button>
+                        <button class="btn btn-sm btn-info" onclick="analyzeUser('${user.id}')" title="Анализ"><i class="fas fa-brain"></i></button>
+                    </div>
                 `;
-                tbody.appendChild(tr);
+                frag.appendChild(card);
             });
-            
-            updatePagination();
+            usersGrid.appendChild(frag);
         }
 
-        function changePage(delta) {
-            const newPage = currentPage + delta;
-            if (newPage >= 1 && newPage <= totalPages) {
-                currentPage = newPage;
-                renderUsers();
+        async function loadMoreUsers() {
+            if (usersLoading || usersEnded) return;
+            usersLoading = true;
+            usersLoader.textContent = 'Загрузка...';
+            try {
+                const resp = await fetch(`/api/users?offset=${usersOffset}&limit=${usersLimit}`);
+                const data = await resp.json();
+                if (!Array.isArray(data) || data.length === 0) {
+                    usersEnded = true;
+                    usersLoader.textContent = 'Больше пользователей нет';
+                    return;
+                }
+                renderUserCards(data);
+                usersOffset += data.length;
+                usersLoader.textContent = 'Прокрутите ниже для загрузки ещё';
+            } catch (e) {
+                usersLoader.textContent = 'Ошибка загрузки';
+                console.error(e);
+            } finally {
+                usersLoading = false;
             }
         }
 
-        // Инициализация пагинации при загрузке страницы
-        document.addEventListener('DOMContentLoaded', function() {
-            updatePagination();
-            renderUsers();
+        // Загружаем первую порцию при первом показе вкладки Пользователи
+        const usersTab = document.getElementById('users-tab');
+        let usersInitialized = false;
+        if (usersTab) {
+            usersTab.addEventListener('shown.bs.tab', () => {
+                if (!usersInitialized) {
+                    usersInitialized = true;
+                    loadMoreUsers();
+                }
+            });
+        }
+        // Если вкладка активна по умолчанию — грузим сразу
+        document.addEventListener('DOMContentLoaded', () => {
+            const tabEl = document.querySelector('#users');
+            if (tabEl && tabEl.classList.contains('active')) {
+                loadMoreUsers();
+            }
         });
+
+        const usersIO = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    loadMoreUsers();
+                }
+            });
+        }, { root: null, rootMargin: '600px', threshold: 0 });
+
+        if (usersLoader) usersIO.observe(usersLoader);
 
         function showUserDetails(userId) {
             // Реализация просмотра деталей пользователя
@@ -1262,6 +1300,8 @@
                 await updateAutomationSettings(settings);
             });
         });
+
+        
     </script>
 </body>
 </html>
