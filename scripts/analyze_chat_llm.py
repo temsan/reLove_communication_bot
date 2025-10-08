@@ -22,6 +22,10 @@ from tqdm import tqdm
 from dotenv import load_dotenv
 import glob
 from pathlib import Path
+import pandas as pd
+import matplotlib.pyplot as plt
+import base64
+import io
 
 # === ДОБАВЛЕНО: импорт для LLM ===
 from relove_bot.services.llm_service import llm_service
@@ -301,13 +305,6 @@ class AnalysisCache:
             # Формируем структурированный результат
             return {
                 "name": username,
-                "forensic_analysis": {
-                    "topics": analysis.get("forensic_analysis", {}).get("topics", []),
-                    "sentiment": analysis.get("forensic_analysis", {}).get("sentiment", "не определен"),
-                    "patterns": analysis.get("forensic_analysis", {}).get("patterns", []),
-                    "defense_mechanisms": analysis.get("forensic_analysis", {}).get("defense_mechanisms", []),
-                    "hidden_motives": analysis.get("forensic_analysis", {}).get("hidden_motives", [])
-                },
                 "psychological_analysis": {
                     "conflicts": analysis.get("psychological_analysis", {}).get("conflicts", []),
                     "dependencies": analysis.get("psychological_analysis", {}).get("dependencies", []),
@@ -699,13 +696,6 @@ class AnalysisCache:
             raise ValueError("Имя пользователя обязательно должно быть указано")
         return {
             "name": username,
-            "forensic_analysis": {
-                "topics": [],
-                "sentiment": "не определен",
-                "patterns": [],
-                "defense_mechanisms": [],
-                "hidden_motives": []
-            },
             "psychological_analysis": {
                 "conflicts": [],
                 "dependencies": [],
@@ -1051,7 +1041,6 @@ class AnalysisCache:
             
             # Инициализируем словарь для сбора общей статистики
             total_analysis = {
-                'forensic': set(),
                 'psychological': set(),
                 'cognitive': set(),
                 'emotional': set(),
@@ -1092,36 +1081,7 @@ class AnalysisCache:
                 report_lines.append(f"*ID: {user_id}*")
                 report_lines.append("")
                 
-                # 1. ФОРЕНЗИЧЕСКИЙ АНАЛИЗ
-                forensic = profile.get('forensic_analysis', {})
-                if forensic and any(forensic.values()):
-                    report_lines.append("### 🔍 ФОРЕНЗИЧЕСКИЙ АНАЛИЗ\n")
-                    
-                    # Языковые паттерны и стиль общения
-                    patterns = forensic.get('patterns', [])
-                    if patterns and isinstance(patterns, list):
-                        report_lines.append("**🗣️ Языковые паттерны и стиль общения:**\n")
-                        report_lines.extend([f"- {p}" for p in patterns if isinstance(p, str)])
-                        report_lines.append("")
-                        total_analysis['forensic'].update(patterns)
-                    
-                    # Защитные механизмы
-                    defense_mechanisms = forensic.get('defense_mechanisms', [])
-                    if defense_mechanisms and isinstance(defense_mechanisms, list):
-                        report_lines.append("**🛡️ Защитные механизмы:**\n")
-                        report_lines.extend([f"- {d}" for d in defense_mechanisms if isinstance(d, str)])
-                        report_lines.append("")
-                        total_analysis['forensic'].update(defense_mechanisms)
-                    
-                    # Скрытые мотивы
-                    hidden_motives = forensic.get('hidden_motives', [])
-                    if hidden_motives and isinstance(hidden_motives, list):
-                        report_lines.append("**🎯 Скрытые мотивы и желания:**\n")
-                        report_lines.extend([f"- {m}" for m in hidden_motives if isinstance(m, str)])
-                        report_lines.append("")
-                        total_analysis['forensic'].update(hidden_motives)
-                
-                # 2. ПСИХОАНАЛИТИЧЕСКИЙ АНАЛИЗ
+                # 1. ПСИХОАНАЛИТИЧЕСКИЙ АНАЛИЗ
                 psych = profile.get('psychological_analysis', {})
                 if psych and any(psych.values()):
                     report_lines.append("### 🧠 ПСИХОАНАЛИТИЧЕСКИЙ АНАЛИЗ\n")
@@ -1150,7 +1110,7 @@ class AnalysisCache:
                         report_lines.append("")
                         total_analysis['psychological'].update(manipulation_patterns)
                 
-                # 3. КОГНИТИВНЫЙ АНАЛИЗ
+                # 2. КОГНИТИВНЫЙ АНАЛИЗ
                 cognitive = profile.get('cognitive_analysis', {})
                 if cognitive and any(cognitive.values()):
                     report_lines.append("### 🧩 КОГНИТИВНЫЙ АНАЛИЗ\n")
@@ -1171,7 +1131,7 @@ class AnalysisCache:
                         report_lines.append("")
                         total_analysis['cognitive'].update(beliefs)
                 
-                # 4. ЭМОЦИОНАЛЬНЫЙ АНАЛИЗ
+                # 3. ЭМОЦИОНАЛЬНЫЙ АНАЛИЗ
                 emotional = profile.get('emotional_analysis', {})
                 if emotional and any(emotional.values()):
                     report_lines.append("### ❤️ ЭМОЦИОНАЛЬНЫЙ АНАЛИЗ\n")
@@ -1200,7 +1160,7 @@ class AnalysisCache:
                         report_lines.append("")
                         total_analysis['emotional'].update(fears)
                 
-                # 5. ПОВЕДЕНЧЕСКИЙ АНАЛИЗ
+                # 4. ПОВЕДЕНЧЕСКИЙ АНАЛИЗ
                 behavioral = profile.get('behavioral_analysis', {})
                 if behavioral and any(behavioral.values()):
                     report_lines.append("### 🚶 ПОВЕДЕНЧЕСКИЙ АНАЛИЗ\n")
@@ -1229,7 +1189,7 @@ class AnalysisCache:
                         report_lines.append("")
                         total_analysis['behavioral'].update(stress_responses)
                 
-                # 6. ИНСАЙТЫ И ВОЗМОЖНОСТИ ДЛЯ РОСТА
+                # 5. ИНСАЙТЫ И ВОЗМОЖНОСТИ ДЛЯ РОСТА
                 transformation_advice = profile.get('transformation_advice', [])
                 if transformation_advice and isinstance(transformation_advice, list) and len(transformation_advice) > 0:
                     report_lines.append("### 💫 ИНСАЙТЫ И ВОЗМОЖНОСТИ ДЛЯ РОСТА\n")
@@ -1294,7 +1254,6 @@ class AnalysisCache:
     def _extract_structured_info_from_text(self, text: str) -> Dict:
         """Извлекает структурированную информацию из текста."""
         result = {
-            'forensic_analysis': {},
             'psychological_analysis': {},
             'cognitive_analysis': {},
             'emotional_analysis': {},
@@ -1311,13 +1270,6 @@ class AnalysisCache:
             
             # Словарь для маппинга ключевых слов на пути к полям
             field_mapping = {
-                # Поля форензического анализа
-                'языковые паттерны': 'forensic_analysis.patterns',
-                'стиль общения': 'forensic_analysis.patterns',
-                'защитные механизмы': 'forensic_analysis.defense_mechanisms',
-                'скрытые мотивы': 'forensic_analysis.hidden_motives',
-                'скрытые желания': 'forensic_analysis.hidden_motives',
-                
                 # Поля психологического анализа
                 'внутренние конфликты': 'psychological_analysis.conflicts',
                 'психологические зависимости': 'psychological_analysis.dependencies',
@@ -1521,11 +1473,15 @@ def parse_args():
                             help='Расширение выходного файла (по умолчанию: .md для text, .json для json)')
     
     # Парсим аргументы
+    parser.add_argument('--mode', type=str, default='short', choices=['forensic', 'short', 'both'], help='Режим анализа: short (таблица+графики, по умолчанию), forensic (структурированный), both (оба)')
     args = parser.parse_args()
     
     # Функция для извлечения информации о чате из JSON
     def extract_chat_info(input_path):
         try:
+            # Если передан список файлов через запятую — берём первый
+            if ',' in str(input_path):
+                input_path = str(input_path).split(',')[0].strip()
             with open(input_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 
@@ -1591,11 +1547,157 @@ async def main():
         # Парсим аргументы командной строки
         logger.info("Обработка аргументов командной строки...")
         args = parse_args()
-        chat_export_path = Path(args.input)
+        chat_export_path = Path(args.input) if args.input else None
         output_file = Path(args.report_path)
 
-        logger.info(f"Используемый путь к файлу/папке: {chat_export_path.absolute()}")
-        logger.info(f"Файл для сохранения отчета: {output_file.absolute()}")
+        # --- ДОБАВЛЕНО: поддержка списка файлов через запятую ---
+        input_arg = args.input
+        files = []
+        if input_arg:
+            if ',' in input_arg:
+                files = [p.strip() for p in input_arg.split(',') if p.strip()]
+            else:
+                files = [input_arg.strip()]
+        else:
+            input_paths = os.getenv('CHAT_EXPORT_PATH')
+            if input_paths:
+                if ',' in input_paths:
+                    files = [p.strip() for p in input_paths.split(',') if p.strip()]
+                else:
+                    files = [input_paths.strip()]
+
+        if files and len(files) > 1:
+            all_results = []
+            all_user_rows = []
+            for file_path in files:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    msgs = data.get('messages', [])
+                    if not msgs:
+                        print(f"Нет сообщений для анализа в файле: {file_path}")
+                        continue
+            analyzer = ChatAnalyzerLLM()
+                    results = await analyzer.analyze_chat({'messages': msgs})
+            report = results['report']
+                    # Сохраняем промежуточный отчёт для каждого файла
+                    file_base = os.path.splitext(os.path.basename(file_path))[0]
+                    file_report_path = Path(args.output_dir) / f"report_{file_base}.md"
+                    with open(file_report_path, 'w', encoding='utf-8-sig') as f:
+                f.write(report)
+                    # Собираем строки для общего отчёта
+                    lines = report.splitlines()
+                    if len(lines) > 1:
+                        all_user_rows.extend([x for x in lines[1:] if x.strip()])
+                except Exception as e:
+                    print(f"Ошибка при анализе файла {file_path}: {e}")
+            if not all_user_rows:
+                print("Нет данных для объединённого анализа!")
+                return 1
+            # Формируем общий отчёт с агрегацией по user_id
+            header = "Имя\tОтвет 1\tОтвет 2"
+            user_map = {}  # user_id: {'Имя': ..., 'Ответ 1': set(), 'Ответ 2': set()}
+            for row in all_user_rows:
+                parts = row.split('\t')
+                if len(parts) < 3:
+                    continue
+                name, q1, q2 = parts[0].strip(), parts[1].strip(), parts[2].strip()
+                # user_id можно извлечь из имени, если имя в формате 'Участник user_id', иначе использовать имя
+                user_id = name
+                if name.startswith('Участник '):
+                    user_id = name.split(' ', 1)[-1]
+                if user_id not in user_map:
+                    user_map[user_id] = {'Имя': name, 'Ответ 1': [], 'Ответ 2': []}
+                if q1 and q1 not in user_map[user_id]['Ответ 1']:
+                    user_map[user_id]['Ответ 1'].append(q1)
+                if q2 and q2 not in user_map[user_id]['Ответ 2']:
+                    user_map[user_id]['Ответ 2'].append(q2)
+            # Склеиваем ответы через ;
+            combined_rows = []
+            for user in user_map.values():
+                q1 = '; '.join(user['Ответ 1'])
+                q2 = '; '.join(user['Ответ 2'])
+                combined_rows.append(f"{user['Имя']}\t{q1}\t{q2}")
+            combined_report = header + '\n' + '\n'.join(combined_rows)
+            # --- Графики по результатам ---
+            import pandas as pd
+            import matplotlib.pyplot as plt
+            import base64
+            import io
+            lines = combined_report.splitlines()
+            svg_motivation = ''
+            svg_result = ''
+            if len(lines) > 1:
+                df = pd.DataFrame([x.split('\t') for x in lines[1:] if x.strip()], columns=lines[0].split('\t'))
+                # График мотиваций
+                motivation_counts = df['Ответ 1'].value_counts().head(15)
+                fig1, ax1 = plt.subplots(figsize=(10, 6))
+                motivation_counts.plot(kind='barh', color='skyblue', ax=ax1)
+                ax1.set_title('Топ-15 мотиваций прихода в reLove')
+                ax1.set_xlabel('Количество')
+                ax1.set_ylabel('Мотивация')
+                plt.tight_layout()
+                buf1 = io.BytesIO()
+                plt.savefig(buf1, format='svg')
+                plt.close(fig1)
+                buf1.seek(0)
+                svg_motivation = buf1.read().decode('utf-8')
+                # График изменений
+                result_counts = df['Ответ 2'].value_counts().head(15)
+                fig2, ax2 = plt.subplots(figsize=(10, 6))
+                result_counts.plot(kind='barh', color='lightgreen', ax=ax2)
+                ax2.set_title('Топ-15 изменений после участия')
+                ax2.set_xlabel('Количество')
+                ax2.set_ylabel('Изменение')
+                plt.tight_layout()
+                buf2 = io.BytesIO()
+                plt.savefig(buf2, format='svg')
+                plt.close(fig2)
+                buf2.seek(0)
+                svg_result = buf2.read().decode('utf-8')
+                # --- Markdown-таблица ---
+                def tsv_to_md_table(tsv_lines):
+                    rows = [line.split('\t') for line in tsv_lines if line.strip()]
+                    if not rows:
+                        return ''
+                    header = '| ' + ' | '.join(rows[0]) + ' |'
+                    sep = '| ' + ' | '.join(['---'] * len(rows[0])) + ' |'
+                    body = ['| ' + ' | '.join(row) + ' |' for row in rows[1:]]
+                    return '\n'.join([header, sep] + body)
+                md_table = tsv_to_md_table(lines)
+                # --- Итоговый md-отчёт ---
+                md_report = f"""
+# 📊 Аналитика reLove: мотивации и изменения
+
+## Топ-15 мотиваций прихода
+{svg_motivation}
+
+## Топ-15 изменений после участия
+{svg_result}
+
+## Таблица ответов
+{md_table}
+"""
+                output_file = Path(args.output_dir) / "combined_report.md"
+                with open(output_file, 'w', encoding='utf-8') as f:
+                    f.write(md_report)
+                print(f'Итоговый md-отчёт сохранён: {output_file}')
+            # После формирования combined_report сохраняем TSV
+            tsv_path = Path(args.output_dir) / "combined_report.tsv"
+            with open(tsv_path, 'w', encoding='utf-8-sig') as f:
+                f.write(combined_report)
+            print(f"TSV-отчёт сохранён: {tsv_path}")
+            # Генерируем md-отчёт с графиками и таблицей
+            md_path = Path(args.output_dir) / "combined_report.md"
+            generate_md_report_with_graphs(str(tsv_path), str(md_path))
+            print(f"Markdown-отчёт с графиками сохранён: {md_path}")
+            return 0
+
+        # Только если не список файлов:
+        if args.input and (not files or len(files) == 1):
+            chat_export_path = Path(args.input)
+            logger.info(f"Используемый путь к файлу/папке: {chat_export_path.absolute()}")
+            logger.info(f"Файл для сохранения отчета: {output_file.absolute()}")
 
         if not chat_export_path.exists():
             error_msg = f"Путь не найден: {chat_export_path.absolute()}"
@@ -1604,13 +1706,10 @@ async def main():
             return 1
 
         if chat_export_path.is_dir():
-            # Корректно получаем все .json-файлы в папке, избегая ошибок прав
+            # Используем glob для поиска всех .json-файлов по абсолютному пути
+            import glob
             all_messages = []
-            json_files = []
-            for fname in os.listdir(chat_export_path):
-                fpath = chat_export_path / fname
-                if fpath.is_file() and fpath.suffix == '.json':
-                    json_files.append(fpath)
+            json_files = glob.glob(str(chat_export_path / '*.json'))
             if not json_files:
                 print(f"В директории {chat_export_path} не найдено .json файлов!")
                 return 1
@@ -1654,12 +1753,79 @@ async def main():
                 print(f"Ошибка: {error_msg}")
                 return 1
             analyzer = ChatAnalyzerLLM()
-            results = await analyzer.analyze_chat(chat_data)
-            report = results['report']
+            report = await analyzer.analyze_chat(chat_data)
+            # --- Формируем TSV-таблицу ---
+            lines = report.strip().splitlines()
+            if len(lines) > 1 and '\t' in lines[1]:
+                tsv_report = report
+            else:
+                # Если отчёт не в TSV-формате, пропускаем все строки без табуляции
+                tsv_report = 'Имя\tОтвет 1\tОтвет 2\n'
+                for line in lines:
+                    if '\t' in line:
+                        tsv_report += line + '\n'
             output_file.parent.mkdir(parents=True, exist_ok=True)
             with open(output_file, 'w', encoding='utf-8-sig') as f:
-                f.write(report)
+                f.write(tsv_report)
             print(f"Отчёт сохранён: {output_file}")
+            # --- Графики и дэшборд ---
+            import pandas as pd
+            import matplotlib.pyplot as plt
+            lines = tsv_report.splitlines()
+            if len(lines) > 1:
+                df = pd.DataFrame([x.split('\t') for x in lines[1:] if x.strip()], columns=lines[0].split('\t'))
+                # График распределения мотиваций (Ответ 1)
+                motivation_counts = df['Ответ 1'].value_counts().head(15)
+                plt.figure(figsize=(10, 6))
+                motivation_counts.plot(kind='barh', color='skyblue')
+                plt.title('Топ-15 мотиваций прихода в reLove')
+                plt.xlabel('Количество')
+                plt.ylabel('Мотивация')
+                plt.tight_layout()
+                plt.savefig('temp/graph_motivation.svg')
+                plt.close()
+                # График распределения изменений (Ответ 2)
+                result_counts = df['Ответ 2'].value_counts().head(15)
+                plt.figure(figsize=(10, 6))
+                result_counts.plot(kind='barh', color='lightgreen')
+                plt.title('Топ-15 изменений после участия')
+                plt.xlabel('Количество')
+                plt.ylabel('Изменение')
+                plt.tight_layout()
+                plt.savefig('temp/graph_result.svg')
+                plt.close()
+                print('Графики сохранены: temp/graph_motivation.svg, temp/graph_result.svg')
+                # --- HTML dashboard ---
+                dashboard_html = f'''
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Аналитика reLove</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 40px; }}
+        h1 {{ color: #2c3e50; }}
+        .graph {{ margin-bottom: 40px; }}
+        .report-link {{ margin-top: 30px; display: block; font-size: 1.2em; }}
+    </style>
+</head>
+<body>
+    <h1>Аналитика reLove: мотивации и изменения</h1>
+    <div class="graph">
+        <h2>Топ-15 мотиваций прихода</h2>
+        <object type="image/svg+xml" data="graph_motivation.svg" width="800" height="500"></object>
+    </div>
+    <div class="graph">
+        <h2>Топ-15 изменений после участия</h2>
+        <object type="image/svg+xml" data="graph_result.svg" width="800" height="500"></object>
+    </div>
+    <a class="report-link" href="{output_file.name}" target="_blank">Скачать итоговый отчёт (TSV)</a>
+</body>
+</html>
+'''
+                with open('temp/dashboard.html', 'w', encoding='utf-8') as f:
+                    f.write(dashboard_html)
+                print('HTML-дэшборд сохранён: temp/dashboard.html')
             if not output_file.exists() or output_file.stat().st_size == 0:
                 print(f"ВНИМАНИЕ: Файл отчёта не создан или пустой: {output_file}")
             else:
@@ -1697,45 +1863,39 @@ class ChatAnalyzerLLM:
                             parts.append(str(x['text']))
                 return " ".join(parts)
             return str(t)
+        MAX_CHARS = 20000  # лимит символов на батч
+        def split_batches(messages, max_chars):
+            batch = []
+            total = 0
+            for msg in messages:
+                text = msg_text_to_str(msg)
+                if total + len(text) > max_chars and batch:
+                    yield batch
+                    batch = []
+                    total = 0
+                batch.append(msg)
+                total += len(text)
+            if batch:
+                yield batch
         for user_id, user_messages in users.items():
-            user_text = "\n".join([msg_text_to_str(msg) for msg in user_messages if msg.get("text")])
-            prompt = (
-                "На основе сообщений пользователя, пожалуйста, кратко и своими словами ответь на два вопроса:\n"
-                "1. Почему человек пришёл в Релав? Опиши его внутреннюю мотивацию или проблему, которая его привела.\n"
-                "2. Какой результат или изменения он/она получил(а) после участия?\n"
-                "Не копируй текст пользователя, а сделай выводы и обобщения.\n"
-                f"\n\nСообщения пользователя:\n{user_text}"
-            )
-            batch_size = len(user_messages)
-            while batch_size > 0:
-                try:
-                    analysis = await llm_service.analyze_text(prompt=prompt, system_prompt=None, max_tokens=512)
-                    results[user_id] = {"analysis": analysis, "messages": user_messages}
-                    break
-                except Exception as e:
-                    err_str = str(e)
-                    if 'maximum context length' in err_str or 'context length' in err_str or 'token' in err_str:
-                        # Слишком много токенов — уменьшаем батч
-                        if batch_size > 10:
-                            batch_size = batch_size // 2
-                        else:
-                            batch_size -= 1
-                        if batch_size <= 0:
-                            results[user_id] = {"analysis": "Ошибка: слишком много данных для анализа", "messages": user_messages}
-                            break
-                        # Формируем новый батч
-                        batch_msgs = user_messages[:batch_size]
-                        user_text = "\n".join([msg_text_to_str(msg) for msg in batch_msgs if msg.get("text")])
-                        prompt = (
-                            "На основе сообщений пользователя, пожалуйста, кратко и своими словами ответь на два вопроса:\n"
-                            "1. Почему человек пришёл в Релав? Опиши его внутреннюю мотивацию или проблему, которая его привела.\n"
-                            "2. Какой результат или изменения он/она получил(а) после участия?\n"
-                            "Не копируй текст пользователя, а сделай выводы и обобщения.\n"
-                            f"\n\nСообщения пользователя:\n{user_text}"
-                        )
-                    else:
-                        results[user_id] = {"analysis": f"Ошибка: {err_str}", "messages": user_messages}
-                        break
+            all_answers = []
+            for batch in split_batches(user_messages, MAX_CHARS):
+                user_text = "\n".join([msg_text_to_str(msg) for msg in batch if msg_text_to_str(msg)])
+                prompt = (
+                    "На основе сообщений пользователя, строго в формате:\n"
+                    "1. [ответ на первый вопрос]\n"
+                    "2. [ответ на второй вопрос]\n"
+                    "Ответ должен содержать только две строки: первая начинается с '1.', вторая — с '2.'. Никаких дополнительных комментариев, тегов, пояснений, пустых строк, markdown или html-разметки быть не должно.\n"
+                    "Пример:\n1. Хочу разобраться в себе.\n2. Стал увереннее.\n"
+                    "Если не хватает информации — всё равно верни две строки, но максимально лаконично.\n"
+                    "Вопросы:\n"
+                    "1. Почему человек пришёл в reLove? Опиши его внутреннюю мотивацию или проблему, которая его привела.\n"
+                    "2. Какой результат или изменения он/она получил(а) после участия?\n"
+                    f"\n\nСообщения пользователя:\n{user_text}"
+                )
+                analysis = await llm_service.analyze_text(prompt=prompt, system_prompt=None, max_tokens=512)
+                all_answers.append(analysis)
+            results[user_id] = {"analysis": all_answers, "messages": user_messages}
         # Собираем информацию о пользователях для отчёта
         user_info_map = {}
         for user_id, data in results.items():
@@ -1754,24 +1914,232 @@ class ChatAnalyzerLLM:
             if not username or username.lower() in ['неизвестный', 'unknown']:
                 username = f'Участник {user_id}'
             user_info_map[user_id] = username
-        report = "# Общий анализ пользователей\n"
+        # Формируем заголовок таблицы
+        report = "Имя\tОтвет 1\tОтвет 2\n"
         for user_id, data in results.items():
-            # Пропускаем, если нет сообщений
             if not data['messages']:
                 continue
-            report += f"\n## {user_info_map.get(user_id, f'Пользователь {user_id}')}\n"
-            # Форматируем ответы на 2 вопроса
-            answer = data['analysis']
-            if isinstance(answer, str):
-                report += answer.strip() + "\n"
-            elif isinstance(answer, list):
-                for idx, ans in enumerate(answer, 1):
-                    report += f"{idx}. {ans.strip()}\n"
-        return {
-            'status': 'ok',
-            'results': results,
-            'report': report
-        }
+            username = user_info_map.get(user_id, f'Пользователь {user_id}')
+            answers = data['analysis']
+            q1 = ''
+            q2 = ''
+            found_q1 = False
+            found_q2 = False
+            def clean_cell(text):
+                # Удаляем html/markdown-теги и все переносы строк
+                text = re.sub(r'<[^>]+>', '', text)
+                text = re.sub(r'[`*_#\[\]()~]', '', text)
+                text = text.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ')
+                return ' '.join(text.split())
+            def extract(line):
+                nonlocal q1, q2, found_q1, found_q2
+                if line.startswith('1.') and not found_q1:
+                    q1 = clean_cell(line[2:].strip())
+                    found_q1 = True
+                elif line.startswith('2.') and not found_q2:
+                    q2 = clean_cell(line[2:].strip())
+                    found_q2 = True
+            if isinstance(answers, str):
+                for line in answers.splitlines():
+                    extract(line.strip())
+            elif isinstance(answers, list):
+                for answer in answers:
+                    if isinstance(answer, str):
+                        for line in answer.splitlines():
+                            extract(line.strip())
+                    elif isinstance(answer, list):
+                        for ans in answer:
+                            extract(ans.strip())
+            username_clean = clean_cell(username)
+            q1_clean = clean_cell(q1)
+            q2_clean = clean_cell(q2)
+            report += f"{username_clean}\t{q1_clean}\t{q2_clean}\n"
+        return report
+
+
+def generate_md_report_with_graphs(tsv_path: str, output_md_path: str):
+    """
+    Генерирует md-отчёт с двумя SVG-графиками и markdown-таблицей на основе TSV-файла.
+    :param tsv_path: путь к TSV-файлу (таблица с колонками Имя, Ответ 1, Ответ 2)
+    :param output_md_path: путь для итогового md-файла
+    """
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import io
+    # Читаем TSV
+    with open(tsv_path, 'r', encoding='utf-8') as f:
+        lines = [line.strip() for line in f if line.strip()]
+    if not lines or len(lines) < 2:
+        raise ValueError('TSV-файл пуст или не содержит данных')
+    df = pd.DataFrame([x.split('\t') for x in lines[1:]], columns=lines[0].split('\t'))
+    # График мотиваций
+    motivation_counts = df['Ответ 1'].value_counts().head(15)
+    fig1, ax1 = plt.subplots(figsize=(10, 6))
+    motivation_counts.plot(kind='barh', color='skyblue', ax=ax1)
+    ax1.set_title('Топ-15 мотиваций прихода в reLove')
+    ax1.set_xlabel('Количество')
+    ax1.set_ylabel('Мотивация')
+    plt.tight_layout()
+    buf1 = io.BytesIO()
+    plt.savefig(buf1, format='svg')
+    plt.close(fig1)
+    buf1.seek(0)
+    svg_motivation = buf1.read().decode('utf-8')
+    # График изменений
+    result_counts = df['Ответ 2'].value_counts().head(15)
+    fig2, ax2 = plt.subplots(figsize=(10, 6))
+    result_counts.plot(kind='barh', color='lightgreen', ax=ax2)
+    ax2.set_title('Топ-15 изменений после участия')
+    ax2.set_xlabel('Количество')
+    ax2.set_ylabel('Изменение')
+    plt.tight_layout()
+    buf2 = io.BytesIO()
+    plt.savefig(buf2, format='svg')
+    plt.close(fig2)
+    buf2.seek(0)
+    svg_result = buf2.read().decode('utf-8')
+    # Markdown-таблица
+    def tsv_to_md_table(tsv_lines):
+        rows = [line.split('\t') for line in tsv_lines if line.strip()]
+        if not rows:
+            return ''
+        header = '| ' + ' | '.join(rows[0]) + ' |'
+        sep = '| ' + ' | '.join(['---'] * len(rows[0])) + ' |'
+        body = ['| ' + ' | '.join(row) + ' |' for row in rows[1:]]
+        return '\n'.join([header, sep] + body)
+    md_table = tsv_to_md_table(lines)
+    # Итоговый md-отчёт
+    md_report = f"""
+# 📊 Аналитика reLove: мотивации и изменения\n\n## Топ-15 мотиваций прихода\n{svg_motivation}\n\n## Топ-15 изменений после участия\n{svg_result}\n\n## Таблица ответов\n{md_table}\n"""
+    with open(output_md_path, 'w', encoding='utf-8') as f:
+        f.write(md_report)
+    print(f'Итоговый md-отчёт сохранён: {output_md_path}')
+
+
+SHORT_ANALYSIS_PROMPT = (
+    "На основе сообщений пользователя, строго в формате:\n"
+    "1. [ответ на первый вопрос]\n"
+    "2. [ответ на второй вопрос]\n"
+    "Ответ должен содержать только две строки: первая начинается с '1.', вторая — с '2.'. Никаких дополнительных комментариев, тегов, пояснений, пустых строк, markdown или html-разметки быть не должно.\n"
+    "Пример:\n1. Хочу разобраться в себе.\n2. Стал увереннее.\n"
+    "Если не хватает информации — всё равно верни две строки, но максимально лаконично.\n"
+    "Вопросы:\n"
+    "1. Почему человек пришёл в reLove? Опиши его внутреннюю мотивацию или проблему, которая его привела.\n"
+    "2. Какой результат или изменения он/она получил(а) после участия?\n"
+    "\n\nСообщения пользователя:\n{user_text}"
+)
+
+class ShortAnalyzer:
+    """
+    Новый лаконичный анализ: две строки, TSV, графики, md-отчёт.
+    """
+    def __init__(self):
+        pass
+
+    async def analyze_chat(self, chat_data):
+        messages = chat_data.get('messages', [])
+        users = {}
+        for msg in messages:
+            user_id = str(msg.get("from_id") or msg.get("user_id") or msg.get("from", "unknown"))
+            users.setdefault(user_id, []).append(msg)
+        results = {}
+        def msg_text_to_str(msg):
+            t = msg.get("text") or msg.get("message") or ""
+            if isinstance(t, list):
+                parts = []
+                for x in t:
+                    if isinstance(x, str):
+                        parts.append(x)
+                    elif isinstance(x, dict):
+                        if 'text' in x:
+                            parts.append(str(x['text']))
+                return " ".join(parts)
+            return str(t)
+        MAX_CHARS = 20000
+        def split_batches(messages, max_chars):
+            batch = []
+            total = 0
+            for msg in messages:
+                text = msg_text_to_str(msg)
+                if total + len(text) > max_chars and batch:
+                    yield batch
+                    batch = []
+                    total = 0
+                batch.append(msg)
+                total += len(text)
+            if batch:
+                yield batch
+        for user_id, user_messages in users.items():
+            all_answers = []
+            for batch in split_batches(user_messages, MAX_CHARS):
+                user_text = "\n".join([msg_text_to_str(msg) for msg in batch if msg_text_to_str(msg)])
+                prompt = SHORT_ANALYSIS_PROMPT.format(user_text=user_text)
+                analysis = await llm_service.analyze_text(prompt=prompt, system_prompt=None, max_tokens=512)
+                all_answers.append(analysis)
+            results[user_id] = {"analysis": all_answers, "messages": user_messages}
+        user_info_map = {}
+        for user_id, data in results.items():
+            actor_name = None
+            for msg in data.get('messages', []):
+                if 'actor' in msg and msg['actor']:
+                    actor_name = msg['actor']
+                    break
+                if 'from' in msg and isinstance(msg['from'], str) and msg['from']:
+                    actor_name = msg['from']
+                    break
+            if actor_name:
+                username = actor_name.strip()
+            else:
+                username = ''
+            if not username or username.lower() in ['неизвестный', 'unknown']:
+                username = f'Участник {user_id}'
+            user_info_map[user_id] = username
+        report = "Имя\tОтвет 1\tОтвет 2\n"
+        STOP_PHRASES = [
+            'ОТРАЖЕНИЕ В ЗЕРКАЛЕ', 'АРХИТЕКТУРА ЗАЩИТ', 'ЗЕРКАЛО', 'АНАЛИЗ', 'БЕСПОЩАДНОЕ ЗЕРКАЛО ИСТИНЫ'
+        ]
+        def clean_cell(text):
+            text = re.sub(r'<[^>]+>', '', text)
+            text = re.sub(r'[`*_#\[\]()~]', '', text)
+            text = text.replace('\t', ' ').replace('\n', ' ').replace('\r', ' ')
+            # Фильтрация типовых фраз
+            for phrase in STOP_PHRASES:
+                if phrase.lower() in text.lower():
+                    return ''
+            return ' '.join(text.split())
+        for user_id, data in results.items():
+            if not data['messages']:
+                continue
+            username = user_info_map.get(user_id, f'Пользователь {user_id}')
+            answers = data['analysis']
+            q1 = ''
+            q2 = ''
+            found_q1 = False
+            found_q2 = False
+            def extract(line):
+                nonlocal q1, q2, found_q1, found_q2
+                if line.startswith('1.') and not found_q1:
+                    q1 = clean_cell(line[2:].strip())
+                    found_q1 = True
+                elif line.startswith('2.') and not found_q2:
+                    q2 = clean_cell(line[2:].strip())
+                    found_q2 = True
+            if isinstance(answers, str):
+                for line in answers.splitlines():
+                    extract(line.strip())
+            elif isinstance(answers, list):
+                for answer in answers:
+                    if isinstance(answer, str):
+                        for line in answer.splitlines():
+                            extract(line.strip())
+                    elif isinstance(answer, list):
+                        for ans in answer:
+                            extract(ans.strip())
+            username_clean = clean_cell(username)
+            q1_clean = clean_cell(q1)
+            q2_clean = clean_cell(q2)
+            report += f"{username_clean}\t{q1_clean}\t{q2_clean}\n"
+        return report
 
 
 if __name__ == "__main__":

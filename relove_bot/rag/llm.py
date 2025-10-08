@@ -34,14 +34,7 @@ class LLM:
             return ""
             
         try:
-            if self.provider == 'openai':
-                return await self._generate_with_openai(prompt, max_tokens, temperature)
-            elif self.provider == 'huggingface':
-                return await self._generate_with_hf_api(prompt, max_tokens, temperature)
-            elif self.provider == 'local':
-                return await self._generate_with_local(prompt, max_tokens, temperature)
-            else:
-                raise ValueError(f"Unsupported provider: {self.provider}")
+            return await self._generate_with_openai(prompt, max_tokens, temperature)
         except Exception as e:
             logger.error(f"Ошибка при генерации текста: {e}")
             return ""
@@ -121,98 +114,25 @@ class LLM:
             return ""
             
     def __init__(self):
-        self.provider = settings.model_provider
         self.model_name = settings.model_name
         self.client = None
         self.tokenizer = None
         self.model = None
         
-        if self.provider == 'openai':
-            # Используем OpenRouter.ai в качестве API
-            self.client = AsyncOpenAI(
-                api_key=settings.openai_api_key.get_secret_value(),
-                base_url=settings.openai_api_base,
-                default_headers={
-                    "HTTP-Referer": "https://github.com/relove-bot",
-                    "X-Title": "reLove Bot",
-                    "Content-Type": "application/json"
-                }
-            )
-        elif self.provider == 'huggingface':
-            # Используем HuggingFace API
-            try:
-                hf_token = settings.hugging_face_token.get_secret_value()
-                login(token=hf_token)
-                self.client = InferenceClient(token=hf_token)
-            except Exception as e:
-                logger.error(f"Ошибка при инициализации HuggingFace: {e}")
-                raise
-        elif self.provider == 'local':
-            # Используем локальную модель
-            try:
-                hf_token = settings.hugging_face_token.get_secret_value() if settings.hugging_face_token else None
-            except AttributeError:
-                hf_token = None
-
-            # Загрузка токенизатора и модели
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, token=hf_token)
-            
-            # Настройка параметров загрузки модели
-            if torch.cuda.is_available():
-                # Настройки для GPU
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_name,
-                    device_map="auto",
-                    torch_dtype=torch.float16,
-                    low_cpu_mem_usage=True,
-                    token=hf_token
-                )
-                self.generator = pipeline(
-                    "text-generation",
-                    model=self.model,
-                    tokenizer=self.tokenizer,
-                    device=0  # Используем GPU
-                )
-            else:
-                # Настройки для CPU
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_name,
-                    device_map=None,
-                    torch_dtype=torch.float32,
-                    token=hf_token
-                )
-                self.generator = pipeline(
-                    "text-generation",
-                    model=self.model,
-                    tokenizer=self.tokenizer,
-                    device=-1  # Используем CPU
-                )
-            self.client = None
-        else:
-            raise ValueError(f"Unknown model provider: {self.provider}")
+        # OpenAI/OpenRouter/Groq API
+        self.client = AsyncOpenAI(
+            api_key=settings.llm_api_key.get_secret_value(),
+            base_url=settings.llm_api_base,
+            default_headers={
+                "HTTP-Referer": "https://github.com/relove-bot",
+                "X-Title": "reLove Bot",
+                "Content-Type": "application/json"
+            }
+        )
+        # Для HuggingFace и local — отдельная инициализация ниже при необходимости
 
     async def generate(self, prompt: str, max_tokens: int = 100) -> str:
-        if self.provider == 'local':
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}"
-            }
-            
-            data = {
-                "model": self.model,
-                "messages": [{"role": "user", "content": prompt}]
-            }
-
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers=headers,
-                    json=data
-                ) as response:
-                    result = await response.json()
-                    return result["choices"][0]["message"]["content"]
-        else:
-            raise ValueError("Generate method is only supported for local provider")
+        raise NotImplementedError("Метод generate поддерживается только для локального режима")
 
     @llm_rate_limiter
     async def _analyze_content_api(
@@ -239,30 +159,16 @@ class LLM:
             dict: Результат анализа
         """
         try:
-            if self.provider == 'openai':
-                response = await self.client.chat.completions.create(
-                    model=model or self.model_name,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": content}
-                    ],
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                )
-                return response.choices[0].message.content
-            elif self.provider == 'huggingface':
-                response = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: self.client.text_generation(
-                        f"{system_prompt}\n\n{content}",
-                        max_new_tokens=max_tokens,
-                        temperature=temperature,
-                        return_full_text=False
-                    )
-                )
-                return response
-            else:
-                raise ValueError(f"Unsupported provider for content analysis: {self.provider}")
+            response = await self.client.chat.completions.create(
+                model=model or self.model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content}
+                ],
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            return response.choices[0].message.content
         except Exception as e:
             logger.error(f"Ошибка при анализе контента: {e}")
             return ""
@@ -291,23 +197,14 @@ class LLM:
             dict: Результат анализа
         """
         try:
-            if self.provider in ['openai', 'huggingface']:
-                result = await self._analyze_content_api(
-                    content=content,
-                    model=model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    system_prompt=system_prompt,
-                    timeout=timeout
-                )
-            else:
-                result = await self._analyze_content_local(
-                    content=content,
-                    model=model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    system_prompt=system_prompt
-                )
+            result = await self._analyze_content_api(
+                content=content,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system_prompt=system_prompt,
+                timeout=timeout
+            )
             return result
         except Exception as e:
             logger.error(f"Ошибка при анализе контента: {e}")

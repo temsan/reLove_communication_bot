@@ -165,7 +165,7 @@ async def analyze_photo(self, photo_bytes: bytes, analysis_type: str = "gender")
             max_tokens = 128
             
         # Ждем, пока не будет превышен лимит
-        await rate_limiter.wait_for_limit(f"llm_{settings.openai_api_key.get_secret_value()[:5]}")
+        await rate_limiter.wait_for_limit(f"llm_{settings.llm_api_key.get_secret_value()[:5]}")
             
         result = await llm_service.analyze_text(
             prompt="",
@@ -626,7 +626,7 @@ async def get_channel_participants_count(channel_id_or_username: str):
         channel = await client.get_entity(channel_id_or_username)
         
         # Получаем полную информацию о канале
-        full_channel = await client(GetFullChannelRequest(channel))
+        full_channel = await client(GetFullChannelRequest(channel=channel))
         
         # Возвращаем количество участников
         return full_channel.full_chat.participants_count

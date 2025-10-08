@@ -5,7 +5,6 @@ import os
 
 class Settings(BaseSettings):
     # Model configuration
-    model_provider: Literal['openai', 'huggingface', 'local'] = Field('openai', env='MODEL_PROVIDER', description="Provider for LLM model (openai, huggingface, local)")
     model_name: str = Field("meta-llama/llama-4-scout:free", env='MODEL_NAME', description="Название модели для OpenRouter")
     """
     Application settings loaded from environment variables.
@@ -39,7 +38,6 @@ class Settings(BaseSettings):
     db_url: str = Field(..., env='DB_URL', description="SQLAlchemy database URL")
 
     # OpenRouter settings
-    openai_api_key: SecretStr = Field(..., env='OPENAI_API_KEY', description="OpenAI (или OpenRouter) API key")
     openai_api_base: str = Field("https://openrouter.ai/api/v1", env='OPENAI_API_BASE', description="Base URL для OpenRouter API")
     
     # Hugging Face settings
@@ -79,6 +77,10 @@ class Settings(BaseSettings):
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     LOG_DIR: str = "logs"
     LOG_FILE: str = "bot.log"
+
+    openrouter_api_key: Optional[SecretStr] = Field(None, env='OPENROUTER_API_KEY', description="OpenRouter API key")
+    llm_api_key: SecretStr = Field(..., env='LLM_API_KEY', description="API key для OpenAI/OpenRouter/Groq")
+    llm_api_base: str = Field("https://api.openai.com/v1", env='LLM_API_BASE', description="Base URL для OpenAI/OpenRouter/Groq")
 
     @property
     def log_file_path(self) -> str:
@@ -130,7 +132,6 @@ if __name__ == "__main__":
     print(f"Web Server Port: {settings.web_server_port}")
     print(f"Admin IDs: {settings.admin_ids}")
     print(f"Database URL: {settings.db_url}")
-    print(f"OpenAI API Key: {settings.openai_api_key.get_secret_value()[:5]}...")
     print(f"OpenAI API Base: {settings.openai_api_base}")
     print(f"Fill Profiles Channel ID: {settings.our_channel_id}")
     print(f"Telegram API ID: {settings.tg_api_id}")

@@ -37,7 +37,7 @@ class LLMService:
         if self._initialized:
             return
             
-        self.api_key = settings.openai_api_key
+        self.api_key = settings.llm_api_key
         self.api_base = settings.openai_api_base
         self.model = settings.model_name
         self.attempts = settings.llm_attempts

@@ -15,6 +15,7 @@ from aiohttp.web_response import Response
 from aiohttp.web import HTTPFound
 from .config import settings
 from datetime import datetime
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -123,16 +124,16 @@ async def dashboard(request: web.Request):
         async with AsyncSessionFactory() as session:
             repo = UserRepository(session)
             
-            # Получаем данные из базы
-            users = await session.execute(User.__table__.select())
+            # Получаем данные из базы (безопасно относительно несовпадений схемы)
+            users = await session.execute(text("SELECT * FROM users"))
             users = users.fetchall()
-            registrations = await session.execute(Registration.__table__.select())
+            registrations = await session.execute(text("SELECT * FROM registrations"))
             registrations = registrations.fetchall()
-            events = await session.execute(Event.__table__.select())
+            events = await session.execute(text("SELECT * FROM events"))
             events = events.fetchall()
-            chats = await session.execute(Chat.__table__.select())
+            chats = await session.execute(text("SELECT * FROM chats"))
             chats = chats.fetchall()
-            logs = await session.execute(UserActivityLog.__table__.select())
+            logs = await session.execute(text("SELECT * FROM user_activity_logs"))
             logs = logs.fetchall()
 
             # Обработка гендерной статистики
@@ -313,9 +314,9 @@ async def dashboard_data_api(request: web.Request):
     from relove_bot.db.models import User, UserActivityLog
     from aiohttp import web
     async with AsyncSessionFactory() as session:
-        users = await session.execute(User.__table__.select())
+        users = await session.execute(text("SELECT * FROM users"))
         users = users.fetchall()
-        logs = await session.execute(UserActivityLog.__table__.select())
+        logs = await session.execute(text("SELECT * FROM user_activity_logs"))
         logs = logs.fetchall()
         gender_count = {'male': 0, 'female': 0, 'unknown': 0}
         for u in users:
@@ -353,6 +354,73 @@ async def dashboard_data_api(request: web.Request):
             'stream_labels': stream_labels,
             'stream_counts': stream_counts,
         })
+
+async def users_gallery_api(request: web.Request):
+    """Пагинированная выдача пользователей для галереи.
+    params: offset, limit
+    """
+    from aiohttp import web
+    from relove_bot.db.database import AsyncSessionFactory
+    import base64
+    try:
+        offset = int(request.rel_url.query.get('offset', '0'))
+        limit = int(request.rel_url.query.get('limit', '30'))
+        if limit > 100:
+            limit = 100
+        if offset < 0:
+            offset = 0
+    except Exception:
+        offset, limit = 0, 30
+
+    async with AsyncSessionFactory() as session:
+        users = []
+        # Сначала пытаемся отсортировать по last_seen_date, если поле отсутствует — фолбэк на id
+        try:
+            result = await session.execute(text("""
+                SELECT * FROM users
+                ORDER BY last_seen_date DESC NULLS LAST
+                LIMIT :limit OFFSET :offset
+            """), {"limit": limit, "offset": offset})
+            users = result.fetchall()
+        except Exception as e:
+            logger.warning(f"Fallback to ORDER BY id in users_gallery_api due to: {e}")
+            result = await session.execute(text("""
+                SELECT * FROM users
+                ORDER BY id DESC
+                LIMIT :limit OFFSET :offset
+            """), {"limit": limit, "offset": offset})
+            users = result.fetchall()
+
+        data = []
+        for u in users:
+            try:
+                # Доступ по атрибутам и по ключам поддерживается Row
+                pj = getattr(u, 'photo_jpeg', None)
+                photo_b64 = None
+                if pj:
+                    if isinstance(pj, (bytes, bytearray)):
+                        photo_b64 = base64.b64encode(pj).decode('utf-8')
+                    elif isinstance(pj, str):
+                        photo_b64 = pj
+                summary = (getattr(u, 'profile_summary', '') or '')
+                if summary and len(summary) > 220:
+                    summary = summary[:217] + '...'
+                gender_val = getattr(u, 'gender', '')
+                gender_val = getattr(gender_val, 'value', gender_val) or ''
+                data.append({
+                    'id': getattr(u, 'id', None),
+                    'photo_jpeg': photo_b64,
+                    'first_name': getattr(u, 'first_name', '') or '',
+                    'last_name': getattr(u, 'last_name', '') or '',
+                    'username': getattr(u, 'username', '') or '',
+                    'gender': gender_val,
+                    'profile_summary': summary,
+                })
+            except Exception as e:
+                uid = getattr(u, 'id', '?')
+                logger.error(f"Ошибка подготовки данных галереи для пользователя {uid}: {e}")
+
+        return web.json_response(data)
 
 async def setup_webhook(bot: Bot, dispatcher: Dispatcher):
     if not settings.webhook_host:
@@ -614,16 +682,27 @@ def create_dashboard_app() -> web.Application:
 
     # Добавить статические файлы (css/js/images)
     static_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
-    app.router.add_static('/static/', static_path, name='static')
+    if os.path.isdir(static_path):
+        app.router.add_static('/static/', static_path, name='static')
+    else:
+        logger.warning(f"Static path not found: {static_path}. Skipping add_static().")
 
     # --- Роут для API данных дашборда ---
     app.router.add_get('/api/dashboard_data', dashboard_data_api)
+    # Роут для ленивой галереи пользователей
+    app.router.add_get('/api/users', users_gallery_api)
 
 
     # Добавляем обработчики startup и shutdown
     async def startup_wrapper(app):
         from relove_bot.db.database import setup_database
-        await setup_database()
+        try:
+            await setup_database()
+            logger.info("Database setup completed")
+        except Exception as e:
+            # Не валим сервер, но логируем ошибку
+            logger.error(f"Database setup failed: {e}", exc_info=True)
+            logger.warning("Continuing without database. Some routes may fail when accessed.")
     
     app.on_startup.clear()
     app.on_startup.append(startup_wrapper)
@@ -656,10 +735,15 @@ def create_app(bot: Bot, dp: Dispatcher) -> web.Application:
 
     # Добавить статические файлы (css/js/images)
     static_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
-    app.router.add_static('/static/', static_path, name='static')
+    if os.path.isdir(static_path):
+        app.router.add_static('/static/', static_path, name='static')
+    else:
+        logger.warning(f"Static path not found: {static_path}. Skipping add_static().")
 
     # --- Новый роут для API данных дашборда ---
     app.router.add_get('/api/dashboard_data', dashboard_data_api)
+    # Роут для ленивой галереи пользователей
+    app.router.add_get('/api/users', users_gallery_api)
 
     # Добавляем новые маршруты
     app.router.add_get('/api/user/{user_id}/analyze', analyze_user)

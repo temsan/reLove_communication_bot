@@ -16,7 +16,7 @@ from relove_bot.services.prompts import (
 logger = logging.getLogger(__name__)
 
 # Инициализация OpenAI клиента
-openai_client = openai.AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value())
+openai_client = openai.AsyncOpenAI(api_key=settings.llm_api_key.get_secret_value())
 
 # Константы для потоков
 STREAMS = [
