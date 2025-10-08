@@ -34,6 +34,9 @@ ENV/
 # Logs
 logs/
 *.log
+
+# Telegram sessions
+*.session
 relove_bot.session
 
 # Database
@@ -174,4 +177,15 @@ venv.bak/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Virtual machine images
+*.qcow2
+*.vmdk
+*.vdi
+
+# Reports and temporary data
+reports/
+temp/
+
+# Telethon
 /telethon_src/
