@@ -14,3 +14,6 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSe
 def get_session():
     """Получает асинхронную сессию базы данных"""
     return SessionLocal()
+
+# Для совместимости с bot.py
+async_session = SessionLocal

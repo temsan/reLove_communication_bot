@@ -15,7 +15,8 @@ from .handlers import (
     platform_integration,
     common,
     admin,
-    provocative_natasha
+    provocative_natasha,
+    flexible_diagnostic
 )
 from .middlewares.database import DatabaseMiddleware
 from .middlewares.logging import LoggingMiddleware
@@ -39,7 +40,7 @@ def create_bot_and_dispatcher(storage: BaseStorage = None) -> Tuple[Bot, Dispatc
     :return: кортеж (bot, dispatcher)
     """
     try:
-        bot = Bot(token=settings.BOT_TOKEN, parse_mode=ParseMode.HTML)
+        bot = Bot(token=settings.bot_token.get_secret_value(), parse_mode=ParseMode.HTML)
         # Всегда используем MemoryStorage для упрощения
         storage = MemoryStorage()
         dp = Dispatcher(storage=storage)
@@ -62,12 +63,14 @@ dp.include_router(admin.router)
 dp.include_router(psychological_journey.router)
 dp.include_router(platform_integration.router)
 dp.include_router(provocative_natasha.router)
+dp.include_router(flexible_diagnostic.router)
 
 # Список команд бота
 DEFAULT_COMMANDS = [
     BotCommand(command="start", description="🚀 Запустить/перезапустить бота"),
     BotCommand(command="help", description="❓ Получить справку"),
     BotCommand(command="start_journey", description="🎯 Пройти диагностику психотипа и пути героя"),
+    BotCommand(command="diagnostic", description="💬 Гибкая диагностика через диалог (LLM)"),
     BotCommand(command="natasha", description="🔥 Провокативная сессия с Наташей"),
     BotCommand(command="my_session_summary", description="📊 Сводка текущей сессии"),
     BotCommand(command="my_metaphysical_profile", description="🌌 Мой метафизический профиль"),

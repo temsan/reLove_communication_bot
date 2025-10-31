@@ -255,10 +255,21 @@ async def handle_similar(message: types.Message):
         if not profile_summary:
             await message.answer("Ваш профиль ещё не проанализирован. Напишите несколько сообщений для формирования профиля.")
             return
-        query_embedding = await get_text_embedding(profile_summary)
-        hits = search_similar_users(query_embedding, top_k=top_k)
-        if not hits:
-            await message.answer("Похожие пользователи не найдены.")
+        try:
+            query_embedding = await get_text_embedding(profile_summary)
+            hits = search_similar_users(query_embedding, top_k=top_k)
+            if not hits:
+                await message.answer(
+                    "Похожие пользователи не найдены. "
+                    "Убедитесь, что Qdrant запущен (docker run -p 6333:6333 qdrant/qdrant)"
+                )
+                return
+        except Exception as e:
+            logging.error(f"Ошибка при получении эмбеддинга или поиске: {e}")
+            await message.answer(
+                "Ошибка при поиске похожих пользователей. "
+                "Убедитесь, что Qdrant запущен и настроен."
+            )
             return
         response = "Похожие пользователи:\n"
         for hit in hits:

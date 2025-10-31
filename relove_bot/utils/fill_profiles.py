@@ -110,7 +110,7 @@ async def fill_all_profiles():
         channel_id = settings.our_channel_id
         logger.info(f"Получаем пользователей из канала {channel_id}")
         
-        # Создаем экземпляр ProfileService
+        # Создаем экземпляр ProfileService (принимает session, а не репозиторий)
         profile_service = ProfileService(session)
         
         # Получаем общее количество пользователей для прогресс-бара
@@ -149,8 +149,10 @@ async def fill_all_profiles():
                         logger.warning(f"Пользователь {user_id} не найден в базе данных")
                         continue
 
-                    # Анализируем профиль с повторными попытками
+                    # Анализируем профиль с повторными попытками и обработкой ошибок
                     max_retries = 3
+                    success = False
+                    
                     for attempt in range(max_retries):
                         try:
                             result = await profile_service.analyze_profile(
@@ -159,22 +161,37 @@ async def fill_all_profiles():
                                 tg_user=tg_user
                             )
                             if result:
-                                logger.info(f"Успешно обновлен профиль пользователя {user_id}")
+                                logger.info(f"✅ Успешно обновлен профиль пользователя {user_id}")
+                                success = True
                                 break
                             else:
                                 if attempt < max_retries - 1:
-                                    logger.warning(f"Попытка {attempt + 1} не удалась, повторяем...")
-                                    await asyncio.sleep(1)  # Пауза перед повторной попыткой
-                                else:
-                                    logger.warning(f"Не удалось обновить профиль пользователя {user_id} после {max_retries} попыток")
+                                    logger.warning(f"⚠️ Попытка {attempt + 1}/{max_retries} для пользователя {user_id} не удалась, повторяем...")
+                                    await asyncio.sleep(2)  # Пауза перед повторной попыткой
+                                
                         except Exception as e:
+                            error_msg = str(e)
+                            # Если это временная ошибка (rate limit, сеть), повторяем
+                            if "rate limit" in error_msg.lower() or "timeout" in error_msg.lower():
+                                if attempt < max_retries - 1:
+                                    wait_time = (attempt + 1) * 5  # Экспоненциальная задержка
+                                    logger.warning(f"⏳ Временная ошибка для {user_id}, ждём {wait_time}с перед повтором...")
+                                    await asyncio.sleep(wait_time)
+                                    continue
+                            
                             if attempt < max_retries - 1:
-                                logger.warning(f"Ошибка при попытке {attempt + 1}: {e}, повторяем...")
-                                await asyncio.sleep(1)
+                                logger.warning(f"⚠️ Ошибка при попытке {attempt + 1}/{max_retries} для {user_id}: {error_msg[:100]}")
+                                await asyncio.sleep(2)
                             else:
-                                logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
+                                logger.error(f"❌ Критическая ошибка для пользователя {user_id}: {error_msg}")
+                    
+                    if not success:
+                        logger.warning(f"⚠️ Не удалось обновить профиль пользователя {user_id} после {max_retries} попыток")
                     
                     pbar.update(1)
+                    
+                    # Небольшая пауза между пользователями для избежания rate limit
+                    await asyncio.sleep(0.5)
                 except Exception as e:
                     logger.error(f"Ошибка при обработке пользователя {user_id if isinstance(user, int) else getattr(user, 'id', 'N/A')}: {e}")
                     continue

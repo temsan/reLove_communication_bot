@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     tg_session: str = Field(..., env='TG_SESSION', description="Telethon session name")
 
     # Chat export settings
-    chat_export_path: str = Field("chat_export.json", env='CHAT_EXPORT_PATH', 
+    chat_export_path: str = Field('scripts/result.json', env='CHAT_EXPORT_PATH', 
                               description="Путь к файлу с экспортом чата для анализа")
 
     # Batch processing settings
@@ -65,8 +65,6 @@ class Settings(BaseSettings):
         default_factory=lambda: ["Мужской", "Женский", "Смешанный", "Путь Героя"],
         description="Список доступных потоков reLove"
     )
-
-    chat_export_path: str = Field('scripts/result.json', env='CHAT_EXPORT_PATH', description='Путь к файлу с экспортом чата (JSON)')
 
     # New settings from the code block
     USE_REDIS: bool = False

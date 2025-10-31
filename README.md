@@ -140,42 +140,70 @@ Telegram-бот для инкрементального хранения и са
 
 ## Архитектура
 
-- **aiogram** — Telegram-бот
+- **aiogram 3.3.0** — Telegram-бот фреймворк
 - **SQLAlchemy (async)** — работа с PostgreSQL
-- **OpenAI API** — генерация summary и RAG-ответов
-- **Вся логика поиска — только по user_id**
-- **Qdrant** — векторное хранилище для хранения эмбеддингов
+- **LLM API** (OpenAI/OpenRouter/Groq) — генерация summary и RAG-ответов
+- **Telethon** — работа с Telegram API для анализа каналов
+- **Rasa** — дополнительный NLP-бот (опционально)
+- **Вся логика поиска — только по user_id в PostgreSQL**
+
+**Примечание:** Qdrant используется опционально для команды `/similar` (поиск похожих пользователей). Основная работа идёт через PostgreSQL и LLM.
 
 ## Быстрый старт
 
-1. Установите зависимости (через Poetry или pip):
+1. **Клонируйте репозиторий:**
    ```bash
-   # С помощью Poetry
-   poetry install
-
-   # Или без Poetry (через pip)
-   python -m pip install --upgrade pip
-   python -m pip install -e .
+   git clone <repository_url>
+   cd reLove_communication_bot
    ```
 
-2. Заполните переменные окружения (или config.py):
-   - `TELEGRAM_BOT_TOKEN`
-   - `OPENAI_API_KEY`
-   - `DATABASE_URL` (например, postgresql+asyncpg://user:pass@host/db)
-
-3. Проведите миграцию БД (создайте таблицы):
-   ```sh
-   # Пример с alembic или вручную через SQLAlchemy
+2. **Создайте виртуальное окружение и установите зависимости:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # Linux/Mac
+   venv\Scripts\activate     # Windows
+   pip install -r requirements.txt
    ```
 
-4. Запустите Qdrant (векторная база) локально:
+3. **Настройте переменные окружения:**
+   ```bash
+   # Скопируйте шаблон:
+   cp .env.example .env
+   # Или на Windows:
+   copy .env.example .env
+   
+   # Отредактируйте .env файл, заполнив все необходимые переменные
+   ```
+   
+   Минимально необходимые переменные:
+   - `BOT_TOKEN` — токен Telegram бота
+   - `DB_URL` — URL базы данных PostgreSQL
+   - `LLM_API_KEY` — ключ для LLM API (OpenAI/OpenRouter)
+   - `TG_API_ID`, `TG_API_HASH` — для работы с Telegram API
+   - `OUR_CHANNEL_ID` — ID канала для анализа
+
+4. **Настройте базу данных:**
+   ```bash
+   # Запустите PostgreSQL через Docker:
+   docker-compose up -d db
+   
+   # Примените миграции:
+   alembic upgrade head
+   ```
+
+5. **Запустите бота:**
+   ```bash
+   python -m relove_bot.bot
+   ```
+   
+   Или используйте скрипт:
+   ```bash
+   python scripts/run_bot.py
+   ```
+
+6. **Опционально — запустите Qdrant для команды /similar:**
    ```bash
    docker run -p 6333:6333 qdrant/qdrant
-   ```
-
-5. Запустите бота:
-   ```bash
-   python -m relove_bot.main
    ```
 
 ## Основные файлы
@@ -191,12 +219,41 @@ Telegram-бот для инкрементального хранения и са
 - Любое сообщение пользователя — сохраняется summary в БД
 - `/ask <вопрос>` — бот ищет последние summary пользователя и даёт ответ через OpenAI
 
+## Основные команды бота
+
+- `/start` — запустить/перезапустить бота
+- `/help` — справка
+- `/diagnostic` — гибкая диагностика через диалог (LLM адаптирует вопросы)
+- `/start_journey` — традиционная диагностика с выбором из вариантов
+- `/natasha` — провокативная сессия с Наташей (путь героя Кэмпбелла)
+- `/streams` — информация о потоках reLove
+- `/my_session_summary` — сводка текущей провокативной сессии
+- `/my_metaphysical_profile` — метафизический профиль пользователя
+
+## Основные компоненты
+
+- `relove_bot/handlers/` — обработчики команд и сообщений
+  - `flexible_diagnostic.py` — гибкая LLM-диагностика
+  - `provocative_natasha.py` — провокативный бот в стиле Наташи
+  - `psychological_journey.py` — традиционная диагностика
+- `relove_bot/services/` — бизнес-логика
+  - `llm_service.py` — работа с LLM API
+  - `profile_service.py` — анализ и обновление профилей
+  - `telegram_service.py` — работа с Telegram API
+- `relove_bot/utils/fill_profiles.py` — скрипт массового обновления профилей
+- `scripts/fill_profiles.py` — CLI для запуска обновления профилей
+
 ## Масштабирование и поддержка
 
-- Stateless: можно запускать несколько копий бота
-- PostgreSQL можно шардировать и реплицировать
-- Нет embedding, нет векторных БД — только SQL и OpenAI
+- **Stateless:** можно запускать несколько копий бота
+- **PostgreSQL:** можно шардировать и реплицировать
+- **Основная работа:** SQL + LLM (без обязательных векторных БД)
+- **Qdrant:** опционально для поиска похожих пользователей (`/similar`)
 
----
+## Разработка
 
-**Если нужна интеграция с облаком, docker-compose, автотесты — пишите!**
+См. `docs/` для подробной документации:
+- `docs/installation.rst` — установка
+- `docs/development.rst` — разработка
+- `docs/configuration.rst` — конфигурация
+- `ARCHITECTURE.md` — архитектура проекта

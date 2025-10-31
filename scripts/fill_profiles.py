@@ -101,10 +101,7 @@ async def main():
             return
         
         logger.info("4. Запуск скрипта заполнения профилей...")
-        async with get_session() as session:
-            repo = UserRepository(session)
-            service = ProfileService(repo)
-            await fill_all_profiles()
+        await fill_all_profiles()
         
         logger.info("Скрипт заполнения профилей успешно завершил работу.")
         
