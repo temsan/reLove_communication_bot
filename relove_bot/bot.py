@@ -20,6 +20,7 @@ from .handlers import (
 )
 from .middlewares.database import DatabaseMiddleware
 from .middlewares.logging import LoggingMiddleware
+from .middlewares.session_conflict import SessionConflictMiddleware
 from .db.session import async_session
 
 # Настройка логирования
@@ -56,6 +57,7 @@ bot, dp = create_bot_and_dispatcher()
 # Регистрация middleware
 dp.update.middleware(DatabaseMiddleware(async_session))
 dp.update.middleware(LoggingMiddleware())
+dp.update.middleware(SessionConflictMiddleware())
 
 # Регистрация хендлеров
 dp.include_router(common.router)

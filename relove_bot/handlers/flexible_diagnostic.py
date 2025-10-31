@@ -56,8 +56,13 @@ async def start_flexible_diagnostic(message: Message, state: FSMContext, session
     user_repo = UserRepository(session)
     user = await user_repo.get_user(user_id)
     
-    # Создаём сессию диагностики
-    diagnostic_session = get_or_create_diagnostic_session(user_id)
+    # Создаём сессию диагностики в БД
+    session_service = SessionService(session)
+    db_session = await session_service.get_or_create_session(
+        user_id=user_id,
+        session_type="diagnostic",
+        state="in_diagnostic"
+    )
     
     # Формируем контекст профиля для LLM
     profile_context = ""
@@ -69,9 +74,11 @@ async def start_flexible_diagnostic(message: Message, state: FSMContext, session
         if user.profile_summary:
             profile_context += f"Профиль: {user.profile_summary}\n\n"
     
-    diagnostic_session["user_profile"] = profile_context
-    diagnostic_session["conversation_history"] = []
-    diagnostic_session["message_count"] = 0
+    # Сохраняем контекст в session_data
+    await session_service.update_session_data(
+        db_session.id,
+        session_data={"user_profile": profile_context}
+    )
     
     # Генерируем первое сообщение от LLM
     system_prompt = FLEXIBLE_DIAGNOSTIC_PROMPT
@@ -85,10 +92,11 @@ async def start_flexible_diagnostic(message: Message, state: FSMContext, session
             max_tokens=200
         )
         
-        diagnostic_session["conversation_history"].append({
-            "role": "assistant",
-            "content": first_message
-        })
+        await session_service.add_message(
+            db_session.id,
+            "assistant",
+            first_message or "Привет. Расскажи, что привело тебя сюда? Что сейчас важно?"
+        )
         
         await message.answer(
             first_message or "Привет. Расскажи, что привело тебя сюда? Что сейчас важно?"
@@ -115,23 +123,36 @@ async def process_diagnostic_message(message: Message, state: FSMContext, sessio
         await message.answer("Отправь текстовое сообщение, пожалуйста.")
         return
     
-    diagnostic_session = get_or_create_diagnostic_session(user_id)
-    diagnostic_session["conversation_history"].append({
-        "role": "user",
-        "content": user_message
-    })
-    diagnostic_session["message_count"] += 1
+    # Получаем активную сессию из БД
+    session_service = SessionService(session)
+    db_session = await session_service.get_active_session(user_id, "diagnostic")
+    
+    if not db_session:
+        await message.answer("Диагностическая сессия не найдена. Начни новую: /diagnostic")
+        await state.clear()
+        return
+    
+    # Добавляем сообщение пользователя
+    await session_service.add_message(db_session.id, "user", user_message)
+    
+    # Получаем историю диалога из БД
+    conversation_history = db_session.conversation_history or []
     
     # Формируем контекст диалога
     conversation_context = "\n".join([
         f"{'Диагност' if msg['role'] == 'assistant' else 'Человек'}: {msg['content']}"
-        for msg in diagnostic_session["conversation_history"][-10:]
+        for msg in conversation_history[-10:]
     ])
+    
+    # Получаем user_profile из session_data
+    user_profile = ""
+    if db_session.session_data and "user_profile" in db_session.session_data:
+        user_profile = db_session.session_data["user_profile"]
     
     # Формируем промпт
     system_prompt = FLEXIBLE_DIAGNOSTIC_PROMPT
-    if diagnostic_session["user_profile"]:
-        system_prompt += f"\n\nКОНТЕКСТ ПРОФИЛЯ:\n{diagnostic_session['user_profile']}"
+    if user_profile:
+        system_prompt += f"\n\nКОНТЕКСТ ПРОФИЛЯ:\n{user_profile}"
     
     prompt = f"""ИСТОРИЯ ДИАЛОГА:
 {conversation_context}
@@ -158,15 +179,16 @@ async def process_diagnostic_message(message: Message, state: FSMContext, sessio
             await message.answer("Попробуй ещё раз, я не понял.")
             return
         
-        diagnostic_session["conversation_history"].append({
-            "role": "assistant",
-            "content": response
-        })
+        await session_service.add_message(db_session.id, "assistant", response)
         
         await message.answer(response)
         
+        # Получаем обновлённую сессию для подсчёта сообщений
+        updated_session = await session_service.repository.get_session_by_id(db_session.id)
+        message_count = len(updated_session.conversation_history) if updated_session.conversation_history else 0
+        
         # Если уже есть несколько обменов, предлагаем завершить диагностику
-        if diagnostic_session["message_count"] >= 6:
+        if message_count >= 6:
             await message.answer(
                 "\n\n💡 Хочешь завершить диагностику и получить резюме? Напиши /end_diagnostic"
             )
@@ -185,12 +207,16 @@ async def end_diagnostic(message: Message, state: FSMContext, session: AsyncSess
     """
     user_id = message.from_user.id
     
-    if user_id not in active_diagnostic_sessions:
+    # Получаем активную сессию из БД
+    session_service = SessionService(session)
+    db_session = await session_service.get_active_session(user_id, "diagnostic")
+    
+    if not db_session:
         await message.answer("Активной диагностики нет. Начни с /diagnostic")
+        await state.clear()
         return
     
-    diagnostic_session = active_diagnostic_sessions[user_id]
-    conversation_history = diagnostic_session["conversation_history"]
+    conversation_history = db_session.conversation_history or []
     
     # Формируем итоговый анализ
     conversation_text = "\n".join([
@@ -263,8 +289,8 @@ async def end_diagnostic(message: Message, state: FSMContext, session: AsyncSess
             parse_mode="Markdown"
         )
         
-        # Удаляем сессию
-        del active_diagnostic_sessions[user_id]
+        # Завершаем сессию в БД
+        await session_service.complete_session(db_session.id)
         await state.clear()
         
     except Exception as e:

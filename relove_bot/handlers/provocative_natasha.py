@@ -12,6 +12,8 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
+from relove_bot.services.session_service import SessionService
+from relove_bot.db.repository import UserRepository
 
 from relove_bot.services.llm_service import llm_service
 from relove_bot.services.prompts import (
@@ -288,38 +290,83 @@ class ProvocativeSession:
         return summary
 
 
-# Глобальный словарь для хранения активных сессий
-active_sessions: Dict[int, ProvocativeSession] = {}
+# Глобальный словарь для быстрого доступа (кэш)
+active_sessions_cache: Dict[int, ProvocativeSession] = {}
 
 
-def get_or_create_session(user_id: int) -> ProvocativeSession:
-    """Получает или создаёт сессию для пользователя."""
-    if user_id not in active_sessions:
-        active_sessions[user_id] = ProvocativeSession(user_id)
-    return active_sessions[user_id]
+async def get_or_create_session(user_id: int, db_session: Optional[AsyncSession] = None) -> ProvocativeSession:
+    """
+    Получает или создаёт сессию для пользователя.
+    
+    Если db_session передан, создаёт сессию в БД и обёртывает её в ProvocativeSession.
+    Если нет - использует кэш (устаревший способ, для обратной совместимости).
+    """
+    # Сначала проверяем кэш
+    if user_id in active_sessions_cache:
+        return active_sessions_cache[user_id]
+    
+    # Если есть БД сессия, работаем через неё
+    if db_session:
+        session_service = SessionService(db_session)
+        db_user_session = await session_service.get_or_create_session(
+            user_id=user_id,
+            session_type="provocative",
+            state="waiting_for_response"
+        )
+        
+        # Создаём обёртку ProvocativeSession
+        provocative_session = ProvocativeSession(user_id)
+        provocative_session._db_session_id = db_user_session.id
+        provocative_session._db_session = db_user_session
+        provocative_session._session_service = session_service
+        
+        # Загружаем историю из БД
+        if db_user_session.conversation_history:
+            provocative_session.conversation_history = db_user_session.conversation_history
+        provocative_session.question_count = db_user_session.question_count or 0
+        provocative_session.identified_patterns = db_user_session.identified_patterns or []
+        provocative_session.core_issue = db_user_session.core_issue
+        provocative_session.metaphysical_profile = db_user_session.metaphysical_profile
+        provocative_session.core_trauma = db_user_session.core_trauma
+        
+        active_sessions_cache[user_id] = provocative_session
+        return provocative_session
+    
+    # Fallback на старый способ
+    if user_id not in active_sessions_cache:
+        active_sessions_cache[user_id] = ProvocativeSession(user_id)
+    return active_sessions_cache[user_id]
 
 
 @router.message(Command("natasha"))
-async def start_provocative_session(message: Message, state: FSMContext):
+async def start_provocative_session(message: Message, state: FSMContext, session: AsyncSession):
     """
     Начинает провокативную сессию в стиле Наташи.
     
     Команда: /natasha
     """
     user_id = message.from_user.id
-    session = get_or_create_session(user_id)
+    provocative_session = await get_or_create_session(user_id, db_session=session)
     
     # Очищаем историю для новой сессии
-    session.conversation_history = []
-    session.question_count = 0
-    session.metaphysical_profile = None
-    session.core_trauma = None
+    provocative_session.conversation_history = []
+    provocative_session.question_count = 0
+    provocative_session.metaphysical_profile = None
+    provocative_session.core_trauma = None
     
     await state.set_state(ProvocativeStates.waiting_for_response)
     
     # Первое сообщение в стиле Наташи - с запросом согласия
     greeting = "Привет. Ты здесь?"
-    session.add_message("assistant", greeting)
+    provocative_session.add_message("assistant", greeting)
+    
+    # Сохраняем в БД
+    if hasattr(provocative_session, '_session_service') and provocative_session._db_session_id:
+        await provocative_session._session_service.add_message(
+            provocative_session._db_session_id,
+            "assistant",
+            greeting
+        )
     
     await message.answer(
         f"{greeting}\n\n"
@@ -335,23 +382,36 @@ async def start_provocative_session(message: Message, state: FSMContext):
 
 
 @router.message(ProvocativeStates.waiting_for_response)
-async def handle_provocative_response(message: Message, state: FSMContext):
+async def handle_provocative_response(message: Message, state: FSMContext, session: AsyncSession):
     """
     Обрабатывает ответы пользователя в провокативной сессии.
     """
     user_id = message.from_user.id
-    session = get_or_create_session(user_id)
+    provocative_session = await get_or_create_session(user_id, db_session=session)
     
     user_message = message.text
     
     # Генерируем провокативный ответ
-    response = await session.generate_provocative_response(user_message)
+    response = await provocative_session.generate_provocative_response(user_message)
     
     await message.answer(response)
     
+    # Сохраняем в БД
+    if hasattr(provocative_session, '_session_service') and provocative_session._db_session_id:
+        await provocative_session._session_service.add_message(
+            provocative_session._db_session_id,
+            "user",
+            user_message
+        )
+        await provocative_session._session_service.add_message(
+            provocative_session._db_session_id,
+            "assistant",
+            response
+        )
+    
     # После 10+ вопросов предлагаем поток
-    if session.question_count >= 10:
-        analysis = await session.analyze_readiness_for_stream()
+    if provocative_session.question_count >= 10:
+        analysis = await provocative_session.analyze_readiness_for_stream()
         
         if analysis.get("recommended_streams"):
             invitation = analysis.get("invitation", "")
@@ -364,7 +424,7 @@ async def handle_provocative_response(message: Message, state: FSMContext):
 
 
 @router.message(Command("end_session"))
-async def end_provocative_session(message: Message, state: FSMContext):
+async def end_provocative_session(message: Message, state: FSMContext, session: AsyncSession):
     """
     Завершает провокативную сессию с выводом итоговой сводки.
     
@@ -372,16 +432,16 @@ async def end_provocative_session(message: Message, state: FSMContext):
     """
     user_id = message.from_user.id
     
-    if user_id in active_sessions:
-        session = active_sessions[user_id]
-        
+    # Получаем активную сессию
+    provocative_session = await get_or_create_session(user_id, db_session=session)
+    
+    if provocative_session and provocative_session.question_count > 3:
         # Генерируем итоговую сводку сессии
-        if session.question_count > 3:
-            await message.answer("Формирую сводку сессии...")
-            
-            summary = await session.generate_session_summary()
-            
-            if summary:
+        await message.answer("Формирую сводку сессии...")
+        
+        summary = await provocative_session.generate_session_summary()
+        
+        if summary:
                 # Форматируем сводку
                 summary_text = "**📊 ИТОГОВАЯ СВОДКА СЕССИИ**\n\n"
                 
@@ -420,7 +480,7 @@ async def end_provocative_session(message: Message, state: FSMContext):
                 await message.answer(summary_text, parse_mode="Markdown")
         
         # Анализируем готовность к потокам
-        analysis = await session.analyze_readiness_for_stream()
+        analysis = await provocative_session.analyze_readiness_for_stream()
         
         if analysis.get("recommended_streams"):
             streams = ", ".join(analysis["recommended_streams"])
@@ -432,8 +492,24 @@ async def end_provocative_session(message: Message, state: FSMContext):
                 "Подробнее о потоках: /streams"
             )
         
-        # Удаляем сессию
-        del active_sessions[user_id]
+        # Сохраняем метафизический профиль в User
+        if hasattr(provocative_session, '_session_service') and provocative_session._db_session_id:
+            session_service = provocative_session._session_service
+            db_user_session = await session_service.repository.get_session_by_id(provocative_session._db_session_id)
+            
+            if db_user_session and db_user_session.metaphysical_profile:
+                user_repo = UserRepository(session)
+                await user_repo.update(user_id, {
+                    "metaphysical_profile": db_user_session.metaphysical_profile,
+                    "last_journey_stage": None  # Можно определить из сессии, если есть
+                })
+            
+            # Завершаем сессию в БД
+            await session_service.complete_session(provocative_session._db_session_id)
+        
+        # Удаляем из кэша
+        if user_id in active_sessions_cache:
+            del active_sessions_cache[user_id]
     
     await state.clear()
     await message.answer(

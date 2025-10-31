@@ -56,6 +56,15 @@ class User(Base):
     streams: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True, doc="Список пройденных потоков reLove")
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    
+    # Новые поля для интеграции с сессиями
+    metaphysical_profile: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSON, nullable=True, doc="Метафизический профиль пользователя (планета, карма, баланс свет/тьма)"
+    )
+    last_journey_stage: Mapped[Optional[JourneyStageEnum]] = mapped_column(
+        SQLEnum(JourneyStageEnum), nullable=True, index=True, doc="Последний определённый этап пути героя"
+    )
+    psychological_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, doc="Психологическое саммари пользователя")
 
     # Поля для отслеживания конверсии
     has_started_journey: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -67,6 +76,7 @@ class User(Base):
     activity_logs: Mapped[List["UserActivityLog"]] = relationship(back_populates="user")
     diagnostic_results: Mapped[List["DiagnosticResult"]] = relationship("DiagnosticResult", back_populates="user")
     journey_progress: Mapped[List["JourneyProgress"]] = relationship("JourneyProgress", back_populates="user")
+    sessions: Mapped[List["UserSession"]] = relationship("UserSession", back_populates="user")
 
     def __repr__(self):
         return f"<User(id={self.id}, username={self.username}, name={self.first_name}, gender={self.gender})>"
@@ -193,6 +203,34 @@ class DiagnosticQuestion(Base):
 
     def __repr__(self):
         return f"<DiagnosticQuestion(id={self.id}, text={self.text[:50]}...)>"
+
+class UserSession(Base):
+    """Модель для сохранения сессий бота (диагностика, провокативная сессия)"""
+    __tablename__ = "user_sessions"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True, nullable=False)
+    session_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True, doc="Тип сессии: provocative, diagnostic, journey")
+    state: Mapped[str] = mapped_column(String(50), nullable=True, doc="Текущее состояние FSM")
+    conversation_history: Mapped[List[Dict[str, str]]] = mapped_column(
+        JSON, nullable=False, default=list, doc="История диалога: [{'role': 'user'|'assistant', 'content': '...'}]"
+    )
+    identified_patterns: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True, doc="Выявленные паттерны")
+    core_issue: Mapped[Optional[str]] = mapped_column(Text, nullable=True, doc="Корневая проблема")
+    question_count: Mapped[int] = mapped_column(Integer, default=0, doc="Количество вопросов в сессии")
+    metaphysical_profile: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True, doc="Метафизический профиль из сессии")
+    core_trauma: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True, doc="Корневая травма")
+    session_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True, doc="Дополнительные данные сессии")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True, doc="Активна ли сессия")
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    completed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True, doc="Дата завершения сессии")
+    
+    user: Mapped["User"] = relationship("User", back_populates="sessions")
+    
+    def __repr__(self):
+        return f"<UserSession(id={self.id}, user_id={self.user_id}, type={self.session_type}, active={self.is_active})>"
+
 
 class JourneyProgress(Base):
     __tablename__ = "journey_progress"

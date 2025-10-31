@@ -124,7 +124,7 @@ async def handle_broadcast_criteria(message: types.Message, state: FSMContext):
 
 # Обработка колбека подтверждения рассылки
 @router.callback_query(BroadcastState.confirming_broadcast, F.data == "confirm_broadcast")
-async def handle_broadcast_confirm(callback_query: types.CallbackQuery, state: FSMContext, bot: Bot):
+async def handle_broadcast_confirm(callback_query: types.CallbackQuery, state: FSMContext, bot: Bot, session: AsyncSession):
     """Handles the broadcast confirmation."""
     admin_id = callback_query.from_user.id
     fsm_data = await state.get_data()
@@ -136,20 +136,31 @@ async def handle_broadcast_confirm(callback_query: types.CallbackQuery, state: F
     logger.info(f"Admin {admin_id} confirmed broadcast with criteria: {criteria}")
     await callback_query.message.edit_text("⏳ Начинаю рассылку...", reply_markup=None)
 
-    # --- TODO: Реальная логика рассылки --- 
+    # Реализована логика рассылки с фильтрацией по критериям
     user_ids_to_broadcast = []
     try:
-        # 1. Получить список пользователей из БД по критериям `criteria`.
-        #    Если criteria == 'all', получить всех.
-        #    Нужна функция parse_criteria(criteria) -> db_query_filters.
-        #    user_ids_to_broadcast = await get_users_from_db(parse_criteria(criteria))
-        #    Пока просто имитация:
-        if criteria.lower() == 'all':
-            user_ids_to_broadcast = [admin_id] # Отправим только админу для теста
-            logger.warning("Broadcasting only to admin as DB fetch is not implemented.")
-        else:
-            logger.warning(f"Criteria parsing and DB fetch not implemented for: {criteria}")
-            await callback_query.message.answer(f"⚠️ Фильтрация по критериям `{criteria}` еще не реализована. Рассылка не будет выполнена.")
+        # 1. Получить список пользователей из БД по критериям
+        from relove_bot.utils.broadcast_parser import parse_criteria
+        from relove_bot.db.repository import UserRepository
+        
+        criteria_filters = parse_criteria(criteria)
+        user_repo = UserRepository(session)
+        
+        try:
+            users = await user_repo.get_users_by_criteria(**criteria_filters)
+            user_ids_to_broadcast = [user.id for user in users]
+            logger.info(f"Found {len(user_ids_to_broadcast)} users for broadcast with criteria: {criteria}")
+        except Exception as e:
+            logger.error(f"Error fetching users for broadcast: {e}", exc_info=True)
+            await callback_query.message.answer(
+                f"❌ Ошибка при получении списка пользователей: {e}\n"
+                "Проверь корректность критериев."
+            )
+            await state.clear()
+            return
+        
+        if not user_ids_to_broadcast:
+            await callback_query.message.answer("⚠️ Не найдено пользователей по указанным критериям.")
             await state.clear()
             return
 
@@ -172,11 +183,24 @@ async def handle_broadcast_confirm(callback_query: types.CallbackQuery, state: F
                 except (TelegramBadRequest, TelegramForbiddenError) as e:
                     logger.warning(f"Failed to send broadcast to user {user_id}: {e}")
                     failed_count += 1
-                    # TODO: Возможно, пометить пользователя как неактивного в БД
+                    # Помечаем пользователя как неактивного, если он заблокировал бота
+                    if "blocked" in str(e).lower() or "forbidden" in str(e).lower():
+                        try:
+                            from relove_bot.db.repository import UserRepository
+                            user_repo = UserRepository(session)
+                            await user_repo.update(user_id, {"is_active": False})
+                            logger.info(f"Marked user {user_id} as inactive due to blocking bot")
+                        except Exception as update_error:
+                            logger.warning(f"Failed to update user {user_id} status: {update_error}")
                 except Exception as e:
                      logger.error(f"Unexpected error sending broadcast to user {user_id}: {e}", exc_info=True)
                      failed_count += 1
-                # await asyncio.sleep(0.1) # Небольшая задержка для избежания лимитов
+                # Соблюдаем лимит Telegram: не более 30 сообщений в секунду
+                # Отправляем с задержкой 0.04 секунды между сообщениями (25 msg/sec для безопасности)
+                if (sent_count + failed_count) % 25 == 0 and (sent_count + failed_count) > 0:
+                    await asyncio.sleep(1)  # Пауза каждые 25 сообщений
+                else:
+                    await asyncio.sleep(0.04)  # Небольшая задержка между сообщениями
         else:
             logger.error("Could not find message data to broadcast.")
             await callback_query.message.answer("❌ Ошибка: Не найдены данные сообщения для рассылки.")
