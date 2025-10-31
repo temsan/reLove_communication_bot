@@ -126,25 +126,37 @@ class ProvocativeSession:
             logger.error(f"Ошибка при генерации провокативного ответа: {e}")
             return "..."
     
-    async def analyze_readiness_for_stream(self) -> Dict[str, any]:
+    async def analyze_readiness_for_stream(
+        self,
+        activity_history: Optional[str] = None
+    ) -> Dict[str, any]:
         """
         Анализирует готовность человека к конкретным потокам.
+        
+        Args:
+            activity_history: Опциональная история активности из UserActivityLog
         
         Returns:
             dict: Словарь с рекомендованными потоками и причинами
         """
         context = self.get_conversation_context()
         
+        # Если есть история активности, добавляем её к контексту
+        history_context = ""
+        if activity_history:
+            history_context = f"\n\nИСТОРИЯ ОБЩЕНИЯ С БОТОМ (последние 30 дней):\n{activity_history}"
+        
         prompt = f"""
 {STREAM_INVITATION_PROMPT}
 
-ИСТОРИЯ ДИАЛОГА:
+ТЕКУЩАЯ СЕССИЯ:
 {context}
+{history_context}
 
 ЗАДАЧА:
-Проанализируй диалог и определи:
+Проанализируй ВСЕ доступные данные (текущая сессия + история общения) и определи:
 1. К каким потокам человек готов (список)
-2. Какие признаки готовности ты видишь
+2. Какие признаки готовности ты видишь (в текущей сессии И в истории)
 3. Короткое провокативное приглашение на поток (1-2 предложения)
 
 Ответь в формате:
@@ -157,14 +169,14 @@ class ProvocativeSession:
             response = await llm_service.analyze_text(
                 prompt=prompt,
                 system_prompt=STREAM_INVITATION_PROMPT,
-                max_tokens=300
+                max_tokens=400  # Увеличили для более детального анализа
             )
             
             # Парсим ответ
             return self._parse_stream_analysis(response)
             
         except Exception as e:
-            logger.error(f"Ошибка при анализе готовности к потокам: {e}")
+            logger.error(f"Ошибка при анализе готовности к потокам: {e}", exc_info=True)
             return {}
     
     def _parse_stream_analysis(self, response: str) -> Dict[str, any]:
@@ -480,7 +492,14 @@ async def end_provocative_session(message: Message, state: FSMContext, session: 
                 await message.answer(summary_text, parse_mode="Markdown")
         
         # Анализируем готовность к потокам
-        analysis = await provocative_session.analyze_readiness_for_stream()
+        # Получаем историю активности для более точного анализа
+        from relove_bot.services.activity_history_service import ActivityHistoryService
+        activity_service = ActivityHistoryService(session)
+        activity_history = await activity_service.get_conversation_text(user_id, days=30, limit=50)
+        
+        analysis = await provocative_session.analyze_readiness_for_stream(
+            activity_history=activity_history if activity_history else None
+        )
         
         if analysis.get("recommended_streams"):
             streams = ", ".join(analysis["recommended_streams"])
@@ -612,16 +631,42 @@ async def analyze_user_readiness(message: Message, session: AsyncSession):
     """
     user_id = message.from_user.id
     
-    # Получаем историю сообщений пользователя из БД
-    # TODO: Реализовать получение истории из UserActivityLog
+    await message.answer("⏳ Анализирую твою готовность к потокам...")
     
-    session_obj = get_or_create_session(user_id)
-    analysis = await session_obj.analyze_readiness_for_stream()
+    # Получаем историю сообщений пользователя из UserActivityLog
+    from relove_bot.services.activity_history_service import ActivityHistoryService
+    
+    activity_service = ActivityHistoryService(session)
+    
+    # Получаем историю общения
+    activity_history = await activity_service.get_conversation_text(
+        user_id=user_id,
+        days=30,
+        limit=100
+    )
+    
+    # Получаем текущую сессию, если есть
+    session_service = SessionService(session)
+    db_session = await session_service.get_active_session(user_id, "provocative")
+    
+    provocative_session = None
+    if db_session:
+        provocative_session = await get_or_create_session(user_id, db_session=session)
+    
+    # Если нет текущей сессии, создаём временную для анализа
+    if not provocative_session:
+        provocative_session = ProvocativeSession(user_id)
+    
+    # Анализируем готовность с использованием истории
+    analysis = await provocative_session.analyze_readiness_for_stream(
+        activity_history=activity_history if activity_history else None
+    )
     
     if not analysis.get("recommended_streams"):
         await message.answer(
             "Пока недостаточно данных для анализа.\n\n"
-            "Начни сессию с провокативным стилем: /natasha"
+            "Начни сессию с провокативным стилем: /natasha\n"
+            "Или проведи диагностику: /diagnostic"
         )
         return
     
@@ -629,11 +674,11 @@ async def analyze_user_readiness(message: Message, session: AsyncSession):
     reasons = "\n".join([f"• {r}" for r in analysis["reasons"]])
     
     await message.answer(
-        f"**Анализ готовности:**\n\n"
+        f"**📊 Анализ готовности к потокам:**\n\n"
         f"**Рекомендованные потоки:**\n{streams}\n\n"
-        f"**Почему:**\n{reasons}\n\n"
+        f"**Признаки готовности:**\n{reasons}\n\n"
         f"{analysis.get('invitation', '')}\n\n"
-        "Подробнее: /streams",
+        "Подробнее о потоках: /streams",
         parse_mode="Markdown"
     )
 
