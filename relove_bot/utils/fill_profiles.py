@@ -1,22 +1,20 @@
+"""
+Скрипт для массового обновления профилей пользователей.
+Использует ProfileRotationService для актуализации данных.
+"""
 import asyncio
 import logging
 import sys
-from typing import Optional, List, Dict, Any
-from sqlalchemy import select, update
+import argparse
+from typing import Optional, List
+
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from telethon.tl.functions.users import GetFullUserRequest
-from telethon.tl.functions.channels import GetFullChannelRequest
-from relove_bot.db.models import User, GenderEnum
-from relove_bot.utils.telegram_client import get_client
-from relove_bot.services.telegram_service import get_channel_users
-from relove_bot.utils.interests import get_user_streams
-from relove_bot.db.database import get_db_session, setup_database, get_engine
-from relove_bot.services.profile_service import ProfileService
-from relove_bot.db.repository import UserRepository
 from tqdm import tqdm
-from relove_bot.config import settings
-from relove_bot.services.llm_service import llm_service
-import traceback
+
+from relove_bot.db.models import User
+from relove_bot.db.session import async_session
+from relove_bot.services.profile_rotation_service import ProfileRotationService
 
 logger = logging.getLogger(__name__)
 

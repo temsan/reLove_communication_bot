@@ -123,6 +123,9 @@ async def main():
         # Восстановление активных сессий из БД
         await restore_active_sessions()
         
+        # Запуск фоновых задач
+        background_tasks = await start_background_tasks()
+        
         # Запуск бота
         logger.info("Starting bot...")
         await dp.start_polling(bot)
@@ -151,6 +154,28 @@ async def restore_active_sessions():
                 
     except Exception as e:
         logger.error(f"Error restoring active sessions: {e}")
+
+async def start_background_tasks():
+    """Запускает фоновые задачи"""
+    try:
+        from relove_bot.tasks.background_tasks import (
+            profile_rotation_task,
+            log_archive_task
+        )
+        
+        # Запускаем задачи
+        tasks = [
+            asyncio.create_task(profile_rotation_task()),
+            asyncio.create_task(log_archive_task())
+        ]
+        
+        logger.info("Background tasks started: profile rotation, log archive")
+        
+        return tasks
+        
+    except Exception as e:
+        logger.error(f"Error starting background tasks: {e}")
+        return []
 
 if __name__ == "__main__":
     try:

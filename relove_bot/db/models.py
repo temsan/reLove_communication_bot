@@ -146,6 +146,26 @@ class UserActivityLog(Base):
     def __repr__(self):
         return f"<UserActivityLog(id={self.id}, user_id={self.user_id}, type={self.activity_type}, time={self.timestamp})>"
 
+
+class UserActivityLogArchive(Base):
+    """Архив старых логов активности (старше 90 дней)"""
+    __tablename__ = "user_activity_logs_archive"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    chat_id: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True, index=True)
+    activity_type: Mapped[str] = mapped_column(String, index=True)
+    timestamp: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), index=True)
+    details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    archived_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), 
+        server_default=func.now()
+    )
+    
+    def __repr__(self):
+        return f"<UserActivityLogArchive(id={self.id}, user_id={self.user_id}, type={self.activity_type})>"
+
+
 class YouTubeChatUser(Base):
     __tablename__ = "youtube_chat_users"
 
