@@ -20,7 +20,8 @@ from .handlers import (
 )
 from .middlewares.database import DatabaseMiddleware
 from .middlewares.logging import LoggingMiddleware
-from .middlewares.session_conflict import SessionConflictMiddleware
+from .middlewares.session_check import SessionCheckMiddleware
+from .middlewares.profile_update import ProfileUpdateMiddleware
 from .db.session import async_session
 
 # Настройка логирования
@@ -57,7 +58,8 @@ bot, dp = create_bot_and_dispatcher()
 # Регистрация middleware
 dp.update.middleware(DatabaseMiddleware(async_session))
 dp.update.middleware(LoggingMiddleware())
-dp.update.middleware(SessionConflictMiddleware())
+dp.update.middleware(ProfileUpdateMiddleware())
+dp.update.middleware(SessionCheckMiddleware())
 
 # Регистрация хендлеров
 dp.include_router(common.router)
@@ -118,6 +120,9 @@ async def main():
         # Установка команд бота
         await setup_bot_commands()
         
+        # Восстановление активных сессий из БД
+        await restore_active_sessions()
+        
         # Запуск бота
         logger.info("Starting bot...")
         await dp.start_polling(bot)
@@ -126,6 +131,26 @@ async def main():
     finally:
         # Закрытие сессии бота
         await bot.session.close()
+
+async def restore_active_sessions():
+    """Восстанавливает активные сессии из БД при перезапуске"""
+    try:
+        from relove_bot.services.session_service import SessionService
+        
+        async with async_session() as session:
+            service = SessionService(session)
+            restored_sessions = await service.restore_active_sessions()
+            
+            if restored_sessions:
+                logger.info(
+                    f"Restored {len(restored_sessions)} active sessions: "
+                    f"{list(restored_sessions.keys())}"
+                )
+            else:
+                logger.info("No active sessions to restore")
+                
+    except Exception as e:
+        logger.error(f"Error restoring active sessions: {e}")
 
 if __name__ == "__main__":
     try:

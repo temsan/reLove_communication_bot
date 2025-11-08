@@ -88,21 +88,65 @@ async def get_or_create_user(session: AsyncSession, tg_user: types.User) -> User
 
 @router.message(CommandStart())
 async def handle_start(message: types.Message, session: AsyncSession):
-    """Handles the /start command, creates or updates user in DB."""
+    """Приветствие в стиле Наташи с дружелюбным интерфейсом"""
+    from relove_bot.keyboards.main_menu import get_main_menu_keyboard
+    from relove_bot.services.session_service import SessionService
+    
     tg_user = message.from_user
     db_user = await get_or_create_user(session, tg_user)
 
-    if db_user:
-        user_name = db_user.first_name # Берем имя из БД
-        logger.info(f"User {user_name} (ID: {db_user.id}) started the bot.")
-        await message.answer(
-            f"Привет, {user_name}! 👋\n\n" \
-            f"Я Ассистент reLove, готов помочь тебе с навигацией в нашем сообществе.\n"
-            f"Используй команду /help, чтобы узнать больше о моих возможностях."
+    if not db_user:
+        logger.error(f"Failed to get or create user for ID {tg_user.id}")
+        await message.answer("Произошла ошибка при обработке вашего профиля. Попробуйте позже.")
+        return
+    
+    user_name = db_user.first_name or "друг"
+    logger.info(f"User {user_name} (ID: {db_user.id}) started the bot.")
+    
+    # Получаем профиль для персонализации
+    session_service = SessionService(session)
+    profile_context = ""
+    
+    if db_user.psychological_summary:
+        profile_context = f"\n\nКонтекст профиля:\n{db_user.psychological_summary[:200]}"
+    
+    # Генерируем персонализированное приветствие через LLM
+    greeting_prompt = f"""Ты — Наташа Волкош, провокативный терапевт reLove.
+
+Пользователь {user_name} только что запустил бота.
+{profile_context}
+
+Поприветствуй его в своём стиле:
+- Коротко (2-3 предложения)
+- Провокативно, но тепло
+- Предложи начать работу
+- Если есть контекст профиля — намекни на то, что видишь его состояние
+
+Не используй формальности. Говори прямо."""
+
+    try:
+        greeting = await llm_service.analyze_text(
+            greeting_prompt,
+            max_tokens=150
         )
-    else:
-         logger.error(f"Failed to get or create user for ID {tg_user.id}")
-         await message.answer("Произошла ошибка при обработке вашего профиля. Попробуйте позже.")
+    except Exception as e:
+        logger.error(f"Error generating greeting: {e}")
+        greeting = (
+            f"Привет, {user_name}. 🔥\n\n"
+            "Я вижу тебя. Вижу, что привело тебя сюда.\n"
+            "Готов(а) к честному разговору?"
+        )
+    
+    await message.answer(
+        greeting,
+        reply_markup=get_main_menu_keyboard()
+    )
+    
+    # Небольшая подсказка
+    await message.answer(
+        "💡 Выбери действие из меню ниже или просто напиши мне — я отвечу.",
+        reply_markup=get_main_menu_keyboard()
+    )
 
 @router.message(Command(commands=["admin_update_summaries"]))
 async def handle_admin_update_summaries(message: types.Message):
@@ -284,24 +328,123 @@ async def handle_similar(message: types.Message):
 
 @router.message(Command(commands=["help"]))
 async def handle_help(message: types.Message):
-    """Handles the /help command."""
+    """Справка по боту"""
+    from relove_bot.keyboards.main_menu import get_main_menu_keyboard
+    
     user_name = message.from_user.full_name
     user_id = message.from_user.id
     logger.info(f"User {user_name} (ID: {user_id}) requested help.")
-    # TODO: Дополнить текст справки по мере добавления функционала
+    
     help_text = (
-        "ℹ️ **Справка по боту:**\\n\\n"
-        "Я помогу тебе:\\n"
-        "- Узнавать о предстоящих мероприятиях (потоках, ритуалах).\\n"
-        "- Регистрироваться на мероприятия.\\n"
-        "- (В будущем) Следить за твоим \\\"Путем Героя\\\" в сообществе.\\n\\n"
-        "**Доступные команды:**\\n"
-        "/start - Начать работу с ботом\\n"
-        "/help - Показать это сообщение\\n"
-        # "/events - Показать ближайшие мероприятия\\n"
-        # "/my_registrations - Показать мои регистрации\\n"
+        "💡 <b>Что я умею:</b>\n\n"
+        "🔥 <b>Сессия с Наташей</b>\n"
+        "Провокативная терапия в стиле Наташи Волкош. "
+        "Вскрываем паттерны, работаем с корнем, идём к трансформации.\n\n"
+        "🎯 <b>Диагностика</b>\n"
+        "Гибкая диагностика через диалог. Определяем твой этап пути героя "
+        "и даём рекомендации.\n\n"
+        "🌀 <b>Потоки reLove</b>\n"
+        "Узнай о доступных потоках: Путь Героя, Прошлые Жизни, "
+        "Открытие Сердца, Трансформация Тени, Пробуждение.\n\n"
+        "📊 <b>Мой профиль</b>\n"
+        "Смотри свой метафизический профиль, путь героя и историю сессий.\n\n"
+        "💡 <b>Анализ готовности</b>\n"
+        "Анализируем твою готовность к потокам на основе истории общения.\n\n"
+        "Просто выбери действие из меню или напиши мне — я отвечу! 💬"
     )
-    await message.answer(help_text, parse_mode="HTML")
+    await message.answer(help_text, parse_mode="HTML", reply_markup=get_main_menu_keyboard())
+
+
+# Обработчики кнопок главного меню
+@router.message(lambda message: message.text == "🔥 Сессия с Наташей")
+async def menu_natasha_session(message: types.Message, session: AsyncSession):
+    """Обработчик кнопки 'Сессия с Наташей'"""
+    from relove_bot.handlers.provocative_natasha import start_provocative_session
+    from aiogram.fsm.context import FSMContext
+    
+    # Получаем FSM context
+    from aiogram.fsm.storage.memory import MemoryStorage
+    storage = MemoryStorage()
+    state = FSMContext(storage=storage, key=f"{message.chat.id}:{message.from_user.id}")
+    
+    await start_provocative_session(message, state, session)
+
+
+@router.message(lambda message: message.text == "🎯 Диагностика")
+async def menu_diagnostic(message: types.Message, session: AsyncSession):
+    """Обработчик кнопки 'Диагностика'"""
+    from relove_bot.keyboards.main_menu import get_diagnostic_keyboard
+    
+    await message.answer(
+        "🎯 <b>Гибкая диагностика</b>\n\n"
+        "Это свободный диалог, где я задаю вопросы, адаптируясь под твои ответы.\n\n"
+        "В конце определим твой этап пути героя и дадим рекомендации.\n\n"
+        "Обычно занимает 5-10 минут.",
+        parse_mode="HTML",
+        reply_markup=get_diagnostic_keyboard()
+    )
+
+
+@router.message(lambda message: message.text == "🌀 Потоки reLove")
+async def menu_streams(message: types.Message):
+    """Обработчик кнопки 'Потоки reLove'"""
+    from relove_bot.keyboards.main_menu import get_streams_keyboard
+    
+    await message.answer(
+        "🌀 <b>Потоки reLove</b>\n\n"
+        "Выбери поток, чтобы узнать подробности:",
+        parse_mode="HTML",
+        reply_markup=get_streams_keyboard()
+    )
+
+
+@router.message(lambda message: message.text == "📊 Мой профиль")
+async def menu_profile(message: types.Message, session: AsyncSession):
+    """Обработчик кнопки 'Мой профиль'"""
+    from relove_bot.keyboards.main_menu import get_profile_keyboard
+    from relove_bot.db.repository import UserRepository
+    
+    user_id = message.from_user.id
+    user_repo = UserRepository(session)
+    user = await user_repo.get_user(user_id)
+    
+    if not user:
+        await message.answer("Профиль не найден. Начни с /start")
+        return
+    
+    profile_text = f"📊 <b>Твой профиль</b>\n\n"
+    profile_text += f"👤 {user.first_name or 'Без имени'}\n"
+    
+    if user.gender:
+        profile_text += f"⚧ {user.gender.value}\n"
+    
+    if user.last_journey_stage:
+        profile_text += f"🎯 Этап пути: {user.last_journey_stage.value}\n"
+    
+    if user.streams:
+        profile_text += f"🌀 Потоки: {', '.join(user.streams)}\n"
+    
+    profile_text += f"\nВыбери, что хочешь посмотреть:"
+    
+    await message.answer(
+        profile_text,
+        parse_mode="HTML",
+        reply_markup=get_profile_keyboard()
+    )
+
+
+@router.message(lambda message: message.text == "💡 Анализ готовности")
+async def menu_analyze_readiness(message: types.Message, session: AsyncSession):
+    """Обработчик кнопки 'Анализ готовности'"""
+    from relove_bot.handlers.provocative_natasha import analyze_user_readiness
+    
+    await analyze_user_readiness(message, session)
+
+
+@router.message(lambda message: message.text == "❓ Помощь")
+async def menu_help(message: types.Message):
+    """Обработчик кнопки 'Помощь'"""
+    await handle_help(message)
 
 async def analyze_message(message: str) -> str:
     """
@@ -328,3 +471,268 @@ async def analyze_message(message: str) -> str:
     except Exception as e:
         logger.error(f"Ошибка при анализе сообщения: {e}", exc_info=True)
         return ''
+
+
+# Обработчики callback-кнопок
+from aiogram.types import CallbackQuery
+
+@router.callback_query(lambda c: c.data == "back_to_menu")
+async def callback_back_to_menu(callback: CallbackQuery):
+    """Возврат в главное меню"""
+    from relove_bot.keyboards.main_menu import get_main_menu_keyboard
+    
+    await callback.message.edit_text(
+        "Главное меню 🏠\n\nВыбери действие:",
+        reply_markup=get_main_menu_keyboard()
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "start_diagnostic")
+async def callback_start_diagnostic(callback: CallbackQuery, session: AsyncSession):
+    """Начать диагностику"""
+    from relove_bot.handlers.flexible_diagnostic import start_flexible_diagnostic
+    from aiogram.fsm.context import FSMContext
+    from aiogram.fsm.storage.memory import MemoryStorage
+    
+    # Создаём message из callback
+    message = callback.message
+    message.from_user = callback.from_user
+    
+    storage = MemoryStorage()
+    state = FSMContext(storage=storage, key=f"{message.chat.id}:{callback.from_user.id}")
+    
+    await callback.answer()
+    await start_flexible_diagnostic(message, state, session)
+
+
+@router.callback_query(lambda c: c.data == "diagnostic_info")
+async def callback_diagnostic_info(callback: CallbackQuery):
+    """Информация о диагностике"""
+    from relove_bot.keyboards.main_menu import get_diagnostic_keyboard
+    
+    info_text = (
+        "🎯 <b>О диагностике</b>\n\n"
+        "Это не опросник с фиксированными вопросами.\n\n"
+        "Я буду задавать вопросы, адаптируясь под твои ответы. "
+        "Мы поговорим о том, что важно для тебя сейчас.\n\n"
+        "В конце я определю твой этап пути героя по Кэмпбеллу "
+        "и дам конкретные рекомендации.\n\n"
+        "Готов(а) начать?"
+    )
+    
+    await callback.message.edit_text(
+        info_text,
+        parse_mode="HTML",
+        reply_markup=get_diagnostic_keyboard()
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data.startswith("stream_"))
+async def callback_stream_info(callback: CallbackQuery):
+    """Показать информацию о потоке"""
+    from relove_bot.keyboards.main_menu import get_streams_keyboard
+    
+    stream_id = callback.data.replace("stream_", "")
+    
+    streams_info = {
+        "hero_path": {
+            "name": "🎯 Путь Героя",
+            "description": "Трансформация через прохождение внутреннего пути по 12 этапам Кэмпбелла.",
+            "what_to_expect": "Работа с вызовом, отказом, встречей с наставником, пересечением порога. "
+                             "Проходишь испытания, получаешь награду, возвращаешься с эликсиром.",
+            "duration": "3 месяца",
+            "format": "Еженедельные сессии + практики"
+        },
+        "past_lives": {
+            "name": "🌌 Прошлые Жизни",
+            "description": "Работа с планетарными историями и кармическими паттернами.",
+            "what_to_expect": "Вскрытие памяти прошлых воплощений, исцеление планетарных травм, "
+                             "освобождение от кармических долгов.",
+            "duration": "2 месяца",
+            "format": "Глубинные сессии + медитации"
+        },
+        "heart_opening": {
+            "name": "❤️ Открытие Сердца",
+            "description": "Работа с любовью, принятием и открытостью.",
+            "what_to_expect": "Снятие защит, работа со страхом любви, раскрытие сердца, "
+                             "принятие себя и других.",
+            "duration": "2 месяца",
+            "format": "Практики открытости + групповые сессии"
+        },
+        "shadow_work": {
+            "name": "🌑 Трансформация Тени",
+            "description": "Интеграция теневых частей личности.",
+            "what_to_expect": "Принятие тьмы, работа с подавленными частями, баланс света и тьмы, "
+                             "интеграция отвергнутого.",
+            "duration": "3 месяца",
+            "format": "Индивидуальная работа + практики"
+        },
+        "awakening": {
+            "name": "✨ Пробуждение",
+            "description": "Выход из матрицы обыденности.",
+            "what_to_expect": "Осознание иллюзий, пробуждение к реальности, выход за пределы, "
+                             "трансформация восприятия.",
+            "duration": "4 месяца",
+            "format": "Интенсивы + практики осознанности"
+        }
+    }
+    
+    stream = streams_info.get(stream_id)
+    if not stream:
+        await callback.answer("Поток не найден")
+        return
+    
+    stream_text = (
+        f"{stream['name']}\n\n"
+        f"<b>Описание:</b>\n{stream['description']}\n\n"
+        f"<b>Что тебя ждёт:</b>\n{stream['what_to_expect']}\n\n"
+        f"<b>Длительность:</b> {stream['duration']}\n"
+        f"<b>Формат:</b> {stream['format']}\n\n"
+        "Это не лёгкий путь. Готов(а) к работе?\n\n"
+        "Для регистрации свяжись с @NatashaVolkosh"
+    )
+    
+    await callback.message.edit_text(
+        stream_text,
+        parse_mode="HTML",
+        reply_markup=get_streams_keyboard()
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "show_streams")
+async def callback_show_streams(callback: CallbackQuery):
+    """Показать потоки"""
+    from relove_bot.keyboards.main_menu import get_streams_keyboard
+    
+    await callback.message.edit_text(
+        "🌀 <b>Потоки reLove</b>\n\n"
+        "Выбери поток, чтобы узнать подробности:",
+        parse_mode="HTML",
+        reply_markup=get_streams_keyboard()
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "metaphysical_profile")
+async def callback_metaphysical_profile(callback: CallbackQuery, session: AsyncSession):
+    """Показать метафизический профиль"""
+    from relove_bot.handlers.provocative_natasha import show_metaphysical_profile
+    
+    # Создаём message из callback
+    message = callback.message
+    message.from_user = callback.from_user
+    
+    await callback.answer()
+    await show_metaphysical_profile(message, session)
+
+
+@router.callback_query(lambda c: c.data == "my_journey")
+async def callback_my_journey(callback: CallbackQuery, session: AsyncSession):
+    """Показать путь героя"""
+    from relove_bot.db.repository import UserRepository
+    from relove_bot.keyboards.main_menu import get_profile_keyboard
+    
+    user_id = callback.from_user.id
+    user_repo = UserRepository(session)
+    user = await user_repo.get_user(user_id)
+    
+    if not user or not user.last_journey_stage:
+        await callback.message.edit_text(
+            "🎯 <b>Твой путь героя</b>\n\n"
+            "Этап пути ещё не определён.\n\n"
+            "Пройди диагностику или начни сессию с Наташей, "
+            "чтобы определить свой этап.",
+            parse_mode="HTML",
+            reply_markup=get_profile_keyboard()
+        )
+        await callback.answer()
+        return
+    
+    journey_text = (
+        f"🎯 <b>Твой путь героя</b>\n\n"
+        f"Текущий этап: <b>{user.last_journey_stage.value}</b>\n\n"
+    )
+    
+    # Описания этапов
+    stage_descriptions = {
+        "Обычный мир": "Ты в привычной реальности, но чувствуешь, что что-то не так.",
+        "Зов к приключению": "Жизнь зовёт тебя к изменениям. Ты слышишь этот зов?",
+        "Отказ от призыва": "Страх и сомнения удерживают тебя. Это нормально.",
+        "Встреча с наставником": "Ты встретил того, кто поможет тебе начать путь.",
+        "Пересечение порога": "Ты делаешь первый шаг в неизвестное.",
+        "Испытания, союзники, враги": "Ты проходишь испытания, учишься различать.",
+        "Приближение к сокровенной пещере": "Ты приближаешься к главному испытанию.",
+        "Испытание": "Ты встречаешься со своим главным страхом.",
+        "Награда": "Ты получил дар — новое понимание себя.",
+        "Дорога назад": "Ты возвращаешься в мир, но уже другим.",
+        "Воскресение": "Финальная трансформация. Ты умираешь и рождаешься заново.",
+        "Возвращение с эликсиром": "Ты вернулся с даром для мира."
+    }
+    
+    description = stage_descriptions.get(user.last_journey_stage.value, "")
+    if description:
+        journey_text += f"{description}\n\n"
+    
+    journey_text += "Продолжай работу, чтобы двигаться дальше по пути."
+    
+    await callback.message.edit_text(
+        journey_text,
+        parse_mode="HTML",
+        reply_markup=get_profile_keyboard()
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "session_history")
+async def callback_session_history(callback: CallbackQuery, session: AsyncSession):
+    """Показать историю сессий"""
+    from relove_bot.services.session_service import SessionService
+    from relove_bot.keyboards.main_menu import get_profile_keyboard
+    
+    user_id = callback.from_user.id
+    session_service = SessionService(session)
+    
+    # Получаем последние 5 сессий
+    sessions = await session_service.repository.get_user_sessions(
+        user_id=user_id,
+        limit=5,
+        include_inactive=True
+    )
+    
+    if not sessions:
+        await callback.message.edit_text(
+            "📊 <b>История сессий</b>\n\n"
+            "У тебя пока нет завершённых сессий.\n\n"
+            "Начни сессию с Наташей, чтобы создать историю.",
+            parse_mode="HTML",
+            reply_markup=get_profile_keyboard()
+        )
+        await callback.answer()
+        return
+    
+    history_text = "📊 <b>История сессий</b>\n\n"
+    
+    for s in sessions:
+        session_type_names = {
+            "provocative": "🔥 Провокативная",
+            "diagnostic": "🎯 Диагностика",
+            "journey": "🎯 Путь героя"
+        }
+        
+        type_name = session_type_names.get(s.session_type, s.session_type)
+        status = "✅ Завершена" if not s.is_active else "⏳ Активна"
+        date = s.created_at.strftime("%d.%m.%Y")
+        
+        history_text += f"{type_name} — {status}\n"
+        history_text += f"Дата: {date}\n"
+        history_text += f"Сообщений: {s.question_count or 0}\n\n"
+    
+    await callback.message.edit_text(
+        history_text,
+        parse_mode="HTML",
+        reply_markup=get_profile_keyboard()
+    )
+    await callback.answer()

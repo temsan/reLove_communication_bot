@@ -302,83 +302,86 @@ class ProvocativeSession:
         return summary
 
 
-# Глобальный словарь для быстрого доступа (кэш)
-active_sessions_cache: Dict[int, ProvocativeSession] = {}
-
-
-async def get_or_create_session(user_id: int, db_session: Optional[AsyncSession] = None) -> ProvocativeSession:
+async def get_or_create_session(user_id: int, db_session: AsyncSession) -> ProvocativeSession:
     """
-    Получает или создаёт сессию для пользователя.
+    Получает или создаёт сессию для пользователя из БД.
+    Всегда работает через SessionPersistenceService.
     
-    Если db_session передан, создаёт сессию в БД и обёртывает её в ProvocativeSession.
-    Если нет - использует кэш (устаревший способ, для обратной совместимости).
+    Args:
+        user_id: ID пользователя
+        db_session: Сессия БД (обязательна)
+    
+    Returns:
+        ProvocativeSession: Обёртка над UserSession из БД
     """
-    # Сначала проверяем кэш
-    if user_id in active_sessions_cache:
-        return active_sessions_cache[user_id]
+    session_service = SessionService(db_session)
     
-    # Если есть БД сессия, работаем через неё
-    if db_session:
-        session_service = SessionService(db_session)
-        db_user_session = await session_service.get_or_create_session(
-            user_id=user_id,
-            session_type="provocative",
-            state="waiting_for_response"
-        )
-        
-        # Создаём обёртку ProvocativeSession
-        provocative_session = ProvocativeSession(user_id)
-        provocative_session._db_session_id = db_user_session.id
-        provocative_session._db_session = db_user_session
-        provocative_session._session_service = session_service
-        
-        # Загружаем историю из БД
-        if db_user_session.conversation_history:
-            provocative_session.conversation_history = db_user_session.conversation_history
-        provocative_session.question_count = db_user_session.question_count or 0
-        provocative_session.identified_patterns = db_user_session.identified_patterns or []
-        provocative_session.core_issue = db_user_session.core_issue
-        provocative_session.metaphysical_profile = db_user_session.metaphysical_profile
-        provocative_session.core_trauma = db_user_session.core_trauma
-        
-        active_sessions_cache[user_id] = provocative_session
-        return provocative_session
+    # Получаем или создаём сессию в БД
+    db_user_session = await session_service.get_or_create_session(
+        user_id=user_id,
+        session_type="provocative",
+        state="waiting_for_response"
+    )
     
-    # Fallback на старый способ
-    if user_id not in active_sessions_cache:
-        active_sessions_cache[user_id] = ProvocativeSession(user_id)
-    return active_sessions_cache[user_id]
+    # Создаём обёртку ProvocativeSession
+    provocative_session = ProvocativeSession(user_id)
+    provocative_session._db_session_id = db_user_session.id
+    provocative_session._db_session = db_user_session
+    provocative_session._session_service = session_service
+    
+    # Загружаем историю из БД
+    if db_user_session.conversation_history:
+        provocative_session.conversation_history = db_user_session.conversation_history
+    provocative_session.question_count = db_user_session.question_count or 0
+    provocative_session.identified_patterns = db_user_session.identified_patterns or []
+    provocative_session.core_issue = db_user_session.core_issue
+    provocative_session.metaphysical_profile = db_user_session.metaphysical_profile
+    provocative_session.core_trauma = db_user_session.core_trauma
+    
+    return provocative_session
 
 
 @router.message(Command("natasha"))
 async def start_provocative_session(message: Message, state: FSMContext, session: AsyncSession):
     """
     Начинает провокативную сессию в стиле Наташи.
+    Использует SessionPersistenceService для сохранения в БД.
     
     Команда: /natasha
     """
     user_id = message.from_user.id
-    provocative_session = await get_or_create_session(user_id, db_session=session)
     
-    # Очищаем историю для новой сессии
-    provocative_session.conversation_history = []
-    provocative_session.question_count = 0
-    provocative_session.metaphysical_profile = None
-    provocative_session.core_trauma = None
+    # Проверяем, есть ли активная сессия (через middleware SessionCheckMiddleware)
+    active_session = state.storage.data.get(f"{message.chat.id}:{user_id}", {}).get('active_session')
+    
+    if active_session:
+        # Если есть активная сессия - продолжаем её
+        provocative_session = await get_or_create_session(user_id, db_session=session)
+        
+        await message.answer(
+            "У тебя уже есть активная сессия.\n\n"
+            f"Вопросов задано: {provocative_session.question_count}\n\n"
+            "Продолжай отвечать или заверши сессию: /end_session"
+        )
+        return
+    
+    # Создаём новую сессию
+    provocative_session = await get_or_create_session(user_id, db_session=session)
     
     await state.set_state(ProvocativeStates.waiting_for_response)
     
-    # Первое сообщение в стиле Наташи - с запросом согласия
+    # Первое сообщение в стиле Наташи
     greeting = "Привет. Ты здесь?"
     provocative_session.add_message("assistant", greeting)
     
     # Сохраняем в БД
-    if hasattr(provocative_session, '_session_service') and provocative_session._db_session_id:
-        await provocative_session._session_service.add_message(
-            provocative_session._db_session_id,
-            "assistant",
-            greeting
-        )
+    await provocative_session._session_service.add_message(
+        provocative_session._db_session_id,
+        "assistant",
+        greeting
+    )
+    
+    from relove_bot.keyboards.main_menu import get_quick_responses_keyboard
     
     await message.answer(
         f"{greeting}\n\n"
@@ -389,7 +392,8 @@ async def start_provocative_session(message: Message, state: FSMContext, session
         "• Называть вещи своими именами\n"
         "• Доводить до точки принятия\n\n"
         "Это не будет комфортно. Но будет честно.\n"
-        "Согласен(на)?"
+        "Согласен(на)?",
+        reply_markup=get_quick_responses_keyboard("start")
     )
 
 
@@ -397,6 +401,7 @@ async def start_provocative_session(message: Message, state: FSMContext, session
 async def handle_provocative_response(message: Message, state: FSMContext, session: AsyncSession):
     """
     Обрабатывает ответы пользователя в провокативной сессии.
+    Использует SessionPersistenceService для сохранения в БД.
     """
     user_id = message.from_user.id
     provocative_session = await get_or_create_session(user_id, db_session=session)
@@ -408,21 +413,42 @@ async def handle_provocative_response(message: Message, state: FSMContext, sessi
     
     await message.answer(response)
     
-    # Сохраняем в БД
-    if hasattr(provocative_session, '_session_service') and provocative_session._db_session_id:
-        await provocative_session._session_service.add_message(
-            provocative_session._db_session_id,
-            "user",
-            user_message
-        )
-        await provocative_session._session_service.add_message(
-            provocative_session._db_session_id,
-            "assistant",
-            response
-        )
+    # Сохраняем в БД через SessionService
+    await provocative_session._session_service.add_message(
+        provocative_session._db_session_id,
+        "user",
+        user_message
+    )
+    await provocative_session._session_service.add_message(
+        provocative_session._db_session_id,
+        "assistant",
+        response
+    )
+    
+    # Обновляем метаданные сессии
+    await provocative_session._session_service.update_session_data(
+        provocative_session._db_session_id,
+        identified_patterns=provocative_session.identified_patterns,
+        core_issue=provocative_session.core_issue,
+        metaphysical_profile=provocative_session.metaphysical_profile,
+        core_trauma=provocative_session.core_trauma
+    )
+    
+    # После 5+ вопросов показываем кнопки действий
+    if provocative_session.question_count >= 5:
+        from relove_bot.keyboards.main_menu import get_session_actions_keyboard
+        
+        # Каждые 5 вопросов показываем кнопки
+        if provocative_session.question_count % 5 == 0:
+            await message.answer(
+                "💡 Что хочешь сделать?",
+                reply_markup=get_session_actions_keyboard()
+            )
     
     # После 10+ вопросов предлагаем поток
     if provocative_session.question_count >= 10:
+        from relove_bot.keyboards.main_menu import get_quick_responses_keyboard
+        
         analysis = await provocative_session.analyze_readiness_for_stream()
         
         if analysis.get("recommended_streams"):
@@ -430,7 +456,7 @@ async def handle_provocative_response(message: Message, state: FSMContext, sessi
             await message.answer(
                 f"\n{invitation}\n\n"
                 "Хочешь узнать больше о потоках?",
-                reply_markup=get_stream_selection_keyboard()
+                reply_markup=get_quick_responses_keyboard("stream_offer")
             )
             await state.set_state(ProvocativeStates.choosing_stream)
 
@@ -511,24 +537,22 @@ async def end_provocative_session(message: Message, state: FSMContext, session: 
                 "Подробнее о потоках: /streams"
             )
         
-        # Сохраняем метафизический профиль в User
-        if hasattr(provocative_session, '_session_service') and provocative_session._db_session_id:
-            session_service = provocative_session._session_service
-            db_user_session = await session_service.repository.get_session_by_id(provocative_session._db_session_id)
-            
-            if db_user_session and db_user_session.metaphysical_profile:
-                user_repo = UserRepository(session)
-                await user_repo.update(user_id, {
-                    "metaphysical_profile": db_user_session.metaphysical_profile,
-                    "last_journey_stage": None  # Можно определить из сессии, если есть
-                })
-            
-            # Завершаем сессию в БД
-            await session_service.complete_session(provocative_session._db_session_id)
+        # Завершаем сессию и обновляем User модель
+        session_service = provocative_session._session_service
         
-        # Удаляем из кэша
-        if user_id in active_sessions_cache:
-            del active_sessions_cache[user_id]
+        # Обновляем метаданные перед завершением
+        await session_service.update_session_data(
+            provocative_session._db_session_id,
+            metaphysical_profile=provocative_session.metaphysical_profile,
+            core_trauma=provocative_session.core_trauma,
+            identified_patterns=provocative_session.identified_patterns,
+            core_issue=provocative_session.core_issue
+        )
+        
+        # Завершаем сессию с обновлением User модели
+        await session_service.complete_session_with_user_update(
+            provocative_session._db_session_id
+        )
     
     await state.clear()
     await message.answer(
@@ -649,12 +673,10 @@ async def analyze_user_readiness(message: Message, session: AsyncSession):
     session_service = SessionService(session)
     db_session = await session_service.get_active_session(user_id, "provocative")
     
-    provocative_session = None
     if db_session:
         provocative_session = await get_or_create_session(user_id, db_session=session)
-    
-    # Если нет текущей сессии, создаём временную для анализа
-    if not provocative_session:
+    else:
+        # Если нет текущей сессии, создаём временную для анализа
         provocative_session = ProvocativeSession(user_id)
     
     # Анализируем готовность с использованием истории
@@ -684,25 +706,32 @@ async def analyze_user_readiness(message: Message, session: AsyncSession):
 
 
 @router.message(Command("my_session_summary"))
-async def show_session_summary(message: Message):
+async def show_session_summary(message: Message, session: AsyncSession):
     """
     Показывает итоговую сводку текущей сессии.
+    Использует SessionPersistenceService для получения данных из БД.
     
     Команда: /my_session_summary
     """
     user_id = message.from_user.id
-    session = get_or_create_session(user_id)
     
-    if session.question_count < 3:
+    # Получаем активную сессию из БД
+    session_service = SessionService(session)
+    db_session = await session_service.get_active_session(user_id, "provocative")
+    
+    if not db_session or db_session.question_count < 3:
         await message.answer(
             "Сводка ещё не готова.\n\n"
             "Продолжи сессию — ответь хотя бы на несколько вопросов."
         )
         return
     
+    # Создаём обёртку для работы с сессией
+    provocative_session = await get_or_create_session(user_id, db_session=session)
+    
     await message.answer("Формирую сводку...")
     
-    summary = await session.generate_session_summary()
+    summary = await provocative_session.generate_session_summary()
     
     if not summary:
         await message.answer("Не удалось сформировать сводку. Продолжи сессию.")
@@ -750,23 +779,30 @@ async def show_session_summary(message: Message):
 
 
 @router.message(Command("my_metaphysical_profile"))
-async def show_metaphysical_profile(message: Message):
+async def show_metaphysical_profile(message: Message, session: AsyncSession):
     """
-    Показывает метафизический профиль пользователя.
+    Показывает метафизический профиль пользователя из БД.
+    Использует SessionPersistenceService.
     
     Команда: /my_metaphysical_profile
     """
     user_id = message.from_user.id
-    session = get_or_create_session(user_id)
     
-    if not session.metaphysical_profile:
+    # Получаем активную сессию из БД
+    session_service = SessionService(session)
+    db_session = await session_service.get_active_session(user_id, "provocative")
+    
+    if not db_session or not db_session.metaphysical_profile:
         await message.answer(
             "Метафизический профиль ещё не создан.\n\n"
             "Начни сессию с провокативным стилем и ответь на несколько вопросов: /natasha"
         )
         return
     
-    profile = session.metaphysical_profile
+    # Создаём обёртку для работы с сессией
+    provocative_session = await get_or_create_session(user_id, db_session=session)
+    
+    profile = provocative_session.metaphysical_profile
     
     # Формируем красивый вывод профиля
     profile_text = f"""
@@ -821,3 +857,151 @@ async def show_metaphysical_profile(message: Message):
                 "Продолжить сессию: просто напиши мне.",
                 parse_mode="Markdown"
             )
+
+
+# Обработчики быстрых ответов (callback buttons)
+@router.callback_query(F.data == "quick_yes")
+async def callback_quick_yes(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Быстрый ответ: Да, готов(а)"""
+    user_id = callback.from_user.id
+    provocative_session = await get_or_create_session(user_id, db_session=session)
+    
+    await callback.answer()
+    await callback.message.answer("Хорошо. Начинаем.")
+    
+    # Генерируем первый вопрос
+    response = await provocative_session.generate_provocative_response("Да, готов(а)")
+    
+    await callback.message.answer(response)
+    
+    # Сохраняем в БД
+    await provocative_session._session_service.add_message(
+        provocative_session._db_session_id,
+        "user",
+        "Да, готов(а)"
+    )
+    await provocative_session._session_service.add_message(
+        provocative_session._db_session_id,
+        "assistant",
+        response
+    )
+    
+    await state.set_state(ProvocativeStates.waiting_for_response)
+
+
+@router.callback_query(F.data == "quick_tell_more")
+async def callback_quick_tell_more(callback: CallbackQuery):
+    """Быстрый ответ: Расскажи подробнее"""
+    from relove_bot.keyboards.main_menu import get_quick_responses_keyboard
+    
+    await callback.answer()
+    await callback.message.answer(
+        "Провокативная терапия — это не про утешение.\n\n"
+        "Я буду задавать вопросы, которые вскрывают твои защиты. "
+        "Называть паттерны, которые ты не видишь. "
+        "Доводить до точки, где ты сможешь принять правду.\n\n"
+        "Это может быть некомфортно. Но это работает.\n\n"
+        "Готов(а)?",
+        reply_markup=get_quick_responses_keyboard("start")
+    )
+
+
+@router.callback_query(F.data == "quick_not_now")
+async def callback_quick_not_now(callback: CallbackQuery, state: FSMContext):
+    """Быстрый ответ: Не сейчас"""
+    from relove_bot.keyboards.main_menu import get_main_menu_keyboard
+    
+    await callback.answer()
+    await callback.message.answer(
+        "Понимаю. Когда будешь готов(а) — возвращайся.\n\n"
+        "Я буду здесь.",
+        reply_markup=get_main_menu_keyboard()
+    )
+    await state.clear()
+
+
+@router.callback_query(F.data == "quick_continue")
+async def callback_quick_continue(callback: CallbackQuery):
+    """Быстрый ответ: Продолжай"""
+    await callback.answer()
+    await callback.message.answer(
+        "Продолжай отвечать. Я слушаю."
+    )
+
+
+@router.callback_query(F.data == "quick_insight")
+async def callback_quick_insight(callback: CallbackQuery, session: AsyncSession):
+    """Быстрый ответ: Дай инсайт"""
+    user_id = callback.from_user.id
+    provocative_session = await get_or_create_session(user_id, db_session=session)
+    
+    await callback.answer()
+    
+    # Генерируем инсайт на основе текущей истории
+    insight_prompt = f"""На основе диалога дай короткий провокативный инсайт (2-3 предложения).
+
+ИСТОРИЯ:
+{provocative_session.get_conversation_context()}
+
+Назови паттерн или дай прямое наблюдение."""
+    
+    try:
+        insight = await llm_service.analyze_text(
+            insight_prompt,
+            system_prompt=NATASHA_PROVOCATIVE_PROMPT,
+            max_tokens=150
+        )
+        
+        await callback.message.answer(f"💡 {insight}")
+        
+        # Сохраняем в БД
+        await provocative_session._session_service.add_message(
+            provocative_session._db_session_id,
+            "assistant",
+            insight
+        )
+    except Exception as e:
+        logger.error(f"Error generating insight: {e}")
+        await callback.message.answer("Продолжай отвечать на вопросы.")
+
+
+@router.callback_query(F.data == "quick_what_next")
+async def callback_quick_what_next(callback: CallbackQuery, session: AsyncSession):
+    """Быстрый ответ: Что дальше?"""
+    from relove_bot.keyboards.main_menu import get_session_actions_keyboard
+    
+    await callback.answer()
+    await callback.message.answer(
+        "Ты можешь:\n"
+        "• Продолжить отвечать на вопросы\n"
+        "• Посмотреть сводку сессии\n"
+        "• Завершить сессию\n\n"
+        "Что выбираешь?",
+        reply_markup=get_session_actions_keyboard()
+    )
+
+
+@router.callback_query(F.data == "session_summary")
+async def callback_session_summary(callback: CallbackQuery, session: AsyncSession):
+    """Показать сводку сессии"""
+    from relove_bot.handlers.provocative_natasha import show_session_summary
+    
+    # Создаём message из callback
+    message = callback.message
+    message.from_user = callback.from_user
+    
+    await callback.answer()
+    await show_session_summary(message, session)
+
+
+@router.callback_query(F.data == "end_session")
+async def callback_end_session(callback: CallbackQuery, state: FSMContext, session: AsyncSession):
+    """Завершить сессию"""
+    from relove_bot.handlers.provocative_natasha import end_provocative_session
+    
+    # Создаём message из callback
+    message = callback.message
+    message.from_user = callback.from_user
+    
+    await callback.answer()
+    await end_provocative_session(message, state, session)
