@@ -28,7 +28,8 @@
   - _Requirements: 4.1, 4.2_
 
 
-- [ ] 1.2 Реализовать ProfileUpdateMiddleware
+- [x] 1.2 Реализовать ProfileUpdateMiddleware
+
   - Написать класс ProfileUpdateMiddleware наследующий BaseMiddleware
   - Реализовать обновление last_seen_date для каждого сообщения
 
@@ -40,7 +41,9 @@
 
 
 
-- [ ] 2. Реализовать SessionPersistenceService
+
+
+- [x] 2. Реализовать SessionPersistenceService
   - Создать класс SessionPersistenceService в relove_bot/services/session_service.py
 
 
@@ -53,7 +56,8 @@
 
 
 
-- [ ] 2.1 Создать методы управления сессиями
+
+- [x] 2.1 Создать методы управления сессиями
   - Написать create_session() с параметрами user_id, session_type
   - Написать get_active_session() для получения активной сессии пользователя
 
@@ -63,7 +67,8 @@
 
 
 
-- [ ] 2.2 Реализовать восстановление сессий
+
+- [x] 2.2 Реализовать восстановление сессий
   - Написать restore_active_sessions() для загрузки активных сессий из БД
   - Вызывать при старте бота в bot.py
   - Сохранять сессии в глобальный словарь active_sessions
@@ -71,7 +76,8 @@
   - _Requirements: 1.4_
 
 
-- [ ] 2.3 Интегрировать с User моделью
+
+- [x] 2.3 Интегрировать с User моделью
   - Написать update_user_from_session() для обновления metaphysical_profile
   - Обновлять last_journey_stage из session_data
   - Вызывать при завершении сессии
@@ -91,18 +97,20 @@
   - Сохранять session_id в FSM state
 
   - Загружать существующую сессию если is_active=True
+
   - _Requirements: 1.1, 4.1_
 
 
-- [ ] 3.2 Обновить обработчик сообщений в сессии
+- [x] 3.2 Обновить обработчик сообщений в сессии
   - Использовать SessionPersistenceService.update_session()
 
   - Передавать conversation_history в LLM
+
   - Обновлять identified_patterns и core_issue
   - _Requirements: 1.2, 1.3, 2.1_
 
 
-- [ ] 3.3 Обновить обработчик /end_session
+- [x] 3.3 Обновить обработчик /end_session
   - Использовать SessionPersistenceService.complete_session()
 
   - Обновлять User.metaphysical_profile
@@ -134,7 +142,7 @@
   - Реализовать update_user_profile() для обновления профиля
   - _Requirements: 10.4, 10.5, 10.6, 10.7, 11.1, 11.2, 11.3_
 
-- [ ] 5.1 Реализовать получение пользователей для ротации
+- [x] 5.1 Реализовать получение пользователей для ротации
   - Написать get_users_for_rotation() с фильтрами
 
   - Фильтр: last_seen_date в последние 30 дней
@@ -154,7 +162,7 @@
   - Обновить psychological_summary, streams, markers['profile_updated_at']
   - _Requirements: 10.4, 10.5, 10.6, 10.7, 11.3, 11.4_
 
-- [ ] 5.3 Реализовать пакетную обработку
+- [x] 5.3 Реализовать пакетную обработку
   - Написать process_batch() для обработки пачки пользователей
 
   - Обрабатывать по 10 пользователей за раз
@@ -164,7 +172,7 @@
 
 
 
-- [ ] 5.4 Реализовать логирование статистики
+- [x] 5.4 Реализовать логирование статистики
   - Написать log_rotation_stats() для записи результатов
   - Считать: обработано, обновлено, ошибок, пропущено
   - Записывать в лог с уровнем INFO
@@ -172,7 +180,7 @@
 
 
 
-- [ ] 6. Создать фоновую задачу ротации профилей
+- [x] 6. Создать фоновую задачу ротации профилей
   - Создать profile_rotation_task() в relove_bot/tasks/background_tasks.py
   - Запускать ProfileRotationService.rotate_profiles() каждые 24 часа
   - Обрабатывать ошибки без остановки задачи
@@ -180,7 +188,7 @@
 
   - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8_
 
-- [ ] 6.1 Реализовать запуск фоновой задачи
+- [x] 6.1 Реализовать запуск фоновой задачи
   - Добавить запуск profile_rotation_task() в bot.py при старте
   - Использовать asyncio.create_task()
   - Добавить graceful shutdown при остановке бота
@@ -188,7 +196,7 @@
 
   - _Requirements: 11.1_
 
-- [ ] 7. Обновить скрипт fill_profiles.py для массового обновления
+- [x] 7. Обновить скрипт fill_profiles.py для массового обновления
   - Использовать ProfileRotationService вместо старой логики
   - Добавить параметры командной строки (--all, --user-id, --batch-size)
   - Показывать прогресс-бар через tqdm
@@ -196,13 +204,13 @@
   - Выводить итоговую статистику
   - _Requirements: 12.1, 12.2, 12.3, 12.4, 12.5_
 
-- [ ] 8. Создать миграцию для UserActivityLogArchive
+- [x] 8. Создать миграцию для UserActivityLogArchive
   - Создать alembic миграцию для таблицы user_activity_logs_archive
   - Добавить индексы на user_id, timestamp, archived_at
   - _Requirements: 10.10_
 
 
-- [ ] 9. Создать фоновую задачу архивации логов
+- [x] 9. Создать фоновую задачу архивации логов
   - Создать log_archive_task() в relove_bot/tasks/background_tasks.py
   - Архивировать логи старше 90 дней
   - Архивировать если у пользователя >1000 логов
@@ -215,7 +223,7 @@
 ## Phase 3: Journey Integration & Tracking
 
 
-- [ ] 10. Создать JourneyTrackingService
+- [x] 10. Создать JourneyTrackingService
   - Создать класс JourneyTrackingService в relove_bot/services/journey_service.py
   - Реализовать analyze_journey_stage() для определения этапа
   - Реализовать update_journey_stage() для обновления этапа
@@ -223,7 +231,7 @@
   - _Requirements: 9.1, 9.2, 9.3, 9.4, 10.8, 10.9_
 
 
-- [ ] 10.1 Реализовать анализ этапа пути героя
+- [x] 10.1 Реализовать анализ этапа пути героя
   - Написать analyze_journey_stage() с параметрами user_id, conversation_history
   - Получить текущий last_journey_stage из User
   - Сформировать промпт для LLM с описанием этапов из hero_journey.py
@@ -242,7 +250,7 @@
   - Записать stage_start_time
   - _Requirements: 9.3, 10.9_
 
-- [ ] 10.3 Реализовать получение прогресса
+- [x] 10.3 Реализовать получение прогресса
   - Написать get_journey_progress() с параметром user_id
   - Получить все записи JourneyProgress для пользователя
   - Вернуть список этапов с временем начала
@@ -250,7 +258,7 @@
 
 
 
-- [ ] 11. Интегрировать JourneyTrackingService с провокативной сессией
+- [x] 11. Интегрировать JourneyTrackingService с провокативной сессией
   - Обновить provocative_natasha.py для использования JourneyTrackingService
   - Передавать текущий last_journey_stage в промпт LLM
   - Анализировать этап после каждых 5 сообщений
@@ -258,27 +266,27 @@
   - _Requirements: 9.1, 9.2, 9.3, 9.4_
 
 
-- [ ] 11.1 Обновить промпт для учёта этапа
+- [x] 11.1 Обновить промпт для учёта этапа
   - Добавить в NATASHA_PROVOCATIVE_PROMPT информацию о текущем этапе
   - Передавать описание этапа из JOURNEY_STAGES
   - Адаптировать провокации под этап
 
   - _Requirements: 9.2_
 
-- [ ] 11.2 Добавить анализ этапа в сессию
+- [x] 11.2 Добавить анализ этапа в сессию
   - Вызывать JourneyTrackingService.analyze_journey_stage() после каждых 5 сообщений
   - Сохранять новый этап в session_data
   - Обновлять User.last_journey_stage при изменении
   - _Requirements: 9.1, 9.3, 10.8_
 
 
-- [ ] 11.3 Обновить завершение сессии
+- [x] 11.3 Обновить завершение сессии
   - Вызывать JourneyTrackingService.update_journey_stage() при /end_session
   - Показывать прогресс по этапам в итоговой сводке
   - _Requirements: 9.4, 10.9_
 
 
-- [ ] 12. Создать команду /my_journey для визуализации пути
+- [x] 12. Создать команду /my_journey для визуализации пути
   - Создать обработчик для /my_journey
   - Получить JourneyProgress для пользователя
   - Показать текущий этап и пройденные этапы
@@ -290,7 +298,7 @@
 
 ## Phase 4: Admin Broadcast & Dashboard
 
-- [ ] 13. Создать AdminBroadcastService
+- [x] 13. Создать AdminBroadcastService
   - Создать класс AdminBroadcastService в relove_bot/services/admin_broadcast_service.py
 
   - Реализовать broadcast_message() для отправки рассылки
@@ -298,14 +306,14 @@
   - Реализовать parse_criteria() для парсинга критериев
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-- [ ] 13.1 Реализовать парсинг критериев
+- [x] 13.1 Реализовать парсинг критериев
   - Написать parse_criteria() для преобразования строки в Dict
   - Поддержать фильтры: gender, journey_stage, streams, markers
 
   - Пример: "gender=female,journey_stage=CALL_TO_ADVENTURE,streams=Путь Героя"
   - _Requirements: 3.1_
 
-- [ ] 13.2 Реализовать фильтрацию пользователей
+- [x] 13.2 Реализовать фильтрацию пользователей
   - Написать get_users_by_criteria() с SQLAlchemy фильтрами
 
   - Фильтр по gender через User.gender
@@ -314,7 +322,7 @@
   - Фильтр по markers через User.markers[key].astext
   - _Requirements: 3.2_
 
-- [ ] 13.3 Реализовать рассылку с rate limiting
+- [x] 13.3 Реализовать рассылку с rate limiting
   - Написать broadcast_message() с параметрами message, criteria
 
   - Создать RateLimiter для 30 msg/sec
@@ -324,7 +332,7 @@
   - _Requirements: 3.3, 3.4, 3.5_
 
 
-- [ ] 14. Обновить обработчик /broadcast в admin.py
+- [x] 14. Обновить обработчик /broadcast в admin.py
   - Использовать AdminBroadcastService вместо старой логики
   - Добавить UI для ввода критериев
   - Показывать предпросмотр количества пользователей
@@ -332,7 +340,7 @@
 
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-- [ ] 15. Создать AnalyzeReadinessService
+- [x] 15. Создать AnalyzeReadinessService
   - Создать класс AnalyzeReadinessService в relove_bot/services/readiness_service.py
   - Реализовать analyze_readiness() для анализа готовности к потокам
   - Использовать UserActivityLog и psychological_summary
@@ -341,7 +349,7 @@
 
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ] 15.1 Реализовать анализ готовности
+- [x] 15.1 Реализовать анализ готовности
   - Написать analyze_readiness() с параметром user_id
   - Получить последние 50 записей из UserActivityLog
   - Получить psychological_summary из User
@@ -351,7 +359,7 @@
 
   - _Requirements: 5.1, 5.2, 5.3, 5.4_
 
-- [ ] 16. Обновить обработчик /analyze_readiness
+- [x] 16. Обновить обработчик /analyze_readiness
   - Использовать AnalyzeReadinessService вместо TODO
   - Показывать топ-3 потока с обоснованием
   - Добавить кнопки для выбора потока
@@ -359,7 +367,7 @@
 
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
 
-- [ ] 17. Обновить веб-дашборд
+- [x] 17. Обновить веб-дашборд
   - Обновить dashboard() в web.py для показа актуальных данных
   - Добавить фильтры по journey_stage
   - Показывать markers['profile_updated_at'] для каждого пользователя
@@ -367,14 +375,14 @@
   - Добавить кнопку "Обновить профиль" для ручного обновления
   - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5_
 
-- [ ] 17.1 Добавить фильтры в галерею пользователей
+- [x] 17.1 Добавить фильтры в галерею пользователей
   - Обновить users_gallery_api() для поддержки фильтров
   - Добавить параметры: gender, journey_stage, streams
 
   - Обновить UI для выбора фильтров
   - _Requirements: 13.2, 13.3_
 
-- [ ] 17.2 Добавить детали пользователя
+- [x] 17.2 Добавить детали пользователя
   - Обновить user_details() для показа полного профиля
   - Показывать psychological_summary, metaphysical_profile
   - Показывать историю JourneyProgress
@@ -382,7 +390,7 @@
   - Показывать последние 20 записей UserActivityLog
   - _Requirements: 13.4_
 
-- [ ] 17.3 Добавить автообновление дашборда
+- [x] 17.3 Добавить автообновление дашборда
   - Обновить dashboard_data_api() для возврата актуальных данных
   - Добавить JavaScript для автообновления каждые 30 секунд
   - Обновлять без перезагрузки страницы
@@ -392,14 +400,14 @@
 
 ## Phase 5: Error Handling & Optimization
 
-- [ ] 18. Реализовать retry логику для LLM
+- [x] 18. Реализовать retry логику для LLM
   - Создать LLMServiceWithRetry в relove_bot/services/llm_service.py
   - Реализовать analyze_with_retry() с max_retries=2
   - Добавить экспоненциальную задержку (2^attempt секунд)
   - Логировать все попытки и ошибки
   - _Requirements: 7.1, 7.2_
 
-- [ ] 18.1 Обновить все вызовы LLM
+- [x] 18.1 Обновить все вызовы LLM
   - Заменить llm_service.analyze() на llm_service.analyze_with_retry()
   - В ProfileRotationService
   - В SessionPersistenceService
@@ -407,7 +415,7 @@
   - В AnalyzeReadinessService
   - _Requirements: 7.1_
 
-- [ ] 19. Реализовать восстановление сессий после ошибок
+- [x] 19. Реализовать восстановление сессий после ошибок
   - Создать recover_session_on_error() в session_service.py
   - Сохранять last_error и error_timestamp в session_data
   - Уведомлять пользователя о сохранении прогресса
@@ -415,7 +423,7 @@
   - _Requirements: 7.3, 7.4_
 
 
-- [ ] 20. Добавить уведомления администраторам
+- [x] 20. Добавить уведомления администраторам
   - Создать notify_admins() в relove_bot/utils/notifications.py
   - Отправлять уведомления при критических ошибках
   - Отправлять при недоступности LLM >5 минут
@@ -423,7 +431,7 @@
   - _Requirements: 7.5_
 
 
-- [ ] 21. Добавить индексы в БД
+- [x] 21. Добавить индексы в БД
   - Создать миграцию для добавления индексов
   - Индекс на User.last_seen_date
   - Индекс на User.last_journey_stage
@@ -432,7 +440,7 @@
   - Индекс на UserSession.is_active
   - _Requirements: Performance optimization_
 
-- [ ] 22. Реализовать кэширование
+- [x] 22. Реализовать кэширование
   - Добавить кэширование активных сессий в памяти
   - Кэшировать профили пользователей на 1 час
   - Кэшировать результаты LLM по хэшу промпта
@@ -468,21 +476,21 @@
 
 ## Phase 7: Cleanup & Refactoring
 
-- [ ] 26. Удалить старый diagnostic.py
+- [x] 26. Удалить старый diagnostic.py
   - Удалить файл relove_bot/handlers/diagnostic.py
   - Удалить регистрацию команды /start_diagnostic
   - Обновить импорты в других файлах
   - Обновить документацию
   - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
 
-- [ ] 27. Обновить конверсионные флаги
+- [x] 27. Обновить конверсионные флаги
   - Обновить обработчики для установки has_started_journey
   - Обновить обработчики для установки has_completed_journey
   - Добавить трекинг переходов на платформу (has_visited_platform)
   - Создать команду /stats для администраторов
   - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5_
 
-- [ ] 28. Финальное тестирование
+- [x] 28. Финальное тестирование
   - Протестировать все сценарии end-to-end
   - Проверить работу фоновых задач
   - Проверить работу дашборда
