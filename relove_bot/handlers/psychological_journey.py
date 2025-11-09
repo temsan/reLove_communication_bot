@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from ..core.psychological_types import PsychotypeEnum, PSYCHOLOGICAL_TYPES
+from ..core.psychological_types import PsychotypeEnum, PSYCHOLOGICAL_TYPES, PsychologicalProfile
 from ..core.hero_journey import JourneyStageEnum, JOURNEY_STAGES
 from ..keyboards.psychological import (
     get_psychological_type_keyboard,
@@ -86,7 +86,7 @@ async def process_journey_stage(callback: CallbackQuery, state: FSMContext):
             f"Первый вопрос:\n{adapted_questions[0]}",
             reply_markup=get_question_keyboard()
         )
-        await state.set_state(DiagnosticStates.answering_questions)
+        await state.set_state(DiagnosticStates.ANSWERING)
     except Exception as e:
         logger.error(f"Error processing journey stage: {e}")
         await callback.message.edit_text(
@@ -94,7 +94,7 @@ async def process_journey_stage(callback: CallbackQuery, state: FSMContext):
         )
         await state.clear()
 
-@router.message(DiagnosticStates.answering_questions)
+@router.message(DiagnosticStates.ANSWERING)
 async def process_answer(message: Message, state: FSMContext):
     """Обработка ответов на вопросы"""
     try:

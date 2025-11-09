@@ -26,9 +26,9 @@ async def show_platform_info(message: Message, state: FSMContext):
         "Хотите узнать больше?",
         reply_markup=get_platform_keyboard()
     )
-    await state.set_state(DiagnosticStates.waiting_for_platform_visit)
+    await state.set_state(DiagnosticStates.COMPLETED)
 
-@router.callback_query(DiagnosticStates.waiting_for_platform_visit)
+@router.callback_query(DiagnosticStates.COMPLETED)
 async def process_platform_visit(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает переход на платформу"""
     try:
@@ -54,14 +54,14 @@ async def process_platform_visit(callback: CallbackQuery, state: FSMContext):
                 "После регистрации вы получите доступ к полному анализу вашего путешествия и рекомендациям от Наташи.",
                 reply_markup=get_platform_keyboard(show_purchase=True)
             )
-            await state.set_state(DiagnosticStates.waiting_for_purchase)
+            # Оставляем в COMPLETED для обработки покупки
     except Exception as e:
         logger.error(f"Error processing platform visit: {e}")
         await callback.message.edit_text(
             "Произошла ошибка. Пожалуйста, попробуйте позже или обратитесь в поддержку."
         )
 
-@router.callback_query(DiagnosticStates.waiting_for_purchase)
+@router.callback_query(DiagnosticStates.COMPLETED, F.data.startswith("purchase_"))
 async def process_flow_purchase(callback: CallbackQuery, state: FSMContext):
     """Обрабатывает интерес к покупке потока"""
     try:

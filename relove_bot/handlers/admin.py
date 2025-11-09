@@ -5,6 +5,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..filters.admin import IsAdminFilter
 from relove_bot.config import settings

@@ -191,20 +191,37 @@ class ProfileUpdateMiddleware(BaseMiddleware):
         logger.info(f"Started background profile update for user {user_id}")
     
     async def _update_profile_background(self, user_id: int):
-        """Фоновая задача обновления профиля (заглушка)"""
+        """Фоновая задача обновления профиля"""
         try:
-            # TODO: Реализовать в Phase 2 с ProfileRotationService
-            logger.info(
-                f"Background profile update for user {user_id} - "
-                f"will be implemented in Phase 2"
-            )
+            from relove_bot.services.profile_rotation_service import ProfileRotationService
+            from relove_bot.db.session import async_session
             
-            # Пока просто ждём немного, чтобы не спамить
-            await asyncio.sleep(1)
+            logger.info(f"Starting background profile update for user {user_id}")
+            
+            async with async_session() as session:
+                # Получаем пользователя
+                from sqlalchemy import select
+                from relove_bot.db.models import User
+                
+                result = await session.execute(
+                    select(User).where(User.id == user_id)
+                )
+                user = result.scalar_one_or_none()
+                
+                if not user:
+                    logger.warning(f"User {user_id} not found for background update")
+                    return
+                
+                # Обновляем профиль через ProfileRotationService
+                service = ProfileRotationService(session)
+                await service.update_user_profile(user)
+                
+                logger.info(f"Completed background profile update for user {user_id}")
             
         except Exception as e:
             logger.error(
-                f"Error in background profile update for user {user_id}: {e}"
+                f"Error in background profile update for user {user_id}: {e}",
+                exc_info=True
             )
         finally:
             # Удаляем задачу из словаря

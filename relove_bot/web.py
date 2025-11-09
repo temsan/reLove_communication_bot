@@ -513,6 +513,7 @@ async def analyze_gender_middleware(request, handler):
     return await handler(request)
 
 async def analyze_user(request: web.Request):
+    """Анализирует профиль пользователя"""
     user_id = request.match_info.get('user_id')
     if not user_id:
         return web.json_response({'error': 'User ID is required'}, status=400)
@@ -520,17 +521,20 @@ async def analyze_user(request: web.Request):
     try:
         async with AsyncSessionFactory() as session:
             repo = UserRepository(session)
-            user = await repo.get_user_by_id(int(user_id))
+            user = await repo.get_user(int(user_id))
             if not user:
                 return web.json_response({'error': 'User not found'}, status=404)
             
-            # Анализ профиля пользователя
+            # Анализ профиля пользователя на основе реальных полей
             analysis = {
-                'psychotype': user.psychotype or 'Не определен',
-                'emotional_state': user.emotional_state or 'Не определен',
-                'activity_level': user.activity_level or 'Не определен',
-                'interests': user.interests or [],
-                'recommendations': user.recommendations or []
+                'psychological_summary': user.psychological_summary or 'Не определен',
+                'journey_stage': user.last_journey_stage.value if user.last_journey_stage else 'Не определен',
+                'streams': user.streams or [],
+                'metaphysical_profile': user.metaphysical_profile or {},
+                'markers': user.markers or {},
+                'is_active': user.is_active,
+                'has_started_journey': user.has_started_journey,
+                'has_completed_journey': user.has_completed_journey
             }
             
             return web.json_response(analysis)
@@ -539,6 +543,7 @@ async def analyze_user(request: web.Request):
         return web.json_response({'error': str(e)}, status=500)
 
 async def user_details(request: web.Request):
+    """Получает детальную информацию о пользователе"""
     user_id = request.match_info.get('user_id')
     if not user_id:
         return web.json_response({'error': 'User ID is required'}, status=400)
@@ -546,34 +551,69 @@ async def user_details(request: web.Request):
     try:
         async with AsyncSessionFactory() as session:
             repo = UserRepository(session)
-            user = await repo.get_user_by_id(int(user_id))
+            user = await repo.get_user(int(user_id))
             if not user:
                 return web.json_response({'error': 'User not found'}, status=404)
+            
+            # Получаем историю активности
+            logs_result = await session.execute(
+                text("SELECT * FROM user_activity_logs WHERE user_id = :user_id ORDER BY timestamp DESC LIMIT 20"),
+                {'user_id': user.id}
+            )
+            logs = logs_result.fetchall()
+            
+            # Получаем историю пути героя
+            journey_result = await session.execute(
+                text("SELECT * FROM journey_progress WHERE user_id = :user_id ORDER BY stage_start_time DESC"),
+                {'user_id': user.id}
+            )
+            journey_progress = journey_result.fetchall()
             
             # Получаем детальную информацию о пользователе
             details = {
                 'id': user.id,
-                'username': user.username,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'gender': user.gender,
+                'username': user.username or '',
+                'first_name': user.first_name or '',
+                'last_name': user.last_name or '',
+                'gender': user.gender.value if user.gender else '',
                 'registration_date': user.registration_date.isoformat() if user.registration_date else None,
-                'last_activity': user.last_activity.isoformat() if user.last_activity else None,
+                'last_seen_date': user.last_seen_date.isoformat() if user.last_seen_date else None,
                 'streams': user.streams or [],
-                'psychotype': user.psychotype,
-                'emotional_state': user.emotional_state,
-                'activity_level': user.activity_level,
-                'profile_summary': user.profile_summary,
+                'psychological_summary': user.psychological_summary or '',
+                'profile_summary': user.profile_summary or '',
+                'metaphysical_profile': user.metaphysical_profile or {},
+                'last_journey_stage': user.last_journey_stage.value if user.last_journey_stage else '',
+                'markers': user.markers or {},
                 'is_active': user.is_active,
-                'completed': user.completed
+                'is_admin': user.is_admin,
+                'has_started_journey': user.has_started_journey,
+                'has_completed_journey': user.has_completed_journey,
+                'has_visited_platform': user.has_visited_platform,
+                'has_purchased_flow': user.has_purchased_flow,
+                'activity_logs': [
+                    {
+                        'type': log.activity_type,
+                        'timestamp': log.timestamp.isoformat(),
+                        'details': log.details or {}
+                    }
+                    for log in logs
+                ],
+                'journey_progress': [
+                    {
+                        'stage': jp.current_stage.value if hasattr(jp.current_stage, 'value') else str(jp.current_stage),
+                        'start_time': jp.stage_start_time.isoformat() if jp.stage_start_time else None
+                    }
+                    for jp in journey_progress
+                ]
             }
             
             return web.json_response(details)
     except Exception as e:
-        logger.error(f"Error getting user details {user_id}: {e}")
+        logger.error(f"Error getting user details {user_id}: {e}", exc_info=True)
         return web.json_response({'error': str(e)}, status=500)
 
 async def update_user_status(request: web.Request):
+    """Обновляет статус пользователя"""
     user_id = request.match_info.get('user_id')
     if not user_id:
         return web.json_response({'error': 'User ID is required'}, status=400)
@@ -586,7 +626,7 @@ async def update_user_status(request: web.Request):
         
         async with AsyncSessionFactory() as session:
             repo = UserRepository(session)
-            user = await repo.get_user_by_id(int(user_id))
+            user = await repo.get_user(int(user_id))
             if not user:
                 return web.json_response({'error': 'User not found'}, status=404)
             
@@ -594,12 +634,15 @@ async def update_user_status(request: web.Request):
             user.is_active = status == 'active'
             await session.commit()
             
-            return web.json_response({'success': True})
+            logger.info(f"Updated user {user_id} status to {status}")
+            
+            return web.json_response({'success': True, 'status': status})
     except Exception as e:
-        logger.error(f"Error updating user status {user_id}: {e}")
+        logger.error(f"Error updating user status {user_id}: {e}", exc_info=True)
         return web.json_response({'error': str(e)}, status=500)
 
 async def manage_streams(request: web.Request):
+    """Управляет потоками пользователя (добавление/удаление)"""
     try:
         data = await request.json()
         action = data.get('action')
@@ -611,56 +654,81 @@ async def manage_streams(request: web.Request):
         
         async with AsyncSessionFactory() as session:
             repo = UserRepository(session)
-            user = await repo.get_user_by_id(int(user_id))
+            user = await repo.get_user(int(user_id))
             if not user:
                 return web.json_response({'error': 'User not found'}, status=404)
             
             streams = user.streams or []
-            if action == 'add' and stream_name not in streams:
-                streams.append(stream_name)
-            elif action == 'remove' and stream_name in streams:
-                streams.remove(stream_name)
+            
+            if action == 'add':
+                if stream_name not in streams:
+                    streams.append(stream_name)
+                    logger.info(f"Added stream '{stream_name}' to user {user_id}")
+            elif action == 'remove':
+                if stream_name in streams:
+                    streams.remove(stream_name)
+                    logger.info(f"Removed stream '{stream_name}' from user {user_id}")
+            else:
+                return web.json_response({'error': 'Invalid action'}, status=400)
             
             user.streams = streams
             await session.commit()
             
             return web.json_response({'success': True, 'streams': streams})
     except Exception as e:
-        logger.error(f"Error managing streams: {e}")
+        logger.error(f"Error managing streams: {e}", exc_info=True)
         return web.json_response({'error': str(e)}, status=500)
 
 async def automation_settings(request: web.Request):
+    """Управляет настройками автоматизации (фоновые задачи, ротация профилей)"""
     try:
         data = await request.json()
         action = data.get('action')
-        settings = data.get('settings')
         
         if not action:
             return web.json_response({'error': 'Action is required'}, status=400)
         
-        async with AsyncSessionFactory() as session:
-            if action == 'get':
-                # Получаем текущие настройки автоматизации
-                settings = await session.execute("SELECT * FROM automation_settings")
-                settings = settings.fetchone()
-                return web.json_response(settings or {})
+        if action == 'get':
+            # Возвращаем текущие настройки автоматизации
+            settings = {
+                'profile_rotation_enabled': True,
+                'profile_rotation_interval_hours': 24,
+                'log_archive_enabled': True,
+                'log_archive_interval_days': 7,
+                'profile_update_age_days': 7,
+                'activity_retention_days': 90
+            }
+            return web.json_response(settings)
+        
+        elif action == 'update':
+            settings_data = data.get('settings')
+            if not settings_data:
+                return web.json_response({'error': 'Settings are required'}, status=400)
             
-            elif action == 'update':
-                if not settings:
-                    return web.json_response({'error': 'Settings are required'}, status=400)
+            # Здесь можно сохранить настройки в конфиг или БД
+            # Пока просто логируем
+            logger.info(f"Automation settings updated: {settings_data}")
+            
+            return web.json_response({'success': True, 'settings': settings_data})
+        
+        elif action == 'trigger_rotation':
+            # Запускаем ротацию профилей вручную
+            from relove_bot.services.profile_rotation_service import ProfileRotationService
+            
+            async with AsyncSessionFactory() as session:
+                service = ProfileRotationService(session)
+                await service.rotate_profiles()
                 
-                # Обновляем настройки автоматизации
-                await session.execute(
-                    "UPDATE automation_settings SET settings = :settings WHERE id = 1",
-                    {'settings': settings}
-                )
-                await session.commit()
-                return web.json_response({'success': True})
+                return web.json_response({
+                    'success': True,
+                    'stats': service.stats
+                })
+        
+        else:
+            return web.json_response({'error': 'Invalid action'}, status=400)
             
-            else:
-                return web.json_response({'error': 'Invalid action'}, status=400)
     except Exception as e:
-        logger.error(f"Error managing automation settings: {e}")
+        logger.error(f"Error managing automation settings: {e}", exc_info=True)
         return web.json_response({'error': str(e)}, status=500)
 
 def create_dashboard_app() -> web.Application:
@@ -691,6 +759,12 @@ def create_dashboard_app() -> web.Application:
     app.router.add_get('/api/dashboard_data', dashboard_data_api)
     # Роут для ленивой галереи пользователей
     app.router.add_get('/api/users', users_gallery_api)
+    # Роуты для управления пользователями и автоматизацией
+    app.router.add_get('/api/user/{user_id}/analyze', analyze_user)
+    app.router.add_get('/api/user/{user_id}/details', user_details)
+    app.router.add_post('/api/user/{user_id}/status', update_user_status)
+    app.router.add_post('/api/streams/manage', manage_streams)
+    app.router.add_post('/api/automation/settings', automation_settings)
 
 
     # Добавляем обработчики startup и shutdown

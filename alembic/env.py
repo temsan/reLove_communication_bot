@@ -67,9 +67,13 @@ async def run_async_migrations() -> None:
     and associate a connection with the context.
 
     """
+    
+    # Override the URL from settings to ensure we use the async driver
+    configuration = config.get_section(config.config_ini_section, {})
+    configuration["sqlalchemy.url"] = settings.db_url
 
     connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

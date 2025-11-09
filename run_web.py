@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from aiohttp import web
 from relove_bot.bot import create_bot_and_dispatcher
 from relove_bot.web import create_app
 from relove_bot.config import settings
