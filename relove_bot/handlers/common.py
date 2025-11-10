@@ -736,3 +736,256 @@ async def callback_session_history(callback: CallbackQuery, session: AsyncSessio
         reply_markup=get_profile_keyboard()
     )
     await callback.answer()
+
+
+# Обработчики кнопок меню
+@router.message(lambda message: message.text == "📊 Моя сессия")
+async def handle_my_session_button(message: types.Message, session: AsyncSession):
+    """Обработчик кнопки 'Моя сессия'"""
+    try:
+        from relove_bot.services.session_service import SessionService
+        from relove_bot.services.ui_manager import UIManager
+        
+        user_id = message.from_user.id
+        session_service = SessionService(session)
+        ui_manager = UIManager()
+        
+        # Получаем активную сессию
+        active_session = await session_service.repository.get_active_session(user_id, "provocative")
+        
+        if not active_session:
+            await message.answer(
+                "У тебя нет активной сессии.\n\n"
+                "Начни с /natasha"
+            )
+            return
+        
+        # Получаем пользователя для этапа пути
+        from relove_bot.db.models import User
+        from sqlalchemy import select
+        
+        query = select(User).where(User.id == user_id)
+        result = await session.execute(query)
+        user = result.scalar_one_or_none()
+        
+        # Формируем сводку
+        question_count = active_session.question_count or 0
+        stage = user.last_journey_stage if user else None
+        stage_text = stage.value if stage else "Не определён"
+        
+        # Прогресс индикатор
+        progress_text = ""
+        if stage and user:
+            from relove_bot.services.journey_service import JourneyTrackingService
+            journey_service = JourneyTrackingService(session)
+            progress_list = await journey_service.get_journey_progress(user_id)
+            
+            completed = [p.current_stage.value for p in progress_list if p.current_stage != stage]
+            progress_text = ui_manager.format_progress_indicator(stage, completed)
+        
+        response = f"""**📊 Твоя сессия**
+
+**Вопросов задано:** {question_count}
+**Текущий этап:** {stage_text}
+
+{progress_text}
+
+_Продолжить: просто напиши мне_
+_Завершить: /end_session_
+"""
+        
+        await message.answer(response, parse_mode="Markdown")
+        
+    except Exception as e:
+        logger.error(f"Error in my_session handler: {e}", exc_info=True)
+        await message.answer("Произошла ошибка при получении информации о сессии.")
+
+
+@router.message(lambda message: message.text == "🌌 Мой профиль")
+async def handle_my_profile_button(message: types.Message, session: AsyncSession):
+    """Обработчик кнопки 'Мой профиль'"""
+    try:
+        from relove_bot.db.models import User
+        from sqlalchemy import select
+        
+        user_id = message.from_user.id
+        
+        # Получаем пользователя
+        query = select(User).where(User.id == user_id)
+        result = await session.execute(query)
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await message.answer("Профиль не найден.")
+            return
+        
+        # Формируем профиль
+        profile_text = f"""**🌌 Твой профиль**
+
+**Имя:** {user.first_name or 'Не указано'}
+**Username:** @{user.username or 'Не указано'}
+**Пол:** {user.gender.value if user.gender else 'Не определён'}
+"""
+        
+        # Добавляем метафизический профиль если есть
+        if user.metaphysical_profile:
+            profile = user.metaphysical_profile
+            profile_text += f"""
+**🔮 Метафизический профиль:**
+
+**Планета:** {profile.get('planetary_type', 'unknown').upper()}
+{profile.get('planetary_description', '')}
+
+**Кармический паттерн:** {profile.get('karmic_pattern', 'unknown').upper()}
+
+**Баланс света/тьмы:**
+{profile.get('balance', 'Не определён')}
+"""
+        
+        # Добавляем этап пути
+        if user.last_journey_stage:
+            profile_text += f"\n**🗺 Текущий этап пути:** {user.last_journey_stage.value}"
+        
+        # Добавляем потоки
+        if user.streams:
+            streams_text = ", ".join(user.streams)
+            profile_text += f"\n\n**🌀 Потоки:** {streams_text}"
+        
+        await message.answer(profile_text, parse_mode="Markdown")
+        
+    except Exception as e:
+        logger.error(f"Error in my_profile handler: {e}", exc_info=True)
+        await message.answer("Произошла ошибка при получении профиля.")
+
+
+@router.message(lambda message: message.text == "🔥 Потоки")
+async def handle_streams_button(message: types.Message, session: AsyncSession):
+    """Обработчик кнопки 'Потоки'"""
+    try:
+        from relove_bot.keyboards.psychological import get_stream_selection_keyboard
+        
+        await message.answer(
+            "**Потоки reLove** 🌀\n\n"
+            "1. **Путь Героя** — внутренняя трансформация\n"
+            "2. **Прошлые Жизни** — работа с кармой\n"
+            "3. **Открытие Сердца** — принятие любви\n"
+            "4. **Трансформация Тени** — интеграция тьмы\n"
+            "5. **Пробуждение** — выход из матрицы\n\n"
+            "Выбери поток:",
+            reply_markup=get_stream_selection_keyboard(),
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in streams handler: {e}", exc_info=True)
+        await message.answer("Произошла ошибка при получении потоков.")
+
+
+@router.message(lambda message: message.text == "⏸ Пауза")
+async def handle_pause_button(message: types.Message, session: AsyncSession):
+    """Обработчик кнопки 'Пауза'"""
+    try:
+        from relove_bot.db.models import User
+        from sqlalchemy import select
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        
+        user_id = message.from_user.id
+        
+        # Получаем пользователя
+        query = select(User).where(User.id == user_id)
+        result = await session.execute(query)
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await message.answer("Пользователь не найден.")
+            return
+        
+        # Устанавливаем флаг паузы
+        if not user.markers:
+            user.markers = {}
+        
+        user.markers['proactive_paused'] = True
+        await session.commit()
+        
+        # Отменяем все запланированные триггеры
+        from relove_bot.db.models import ProactiveTrigger
+        from sqlalchemy import update
+        
+        await session.execute(
+            update(ProactiveTrigger)
+            .where(ProactiveTrigger.user_id == user_id)
+            .where(ProactiveTrigger.executed == False)
+            .values(executed=True, error_message="Cancelled by user pause")
+        )
+        await session.commit()
+        
+        # Кнопка возобновления
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="▶️ Продолжить", callback_data="resume_proactive")]
+            ]
+        )
+        
+        await message.answer(
+            "⏸ **Проактивные сообщения приостановлены**\n\n"
+            "Я не буду отправлять тебе напоминания и проактивные сообщения.\n"
+            "Ты можешь продолжить диалог в любое время.\n\n"
+            "Чтобы возобновить проактивность, нажми кнопку ниже.",
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in pause handler: {e}", exc_info=True)
+        await message.answer("Произошла ошибка при установке паузы.")
+
+
+@router.callback_query(lambda c: c.data == "resume_proactive")
+async def handle_resume_callback(callback: types.CallbackQuery, session: AsyncSession):
+    """Обработчик кнопки 'Продолжить'"""
+    try:
+        from relove_bot.db.models import User
+        from sqlalchemy import select
+        
+        user_id = callback.from_user.id
+        
+        # Получаем пользователя
+        query = select(User).where(User.id == user_id)
+        result = await session.execute(query)
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            await callback.answer("Пользователь не найден.")
+            return
+        
+        # Снимаем флаг паузы
+        if user.markers and 'proactive_paused' in user.markers:
+            user.markers['proactive_paused'] = False
+            await session.commit()
+        
+        # Напоминаем контекст
+        from relove_bot.services.session_service import SessionService
+        
+        session_service = SessionService(session)
+        active_session = await session_service.repository.get_active_session(user_id, "provocative")
+        
+        context_text = ""
+        if active_session and active_session.conversation_history:
+            last_messages = active_session.conversation_history[-2:]
+            context_text = "\n\n**Последние сообщения:**\n"
+            for msg in last_messages:
+                role = "Наташа" if msg['role'] == 'assistant' else "Ты"
+                context_text += f"{role}: {msg['content'][:100]}...\n"
+        
+        await callback.message.edit_text(
+            f"▶️ **Проактивность возобновлена**\n\n"
+            f"Я снова буду отправлять тебе напоминания и проактивные сообщения.{context_text}\n\n"
+            f"Продолжим?",
+            parse_mode="Markdown"
+        )
+        
+        await callback.answer("Проактивность возобновлена")
+        
+    except Exception as e:
+        logger.error(f"Error in resume handler: {e}", exc_info=True)
+        await callback.answer("Произошла ошибка при возобновлении.")

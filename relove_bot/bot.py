@@ -19,7 +19,6 @@ from .handlers import (
     flexible_diagnostic
 )
 from .middlewares.database import DatabaseMiddleware
-from .middlewares.logging import LoggingMiddleware
 from .middlewares.session_check import SessionCheckMiddleware
 from .middlewares.profile_update import ProfileUpdateMiddleware
 from .db.session import async_session
@@ -160,16 +159,20 @@ async def start_background_tasks():
     try:
         from relove_bot.tasks.background_tasks import (
             profile_rotation_task,
-            log_archive_task
+            log_archive_task,
+            check_proactive_triggers_task,
+            send_proactive_messages_task
         )
         
         # Запускаем задачи
         tasks = [
             asyncio.create_task(profile_rotation_task()),
-            asyncio.create_task(log_archive_task())
+            asyncio.create_task(log_archive_task()),
+            asyncio.create_task(check_proactive_triggers_task()),
+            asyncio.create_task(send_proactive_messages_task(bot))
         ]
         
-        logger.info("Background tasks started: profile rotation, log archive")
+        logger.info("Background tasks started: profile rotation, log archive, proactive triggers, proactive messages")
         
         return tasks
         

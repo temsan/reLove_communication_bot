@@ -91,3 +91,109 @@ async def log_archive_task():
         
         # Ждём 7 дней
         await asyncio.sleep(604800)
+
+
+async def check_proactive_triggers_task():
+    """
+    Фоновая задача проверки проактивных триггеров.
+    Запускается каждые 15 минут.
+    """
+    while True:
+        try:
+            logger.info("Starting proactive triggers check...")
+            
+            async with async_session() as session:
+                from relove_bot.services.trigger_engine import TriggerEngine
+                
+                engine = TriggerEngine(session)
+                
+                # Проверяем неактивность
+                await engine.check_inactivity_triggers()
+                
+                # Проверяем завершённые этапы
+                await engine.check_milestone_triggers()
+            
+            logger.info("Proactive triggers check completed")
+            
+        except Exception as e:
+            logger.error(f"Error in proactive triggers check: {e}", exc_info=True)
+        
+        # Ждём 15 минут
+        await asyncio.sleep(900)
+
+
+async def send_proactive_messages_task(bot):
+    """
+    Фоновая задача отправки проактивных сообщений.
+    Запускается каждую минуту.
+    
+    Args:
+        bot: Экземпляр бота для отправки сообщений
+    """
+    while True:
+        try:
+            async with async_session() as session:
+                from relove_bot.services.trigger_engine import TriggerEngine
+                from relove_bot.services.message_orchestrator import MessageOrchestrator
+                from relove_bot.services.proactive_rate_limiter import ProactiveRateLimiter
+                
+                engine = TriggerEngine(session)
+                orchestrator = MessageOrchestrator(session)
+                rate_limiter = ProactiveRateLimiter(session)
+                
+                # Получаем готовые триггеры
+                pending_triggers = await engine.get_pending_triggers()
+                
+                for trigger in pending_triggers:
+                    try:
+                        # Проверяем rate limit
+                        can_send = await rate_limiter.can_send_proactive(
+                            trigger.user_id,
+                            trigger.trigger_type.value
+                        )
+                        
+                        if not can_send:
+                            logger.info(f"Skipping trigger {trigger.id} due to rate limit")
+                            continue
+                        
+                        # Генерируем сообщение
+                        response = await orchestrator.generate_proactive_message(
+                            trigger.user_id,
+                            trigger.trigger_type
+                        )
+                        
+                        if response:
+                            # Отправляем сообщение
+                            await bot.send_message(
+                                chat_id=trigger.user_id,
+                                text=response.text,
+                                reply_markup=response.keyboard,
+                                parse_mode=response.parse_mode
+                            )
+                            
+                            # Отмечаем как выполненный
+                            await engine.mark_trigger_executed(
+                                trigger.id,
+                                message_sent=response.text
+                            )
+                            
+                            logger.info(f"Sent proactive message to user {trigger.user_id}")
+                        else:
+                            # Отмечаем с ошибкой
+                            await engine.mark_trigger_executed(
+                                trigger.id,
+                                error="Failed to generate message"
+                            )
+                    
+                    except Exception as e:
+                        logger.error(f"Error sending proactive message for trigger {trigger.id}: {e}", exc_info=True)
+                        await engine.mark_trigger_executed(
+                            trigger.id,
+                            error=str(e)
+                        )
+            
+        except Exception as e:
+            logger.error(f"Error in send proactive messages task: {e}", exc_info=True)
+        
+        # Ждём 1 минуту
+        await asyncio.sleep(60)

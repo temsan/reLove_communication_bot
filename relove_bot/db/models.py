@@ -274,3 +274,70 @@ class JourneyProgress(Base):
 
     def __repr__(self):
         return f"<JourneyProgress(id={self.id}, user_id={self.user_id}, current_stage={self.current_stage})>"
+
+
+class TriggerTypeEnum(enum.Enum):
+    """Типы проактивных триггеров"""
+    INACTIVITY_24H = "inactivity_24h"
+    MILESTONE_COMPLETED = "milestone_completed"
+    PATTERN_DETECTED = "pattern_detected"
+    MORNING_CHECK = "morning_check"
+    STAGE_TRANSITION = "stage_transition"
+
+
+class ProactiveTrigger(Base):
+    """Модель для проактивных триггеров"""
+    __tablename__ = "proactive_triggers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    trigger_type: Mapped[TriggerTypeEnum] = mapped_column(SQLEnum(TriggerTypeEnum), index=True)
+    scheduled_time: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), index=True)
+    executed: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    message_sent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    user_response: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+    executed_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    def __repr__(self):
+        return f"<ProactiveTrigger(id={self.id}, user_id={self.user_id}, type={self.trigger_type}, executed={self.executed})>"
+
+
+class InteractionTypeEnum(enum.Enum):
+    """Типы взаимодействий пользователя"""
+    MESSAGE = "message"
+    BUTTON_CLICK = "button_click"
+    QUICK_REPLY = "quick_reply"
+    COMMAND = "command"
+
+
+class UserInteraction(Base):
+    """Модель для трекинга взаимодействий пользователя"""
+    __tablename__ = "user_interactions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), index=True)
+    interaction_type: Mapped[InteractionTypeEnum] = mapped_column(SQLEnum(InteractionTypeEnum))
+    content: Mapped[str] = mapped_column(Text)
+    journey_stage: Mapped[Optional[JourneyStageEnum]] = mapped_column(SQLEnum(JourneyStageEnum), nullable=True, index=True)
+    timestamp: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=func.now(), index=True)
+    interaction_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True, doc="Дополнительные метаданные (длина сообщения, время ответа, etc.)")
+
+    def __repr__(self):
+        return f"<UserInteraction(id={self.id}, user_id={self.user_id}, type={self.interaction_type}, timestamp={self.timestamp})>"
+
+
+class ProactivityConfig(Base):
+    """Модель для конфигурации проактивности"""
+    __tablename__ = "proactivity_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    max_messages_per_day: Mapped[int] = mapped_column(Integer, default=2)
+    time_window_start: Mapped[datetime.time] = mapped_column(DateTime(timezone=False), default=datetime.time(8, 0))
+    time_window_end: Mapped[datetime.time] = mapped_column(DateTime(timezone=False), default=datetime.time(22, 0))
+    enabled_triggers: Mapped[List[str]] = mapped_column(JSON, default=list, doc="Список включённых типов триггеров")
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
+
+    def __repr__(self):
+        return f"<ProactivityConfig(id={self.id}, max_messages={self.max_messages_per_day}, window={self.time_window_start}-{self.time_window_end})>"
