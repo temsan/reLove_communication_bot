@@ -301,7 +301,7 @@ class LLMService:
         """
         try:
             # Формируем промпт для анализа
-            analysis_prompt = get_analysis_prompt(prompt, system_prompt)
+            analysis_prompt = get_analysis_prompt(prompt)
             
             # Отправляем запрос к LLM
             result = await self.llm.analyze_content(
