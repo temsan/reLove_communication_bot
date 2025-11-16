@@ -770,13 +770,8 @@ def create_dashboard_app() -> web.Application:
     # Добавляем обработчики startup и shutdown
     async def startup_wrapper(app):
         from relove_bot.db.database import setup_database
-        try:
-            await setup_database()
-            logger.info("Database setup completed")
-        except Exception as e:
-            # Не валим сервер, но логируем ошибку
-            logger.error(f"Database setup failed: {e}", exc_info=True)
-            logger.warning("Continuing without database. Some routes may fail when accessed.")
+        await setup_database()
+        logger.info("Database setup completed")
     
     app.on_startup.clear()
     app.on_startup.append(startup_wrapper)

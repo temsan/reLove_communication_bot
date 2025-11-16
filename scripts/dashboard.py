@@ -19,20 +19,43 @@ logging.getLogger('asyncpg').setLevel(logging.ERROR)
 logging.getLogger('relove_bot').setLevel(logging.ERROR)
 
 async def start_dashboard():
-    # Создаем приложение дашборда
-    app = create_dashboard_app()
-    
-    # Настраиваем и запускаем сервер
-    runner = aiohttp_web.AppRunner(app)
-    await runner.setup()
-    site = aiohttp_web.TCPSite(runner, '0.0.0.0', 8080)
-    await site.start()
-    
-    print('Веб-дашборд запущен на http://localhost:8080')
-    print('Перейдите по адресу http://localhost:8080/dashboard для просмотра')
-    
-    # Бесконечный цикл, чтобы приложение не завершалось
-    await asyncio.Event().wait()
+    try:
+        # Создаем приложение дашборда
+        app = create_dashboard_app()
+        
+        # Настраиваем и запускаем сервер
+        runner = aiohttp_web.AppRunner(app)
+        await runner.setup()
+        
+        print('✓ Веб-дашборд запущен на http://localhost:8080')
+        print('  Перейдите по адресу http://localhost:8080/dashboard для просмотра')
+        
+        site = aiohttp_web.TCPSite(runner, '0.0.0.0', 8080)
+        await site.start()
+        
+        # Бесконечный цикл, чтобы приложение не завершалось
+        await asyncio.Event().wait()
+    except ConnectionRefusedError:
+        print('\n✗ Ошибка подключения к базе данных PostgreSQL!')
+        print('  Запустите базу данных командой: docker-compose up -d\n')
+        raise SystemExit(1)
+    except Exception as e:
+        error_msg = str(e)
+        
+        # Проверяем, связана ли ошибка с БД
+        if any(keyword in error_msg.lower() for keyword in ['connection', 'database', 'refused', 'connect']):
+            print('\n✗ Ошибка подключения к базе данных!')
+            print('  Убедитесь, что PostgreSQL запущен:')
+            print('    docker-compose up -d\n')
+        else:
+            print(f'\n✗ Ошибка запуска дашборда: {error_msg}\n')
+        
+        raise SystemExit(1)
 
 if __name__ == "__main__":
-    asyncio.run(start_dashboard())
+    try:
+        asyncio.run(start_dashboard())
+    except KeyboardInterrupt:
+        print('\n✓ Дашборд остановлен')
+    except Exception:
+        pass  # Ошибка уже выведена в start_dashboard()

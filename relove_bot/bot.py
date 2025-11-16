@@ -56,7 +56,6 @@ bot, dp = create_bot_and_dispatcher()
 
 # Регистрация middleware
 dp.update.middleware(DatabaseMiddleware(async_session))
-dp.update.middleware(LoggingMiddleware())
 dp.update.middleware(ProfileUpdateMiddleware())
 dp.update.middleware(SessionCheckMiddleware())
 
