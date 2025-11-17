@@ -213,16 +213,11 @@ def parse_ritual_data(json_path: Path) -> Dict[Tuple[str, str, str], List[str]]:
         if not text:
             continue
         
-        # Проверяем, является ли это постом благодарности (сбрасываем текущий ритуал)
+        # Проверяем, является ли это постом благодарности (пропускаем его, но не сбрасываем ритуал)
         if from_id == OLEG_USER_ID:
             text_lower = text.lower()
             if ('спасибо' in text_lower and 'разделения' in text_lower) or 'благодарю всех' in text_lower:
-                # Сбрасываем текущий ритуал
-                current_ritual = {
-                    'name': None,
-                    'date': None,
-                    'announcement_date': None
-                }
+                # Пропускаем пост благодарности, но сохраняем текущий ритуал
                 continue
         
         # Проверяем, является ли сообщение анонсом ритуала
@@ -516,7 +511,7 @@ async def create_brief(sharings: List[str]) -> str:
                 system_prompt="""Ты мудрый аналитик, который понимает философию relove и концепцию пути героя. 
 Ты анализируешь опыт людей через призму трансформации, глубинных паттернов и метафизического контекста.
 Создавай содержательные, конкретные и глубокие анализы на русском языке.""",
-                max_tokens=500
+                max_tokens=2000
             )
             if brief and brief.strip():
                 return brief.strip()
