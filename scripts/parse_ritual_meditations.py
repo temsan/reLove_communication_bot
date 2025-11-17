@@ -213,6 +213,18 @@ def parse_ritual_data(json_path: Path) -> Dict[Tuple[str, str, str], List[str]]:
         if not text:
             continue
         
+        # Проверяем, является ли это постом благодарности (сбрасываем текущий ритуал)
+        if from_id == OLEG_USER_ID:
+            text_lower = text.lower()
+            if ('спасибо' in text_lower and 'разделения' in text_lower) or 'благодарю всех' in text_lower:
+                # Сбрасываем текущий ритуал
+                current_ritual = {
+                    'name': None,
+                    'date': None,
+                    'announcement_date': None
+                }
+                continue
+        
         # Проверяем, является ли сообщение анонсом ритуала
         if is_ritual_announcement(text, from_id):
             ritual_name = extract_ritual_name(text)
