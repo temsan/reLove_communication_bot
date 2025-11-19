@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import sys
+import os
+from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from typing import Tuple
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
@@ -23,16 +25,50 @@ from .middlewares.session_check import SessionCheckMiddleware
 from .middlewares.profile_update import ProfileUpdateMiddleware
 from .db.session import async_session
 
-# Настройка логирования
-logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL),
-    format=settings.LOG_FORMAT,
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler(settings.log_file_path)
-    ]
-)
-logger = logging.getLogger(__name__)
+# Создаем директорию для логов если её нет
+os.makedirs(settings.LOG_DIR, exist_ok=True)
+
+# Настройка логирования с ротацией
+def setup_logging():
+    """Настраивает логирование с ротацией по размеру и времени"""
+    logger = logging.getLogger()
+    logger.setLevel(getattr(logging, settings.LOG_LEVEL))
+    
+    # Удаляем существующие обработчики
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # Форматтер
+    formatter = logging.Formatter(settings.LOG_FORMAT)
+    
+    # Консольный обработчик
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    # Файловый обработчик с ротацией по размеру (10 MB)
+    # Если файл превышает 10 MB, создается резервная копия
+    # На Windows используем только RotatingFileHandler (TimedRotatingFileHandler может иметь проблемы)
+    try:
+        size_handler = RotatingFileHandler(
+            filename=settings.log_file_path,
+            maxBytes=10 * 1024 * 1024,  # 10 MB
+            backupCount=10,  # Хранить 10 резервных копий
+            encoding='utf-8',
+            delay=False
+        )
+        size_handler.setFormatter(formatter)
+        logger.addHandler(size_handler)
+    except Exception as e:
+        print(f"⚠️ Ошибка при настройке ротации логов: {e}", flush=True)
+        # Fallback на простой FileHandler
+        simple_handler = logging.FileHandler(settings.log_file_path, encoding='utf-8')
+        simple_handler.setFormatter(formatter)
+        logger.addHandler(simple_handler)
+    
+    return logger
+
+logger = setup_logging()
 
 def create_bot_and_dispatcher(storage: BaseStorage = None) -> Tuple[Bot, Dispatcher]:
     """
@@ -116,22 +152,38 @@ async def main():
     """Основная функция запуска бота"""
     try:
         # Установка команд бота
-        await setup_bot_commands()
+        try:
+            await setup_bot_commands()
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось установить команды бота: {e}")
         
         # Восстановление активных сессий из БД
         await restore_active_sessions()
         
-        # Запуск фоновых задач
-        background_tasks = await start_background_tasks()
+        # Запуск фоновых задач (отключено для отладки)
+        # background_tasks = await start_background_tasks()
         
         # Запуск бота
-        logger.info("Starting bot...")
+        logger.info("✅ Starting bot...")
         await dp.start_polling(bot)
+        
+    except KeyboardInterrupt:
+        logger.info("🛑 Bot stopped by user")
     except Exception as e:
-        logger.error(f"Error starting bot: {e}")
+        error_msg = str(e).lower()
+        if "connection refused" in error_msg or "refused" in error_msg:
+            logger.error(
+                "❌ БД недоступна! Убедитесь, что Docker контейнеры запущены:\n"
+                "   docker-compose up -d"
+            )
+        else:
+            logger.error(f"❌ Ошибка при запуске бота: {e}", exc_info=True)
     finally:
         # Закрытие сессии бота
-        await bot.session.close()
+        try:
+            await bot.session.close()
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка при закрытии сессии бота: {e}")
 
 async def restore_active_sessions():
     """Восстанавливает активные сессии из БД при перезапуске"""
@@ -151,7 +203,20 @@ async def restore_active_sessions():
                 logger.info("No active sessions to restore")
                 
     except Exception as e:
-        logger.error(f"Error restoring active sessions: {e}")
+        error_msg = str(e).lower()
+        
+        if "connection refused" in error_msg or "refused" in error_msg:
+            logger.warning(
+                "⚠️ БД недоступна при восстановлении сессий. "
+                "Убедитесь, что Docker контейнеры запущены: docker-compose up -d"
+            )
+        elif "timeout" in error_msg:
+            logger.warning(f"⏱️ Таймаут при подключении к БД: {e}")
+        else:
+            logger.error(f"❌ Ошибка при восстановлении сессий: {e}")
+        
+        # Продолжаем работу бота даже если БД недоступна
+        logger.info("Бот продолжит работу без восстановленных сессий")
 
 async def start_background_tasks():
     """Запускает фоновые задачи"""

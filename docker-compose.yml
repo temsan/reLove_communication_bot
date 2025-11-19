@@ -1,24 +1,12 @@
 version: '3.8'
 
 services:
-  db:
-    image: postgres:15
-    restart: always
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
-      POSTGRES_DB: ${POSTGRES_DB:-relove_bot}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    volumes:
-      - db_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # PostgreSQL - существующий контейнер relove_postgres
+  # ⚠️ ВАЖНО: Контейнер запущен отдельно, данные НЕ затираются!
+  # Подключен к сети relove_network для связи с другими сервисами
+  # Используется как external_link для совместимости
 
-  # Redis (опционально, для FSM storage)
+  # Redis - для FSM storage и кэша
   redis:
     image: redis:7-alpine
     restart: always
@@ -31,10 +19,10 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-    profiles:
-      - redis  # Запускается только если указан профиль: docker-compose --profile redis up
+    networks:
+      - relove_network
 
-  # Qdrant (опционально, для команды /similar)
+  # Qdrant - для поиска похожих пользователей (команда /similar)
   qdrant:
     image: qdrant/qdrant:latest
     restart: always
@@ -48,10 +36,52 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    profiles:
-      - qdrant  # Запускается только если указан профиль: docker-compose --profile qdrant up
+    networks:
+      - relove_network
+
+  # reLove Communication Bot
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      # Подключение к существующему контейнеру relove_postgres через сеть
+      DB_URL: postgresql+asyncpg://user:pass@relove_postgres:5432/dbname
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_API_BASE: ${LLM_API_BASE}
+      MODEL_NAME: ${MODEL_NAME}
+      TG_API_ID: ${TG_API_ID}
+      TG_API_HASH: ${TG_API_HASH}
+      TG_SESSION: ${TG_SESSION}
+      OUR_CHANNEL_ID: ${OUR_CHANNEL_ID}
+      DISCUSSION_CHANNEL_ID: ${DISCUSSION_CHANNEL_ID}
+      ADMIN_IDS: ${ADMIN_IDS}
+      LOGLEVEL: ${LOGLEVEL:-INFO}
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+    depends_on:
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    networks:
+      - relove_network
+    volumes:
+      - ./logs:/app/logs
+      - ./relove_bot:/app/relove_bot
+    ports:
+      - "${BOT_PORT:-8080}:8080"
+    # Явно указываем, что ждем relove_postgres (external контейнер)
+    external_links:
+      - relove_postgres
 
 volumes:
-  db_data:
   redis_data:
   qdrant_data:
+
+networks:
+  relove_network:
+    driver: bridge

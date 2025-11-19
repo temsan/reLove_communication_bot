@@ -244,30 +244,80 @@ async def handle_admin_user_info(message: types.Message):
 async def handle_message(message: types.Message):
     try:
         llm = LLM()
-        summary_struct = await llm.analyze_content(text=message.text)
-        summary = summary_struct['summary']
-        async with SessionLocal() as session:
-            # Получаем или создаём пользователя
-            user = await session.get(User, message.from_user.id)
-            if not user:
-                user = User(
-                    id=message.from_user.id,
-                    username=message.from_user.username,
-                    first_name=message.from_user.first_name,
-                    last_name=message.from_user.last_name,
-                    is_active=True,
-                    context={}
+        summary_struct = await llm.analyze_content(content=message.text)
+        
+        # Обработка результата analyze_content
+        if isinstance(summary_struct, dict):
+            summary = summary_struct.get('summary', str(summary_struct))
+        else:
+            summary = str(summary_struct)
+        
+        try:
+            async with SessionLocal() as session:
+                # Получаем или создаём пользователя
+                user = await session.get(User, message.from_user.id)
+                is_new_user = False
+                
+                if not user:
+                    is_new_user = True
+                    user = User(
+                        id=message.from_user.id,
+                        username=message.from_user.username,
+                        first_name=message.from_user.first_name,
+                        last_name=message.from_user.last_name,
+                        is_active=True,
+                        context={}
+                    )
+                    session.add(user)
+                    await session.flush()  # Сохраняем пользователя перед анализом профиля
+                    
+                    # Для нового пользователя создаем полный профиль
+                    try:
+                        from relove_bot.services.profile_service import ProfileService
+                        profile_service = ProfileService(session)
+                        await profile_service.analyze_profile(
+                            user_id=message.from_user.id,
+                            tg_user=message.from_user
+                        )
+                        logging.info(f"Профиль создан для нового пользователя {message.from_user.id}")
+                    except Exception as e:
+                        logging.warning(f"Не удалось создать полный профиль для {message.from_user.id}: {e}")
+                
+                # Обновляем context: summary и relove_context
+                user.context = user.context or {}
+                user.context['last_message'] = message.text
+                user.context['summary'] = summary
+                
+                # Получаем профиль пользователя
+                profile_summary = await get_profile_summary(message.from_user.id, session)
+                user.context['relove_context'] = profile_summary
+                await session.commit()
+                relove_context = user.context.get("relove_context")
+        
+        except Exception as db_error:
+            # Обработка ошибок БД
+            error_msg = str(db_error).lower()
+            
+            if "connection refused" in error_msg or "refused" in error_msg:
+                logging.error(f"БД недоступна: {db_error}")
+                await message.answer(
+                    "⚠️ Сервис временно недоступен. Пожалуйста, попробуйте позже.\n"
+                    "Убедитесь, что Docker контейнеры запущены: `docker-compose up -d`"
                 )
-                session.add(user)
-            # Обновляем context: summary и relove_context
-            user.context = user.context or {}
-            user.context['last_message'] = message.text
-            user.context['summary'] = summary
-            # Можно обновлять relove_context через get_profile_summary или отдельную функцию
-            profile_summary = await get_profile_summary(message.from_user.id, session)
-            user.context['relove_context'] = profile_summary
-            await session.commit()
-            relove_context = user.context.get("relove_context")
+                return
+            elif "timeout" in error_msg:
+                logging.error(f"Таймаут БД: {db_error}")
+                await message.answer(
+                    "⏱️ Сервис отвечает медленно. Пожалуйста, попробуйте позже."
+                )
+                return
+            else:
+                logging.error(f"Ошибка БД: {db_error}")
+                await message.answer(
+                    "❌ Ошибка при обработке запроса. Пожалуйста, попробуйте позже."
+                )
+                return
+        
         # Генерируем персонализированный ответ с учетом контекста
         if relove_context:
             prompt = (
@@ -281,11 +331,13 @@ async def handle_message(message: types.Message):
                 f"Новое сообщение пользователя: {message.text}\n"
                 f"Дай персонализированную обратную связь для пробуждения и развития в потоке reLove."
             )
+        
         feedback = await generate_rag_answer(context="", question=prompt)
         await message.answer(feedback)
+        
     except Exception as e:
-        logging.error(f"Ошибка в handle_message: {e}")
-        await message.answer("Произошла ошибка при обработке сообщения. Попробуйте позже.")
+        logging.error(f"Ошибка в handle_message: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка при обработке сообщения. Попробуйте позже.")
 
 @router.message(Command(commands=["similar"]))
 async def handle_similar(message: types.Message):
