@@ -160,8 +160,12 @@ async def main():
         # Восстановление активных сессий из БД
         await restore_active_sessions()
         
-        # Запуск фоновых задач (отключено для отладки)
-        # background_tasks = await start_background_tasks()
+        # Запуск фоновых задач
+        try:
+            background_tasks = await start_background_tasks()
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось запустить фоновые задачи: {e}")
+            background_tasks = []
         
         # Запуск бота
         logger.info("✅ Starting bot...")
@@ -220,6 +224,8 @@ async def restore_active_sessions():
 
 async def start_background_tasks():
     """Запускает фоновые задачи"""
+    tasks = []
+    
     try:
         from relove_bot.tasks.background_tasks import (
             profile_rotation_task,
@@ -228,20 +234,47 @@ async def start_background_tasks():
             send_proactive_messages_task
         )
         
-        # Запускаем задачи
-        tasks = [
-            asyncio.create_task(profile_rotation_task()),
-            asyncio.create_task(log_archive_task()),
-            asyncio.create_task(check_proactive_triggers_task()),
-            asyncio.create_task(send_proactive_messages_task(bot))
-        ]
+        # Запускаем задачи с обработкой ошибок для каждой
+        try:
+            task = asyncio.create_task(profile_rotation_task())
+            tasks.append(task)
+            logger.info("✅ Profile rotation task started")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось запустить profile rotation task: {e}")
         
-        logger.info("Background tasks started: profile rotation, log archive, proactive triggers, proactive messages")
+        try:
+            task = asyncio.create_task(log_archive_task())
+            tasks.append(task)
+            logger.info("✅ Log archive task started")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось запустить log archive task: {e}")
+        
+        try:
+            task = asyncio.create_task(check_proactive_triggers_task())
+            tasks.append(task)
+            logger.info("✅ Proactive triggers task started")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось запустить proactive triggers task: {e}")
+        
+        try:
+            task = asyncio.create_task(send_proactive_messages_task(bot))
+            tasks.append(task)
+            logger.info("✅ Proactive messages task started")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось запустить proactive messages task: {e}")
+        
+        if tasks:
+            logger.info(f"🚀 Background tasks started: {len(tasks)} tasks running")
+        else:
+            logger.warning("⚠️ No background tasks were started")
         
         return tasks
         
+    except ImportError as e:
+        logger.error(f"❌ Ошибка импорта фоновых задач: {e}")
+        return []
     except Exception as e:
-        logger.error(f"Error starting background tasks: {e}")
+        logger.error(f"❌ Ошибка при запуске фоновых задач: {e}", exc_info=True)
         return []
 
 if __name__ == "__main__":

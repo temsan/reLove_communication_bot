@@ -88,9 +88,10 @@ async def get_or_create_user(session: AsyncSession, tg_user: types.User) -> User
 
 @router.message(CommandStart())
 async def handle_start(message: types.Message, session: AsyncSession):
-    """Приветствие в стиле Наташи с дружелюбным интерфейсом"""
+    """Приветствие с информацией о событиях и возможностях"""
     from relove_bot.keyboards.main_menu import get_main_menu_keyboard
     from relove_bot.services.session_service import SessionService
+    from relove_bot.constants.welcome_message import WELCOME_MESSAGE
     
     tg_user = message.from_user
     db_user = await get_or_create_user(session, tg_user)
@@ -103,44 +104,20 @@ async def handle_start(message: types.Message, session: AsyncSession):
     user_name = db_user.first_name or "друг"
     logger.info(f"User {user_name} (ID: {db_user.id}) started the bot.")
     
-    # Получаем профиль для персонализации
-    session_service = SessionService(session)
-    profile_context = ""
-    
-    if db_user.psychological_summary:
-        profile_context = f"\n\nКонтекст профиля:\n{db_user.psychological_summary[:200]}"
-    
-    # Генерируем персонализированное приветствие через LLM
-    greeting_prompt = f"""Ты — Наташа Волкош, провокативный терапевт reLove.
-
-Пользователь {user_name} только что запустил бота.
-{profile_context}
-
-Поприветствуй его в своём стиле:
-- Коротко (2-3 предложения)
-- Провокативно, но тепло
-- Предложи начать работу
-- Если есть контекст профиля — намекни на то, что видишь его состояние
-
-Не используй формальности. Говори прямо."""
-
+    # Отправляем приветственный пост с информацией о событиях
     try:
-        greeting = await llm_service.analyze_text(
-            greeting_prompt,
-            max_tokens=150
+        await message.answer(
+            WELCOME_MESSAGE,
+            parse_mode="HTML",
+            reply_markup=get_main_menu_keyboard()
         )
     except Exception as e:
-        logger.error(f"Error generating greeting: {e}")
-        greeting = (
-            f"Привет, {user_name}. 🔥\n\n"
-            "Я вижу тебя. Вижу, что привело тебя сюда.\n"
-            "Готов(а) к честному разговору?"
+        logger.error(f"Error sending welcome message: {e}")
+        await message.answer(
+            "Добро пожаловать в reLove бот! 🔥\n\n"
+            "Выбери действие из меню ниже.",
+            reply_markup=get_main_menu_keyboard()
         )
-    
-    await message.answer(
-        greeting,
-        reply_markup=get_main_menu_keyboard()
-    )
     
     # Небольшая подсказка
     await message.answer(
@@ -266,7 +243,7 @@ async def handle_message(message: types.Message):
                         first_name=message.from_user.first_name,
                         last_name=message.from_user.last_name,
                         is_active=True,
-                        context={}
+                        markers={}
                     )
                     session.add(user)
                     await session.flush()  # Сохраняем пользователя перед анализом профиля
@@ -283,16 +260,16 @@ async def handle_message(message: types.Message):
                     except Exception as e:
                         logging.warning(f"Не удалось создать полный профиль для {message.from_user.id}: {e}")
                 
-                # Обновляем context: summary и relove_context
-                user.context = user.context or {}
-                user.context['last_message'] = message.text
-                user.context['summary'] = summary
+                # Обновляем markers: summary и relove_context
+                user.markers = user.markers or {}
+                user.markers['last_message'] = message.text
+                user.markers['summary'] = summary
                 
                 # Получаем профиль пользователя
                 profile_summary = await get_profile_summary(message.from_user.id, session)
-                user.context['relove_context'] = profile_summary
+                user.markers['relove_context'] = profile_summary
                 await session.commit()
-                relove_context = user.context.get("relove_context")
+                relove_context = user.markers.get("relove_context")
         
         except Exception as db_error:
             # Обработка ошибок БД

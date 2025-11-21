@@ -1,3 +1,4 @@
+import logging
 from ..db.session import SessionLocal
 from ..db.models import UserActivityLog
 from sqlalchemy import select
@@ -9,15 +10,20 @@ from datetime import datetime
 from relove_bot.services.llm_service import llm_service
 from relove_bot.services.prompts import RAG_TEXT_SUMMARY_PROMPT
 
+logger = logging.getLogger(__name__)
+
 async def aggregate_profile_summary(user_id, session):
+    """Агрегирует профиль пользователя из его активности"""
     # Собрать все сообщения пользователя
     result = await session.execute(
-        select(UserActivityLog.summary)
+        select(UserActivityLog)
         .where(UserActivityLog.user_id == user_id)
         .where(UserActivityLog.activity_type == "message")
         .order_by(UserActivityLog.timestamp.asc())
     )
-    all_messages = [row[0] for row in result.fetchall()]
+    all_logs = result.scalars().all()
+    all_messages = [log.details.get('text', '') if log.details else '' for log in all_logs]
+    
     # Собрать профильные данные пользователя
     user = await session.get(User, user_id)
     profile_info = []
@@ -28,59 +34,62 @@ async def aggregate_profile_summary(user_id, session):
             profile_info.append(f"Имя: {user.first_name}")
         if user.last_name:
             profile_info.append(f"Фамилия: {user.last_name}")
-        # bio и др. поля можно добавить по необходимости
+    
     text_for_summary = (
         "Профиль пользователя:\n" + "\n".join(profile_info) +
-        "\n\nСообщения пользователя:\n" + "\n".join(all_messages)
+        "\n\nСообщения пользователя:\n" + "\n".join(filter(None, all_messages))
     )
+    
     if not all_messages and not profile_info:
         return
+    
     llm = LLM()
     summary_struct = await llm.analyze_content(
-        f"Проанализируй профиль и сообщения пользователя. Определи этап пути героя и дай рекомендации, как его пробудить:\n{text_for_summary}"
+        f"Проанализируй профиль и сообщения пользователя. Определи этап пути героя и дай рекомендации:\n{text_for_summary}"
     )
-    # Получаем эмбеддинг summary профиля
-    from ..db.vector import upsert_user_embedding
-    from .llm import get_text_embedding
-    embedding = await get_text_embedding(summary)
-
-    # Сохраняем summary и историю диалога в user.context
-    user.context = user.context or {}
-    user.context["summary"] = summary
-    # Формируем сжатый контекст для общения и пробуждения пользователя (relove_context)
-    # Например, summary + ключевые выводы для пробуждения и направления в relove (мужской/женский)
-    # Здесь можно использовать simple NLP или шаблон, либо добавить анализ пола пользователя
-    relove_context = f"Профиль: {summary}\nПоток: {'мужской' if user.username and user.username.endswith('man') else 'женский'}\nРекомендация: Сфокусируйся на пробуждении и развитии в потоке reLove."
-    user.context["relove_context"] = relove_context
+    
+    # Извлекаем summary
+    if isinstance(summary_struct, dict):
+        summary = summary_struct.get('summary', str(summary_struct))
+    else:
+        summary = str(summary_struct)
+    
+    # Сохраняем summary в markers пользователя
+    user.markers = user.markers or {}
+    user.markers["summary"] = summary
+    user.markers["profile_updated_at"] = datetime.now().isoformat()
     await session.commit()
-
-    # Сохраняем эмбеддинг в Qdrant
-    upsert_user_embedding(
-        user_id=user_id,
-        embedding=embedding,
-        metadata={"username": user.username, "context": user.context}
-    )
+    
+    # Сохраняем лог профиля
     log = UserActivityLog(
         user_id=user_id,
         chat_id=None,
         activity_type="profile_summary",
-        timestamp=datetime.utcnow(),
-        details=None,
-        summary=summary
+        details={"summary": summary}
     )
     session.add(log)
     await session.commit()
 
 async def get_profile_summary(user_id, session):
+    """Получает последний профиль пользователя"""
+    # Сначала проверяем markers пользователя
+    user = await session.get(User, user_id)
+    if user and user.markers and user.markers.get("summary"):
+        return user.markers.get("summary", "")
+    
+    # Если нет в markers, ищем в логах
     result = await session.execute(
-        select(UserActivityLog.summary)
+        select(UserActivityLog)
         .where(UserActivityLog.user_id == user_id)
         .where(UserActivityLog.activity_type == "profile_summary")
         .order_by(UserActivityLog.timestamp.desc())
         .limit(1)
     )
-    row = result.scalar_one_or_none()
-    return row or ""
+    log = result.scalar_one_or_none()
+    if log and log.details:
+        return log.details.get("summary", "")
+    
+    return ""
 
 async def analyze_text(text: str) -> str:
     """
