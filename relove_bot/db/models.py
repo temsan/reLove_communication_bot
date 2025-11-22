@@ -45,26 +45,33 @@ class User(Base):
     registration_date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_date: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     gender: Mapped[Optional[GenderEnum]] = mapped_column(SQLEnum(GenderEnum, name='genderenum'), nullable=True, default=None, index=True, doc="Пол пользователя (male/female)")
-    history_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, doc="Выжимка истории общения с ботом")
-    profile_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, doc="Выжимка профиля (посты, фото и т.д.)") 
+    history_summary: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, 
+        doc="История диалогов с ботом. Использование: контекст для персонализации ответов"
+    )
+    profile: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, 
+        doc="Психопрофиль из постов/био/каналов. Цель: понимание личности для подбора подхода"
+    )
+    hero_stage: Mapped[Optional[JourneyStageEnum]] = mapped_column(
+        SQLEnum(JourneyStageEnum), nullable=True, index=True, 
+        doc="Этап пути героя. Цель: определение текущей точки трансформации для выбора стратегии"
+    )
+    metaphysics: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSON, nullable=True, 
+        doc="Метафизика (планета, карма, свет/тьма). Цель: глубинный архетипический контекст"
+    )
     photo_jpeg: Mapped[Optional[bytes]] = mapped_column(
         LargeBinary, nullable=True, doc="Фото профиля (JPEG, сжато)"
     )
     markers: Mapped[Optional[Dict[str, Any]]] = mapped_column(
-        JSON, nullable=True, doc="Словарь свойство-значение для любых пользовательских маркеров и свойств"
+        JSON, nullable=True, doc="Кастомные маркеры и свойства"
     )
-    streams: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True, doc="Список пройденных потоков reLove")
+    streams: Mapped[Optional[List[str]]] = mapped_column(
+        JSON, nullable=True, doc="Пройденные потоки reLove"
+    )
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    
-    # Новые поля для интеграции с сессиями
-    metaphysical_profile: Mapped[Optional[Dict[str, Any]]] = mapped_column(
-        JSON, nullable=True, doc="Метафизический профиль пользователя (планета, карма, баланс свет/тьма)"
-    )
-    last_journey_stage: Mapped[Optional[JourneyStageEnum]] = mapped_column(
-        SQLEnum(JourneyStageEnum), nullable=True, index=True, doc="Последний определённый этап пути героя"
-    )
-    psychological_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, doc="Психологическое саммари пользователя")
 
     # Поля для отслеживания конверсии
     has_started_journey: Mapped[bool] = mapped_column(Boolean, default=False)

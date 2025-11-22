@@ -354,10 +354,7 @@ class ChannelProfileFiller:
                     # Заполняем профиль если нужно
                     if fill_profiles:
                         # Проверяем, нужно ли заполнять/обновлять профиль
-                        needs_full_fill = (
-                            not db_user.profile_summary or 
-                            not db_user.psychological_summary
-                        )
+                        needs_full_fill = not db_user.profile
                         
                         if needs_full_fill:
                             # Полное заполнение профиля
@@ -462,23 +459,31 @@ class ChannelProfileFiller:
                 except Exception as e:
                     logger.warning(f"Could not get photo for user {user.id}: {e}")
             
-            # Генерируем психологический анализ
+            # Подготовка данных для анализа
+            content_for_analysis = []
+            
+            if bio:
+                content_for_analysis.append(f"BIO: {bio}")
+            
+            if channels:
+                content_for_analysis.append(
+                    f"Активен в {len(channels)} каналах: {', '.join(channels)}"
+                )
+            
+            if posts_text:
+                content_for_analysis.append(f"ПОСТЫ:\n{posts_text}")
+            
+            full_content = "\n\n".join(content_for_analysis)
+            
             if mode == 'incremental':
-                # Инкрементальное обновление: добавляем к существующему
-                text_for_analysis = posts_text
-                
-                if text_for_analysis.strip():
-                    # Генерируем анализ новых постов
-                    new_insights = await telegram_service.openai_psychological_summary(
-                        text=f"Новые посты пользователя:\n\n{text_for_analysis}",
+                # Инкрементальное обновление
+                if posts_text.strip():
+                    # Генерируем обновлённый профиль с учётом новых постов
+                    updated_profile = await telegram_service.openai_psychological_summary(
+                        text=f"Существующий профиль:\n{user.profile}\n\nНовые посты:\n{posts_text}",
                         image_url=None
                     )
-                    
-                    # Добавляем к существующему профилю
-                    if user.psychological_summary:
-                        user.psychological_summary += f"\n\n--- ОБНОВЛЕНИЕ {datetime.now().strftime('%Y-%m-%d')} ---\n{new_insights}"
-                    else:
-                        user.psychological_summary = new_insights
+                    user.profile = updated_profile
                     
                     logger.info(
                         f"Incrementally updated profile for user {user.id} (@{user.username}) "
@@ -486,20 +491,25 @@ class ChannelProfileFiller:
                     )
             else:
                 # Полное заполнение
-                text_for_analysis = f"{bio}\n\n{posts_text}" if bio else posts_text
-                
-                if text_for_analysis.strip():
-                    summary = await telegram_service.openai_psychological_summary(
-                        text=text_for_analysis,
+                if full_content.strip():
+                    # Создаём профиль (посты + био + каналы)
+                    profile = await telegram_service.openai_psychological_summary(
+                        text=full_content,
                         image_url=photo_url
                     )
+                    user.profile = profile
                     
-                    # Обновляем профиль
-                    user.psychological_summary = summary
-                    user.profile_summary = (
-                        f"Active in {len(channels)} channels: {', '.join(channels[:3])}"
-                        f"{' and more' if len(channels) > 3 else ''}"
-                    )
+                    # Определяем этап пути героя на основе профиля
+                    journey_stage = await telegram_service.determine_journey_stage(profile)
+                    if journey_stage:
+                        user.hero_stage = journey_stage
+                        logger.info(f"Determined hero_stage for user {user.id}: {journey_stage.value}")
+                    
+                    # Создаём метафизику
+                    metaphysics = await telegram_service.create_metaphysical_profile(profile)
+                    if metaphysics:
+                        user.metaphysics = metaphysics
+                        logger.info(f"Created metaphysics for user {user.id}")
                     
                     # Сохраняем фото если есть
                     if photo_url:
