@@ -22,6 +22,6 @@ class AdminStatsService:
 
     async def get_profiles_with_summary(self):
         result = await self.repo.session.execute(
-            "SELECT COUNT(*) FROM users WHERE profile_summary IS NOT NULL AND profile_summary != ''"
+            "SELECT COUNT(*) FROM users WHERE profile IS NOT NULL AND profile != ''"
         )
         return result.scalar()

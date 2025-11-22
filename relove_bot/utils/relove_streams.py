@@ -18,7 +18,7 @@ async def detect_relove_streams(user, summary=None):
     Возвращает список строк (названия потоков).
     """
     if not summary:
-        summary = getattr(user, 'profile_summary', None) or ''
+        summary = getattr(user, 'profile', None) or ''
     prompt = f"Определи, какие потоки reLove прошёл пользователь на основе его профиля. Перечисли только названия потоков через запятую.\nПрофиль: {summary}"
     try:
         streams_str = await llm_service.analyze_text(prompt, system_prompt="Определи потоки пользователя", max_tokens=16)

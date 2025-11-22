@@ -45,8 +45,8 @@ def parse_criteria(criteria: str) -> Dict[str, Any]:
             filters[key] = value.lower() in ['true', '1', 'yes', 'да']
         
         # Этап пути героя
-        elif key == 'last_journey_stage':
-            filters['last_journey_stage'] = value
+        elif key == 'hero_stage':
+            filters['hero_stage'] = value
         
         # Потоки (через запятую)
         elif key == 'streams':

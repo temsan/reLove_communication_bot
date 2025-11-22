@@ -71,8 +71,8 @@ async def start_flexible_diagnostic(message: Message, state: FSMContext, session
             profile_context += f"Психологический профиль:\n{user.psychological_summary}\n\n"
         if user.streams:
             profile_context += f"Потоки reLove: {', '.join(user.streams)}\n\n"
-        if user.profile_summary:
-            profile_context += f"Профиль: {user.profile_summary}\n\n"
+        if user.profile:
+            profile_context += f"Профиль: {user.profile}\n\n"
     
     # Сохраняем контекст в session_data
     await session_service.update_session_data(

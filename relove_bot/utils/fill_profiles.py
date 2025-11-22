@@ -62,8 +62,8 @@ async def fill_user_profile(user_id: int, session: AsyncSession, client) -> None
         
         # Проверяем саммари
         needs_summary = (
-            not user.psychological_summary or 
-            not user.psychological_summary.startswith("1. ОТРАЖЕНИЕ В ЗЕРКАЛЕ:")
+            not user.profile or 
+            not user.profile.startswith("1. ОТРАЖЕНИЕ В ЗЕРКАЛЕ:")
         )
         
         # Обновляем профиль напрямую через User
@@ -73,7 +73,7 @@ async def fill_user_profile(user_id: int, session: AsyncSession, client) -> None
             .values(
                 gender=GenderEnum.female,  # по умолчанию female
                 streams=streams,  # передаем уже готовый список
-                psychological_summary=None if needs_summary else user.psychological_summary  # сбрасываем саммари, если нужно перезаполнить
+                profile=None if needs_summary else user.profile  # сбрасываем профиль, если нужно перезаполнить
             )
         )
         await session.execute(stmt)

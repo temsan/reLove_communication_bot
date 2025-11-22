@@ -94,7 +94,7 @@ class ProfileService:
                 await self.user_repository.update(
                     user_id,
                     {
-                        'psychological_summary': summary,
+                        'profile': summary,
                         'streams': streams or [],
                         'photo_jpeg': photo_bytes if photo_bytes else None
                     }

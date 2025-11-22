@@ -11,13 +11,13 @@ class PsychAnalysisService:
 
     async def analyze_user_profile(self, user_id, main_channel_id, tg_user=None):
         """
-        Анализирует профиль пользователя и сохраняет результат в поле psych_profile.
+        Анализирует профиль пользователя и сохраняет результат в поле profile.
         """
         user = await self.repo.get_by_id(user_id)
         if not user:
             return None
         # Получаем summary через существующий сервис
         summary, _ = await get_full_psychological_summary(user_id, main_channel_id, tg_user)
-        user.psych_profile = summary
+        user.profile = summary
         await self.repo.session.commit()
         return summary

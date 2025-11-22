@@ -16,7 +16,7 @@ class UserRepository:
     async def update_summary(self, user_id: int, summary: str):
         user = await self.get_user(user_id)
         if user:
-            user.profile_summary = summary
+            user.profile = summary
             await self.session.commit()
         return user
 
@@ -59,7 +59,7 @@ class UserRepository:
         is_active: Optional[bool] = None,
         has_started_journey: Optional[bool] = None,
         has_completed_journey: Optional[bool] = None,
-        last_journey_stage: Optional[str] = None,
+        hero_stage: Optional[str] = None,  # Переименовано из last_journey_stage
         streams: Optional[List[str]] = None,
         registered_before: Optional[datetime] = None,
         registered_after: Optional[datetime] = None,
@@ -77,11 +77,11 @@ class UserRepository:
             conditions.append(User.has_started_journey == has_started_journey)
         if has_completed_journey is not None:
             conditions.append(User.has_completed_journey == has_completed_journey)
-        if last_journey_stage:
+        if hero_stage:
             from relove_bot.db.models import JourneyStageEnum
             try:
-                stage_enum = JourneyStageEnum(last_journey_stage)
-                conditions.append(User.last_journey_stage == stage_enum)
+                stage_enum = JourneyStageEnum(hero_stage)
+                conditions.append(User.hero_stage == stage_enum)
             except ValueError:
                 # Если этап не найден в enum, пропускаем
                 pass

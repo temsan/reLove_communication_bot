@@ -40,7 +40,7 @@ class JourneyTrackingService:
         try:
             # Получаем текущий этап пользователя
             user = await self.get_user(user_id)
-            current_stage = user.last_journey_stage if user else None
+            current_stage = user.hero_stage if user else None
             
             # Формируем контекст диалога
             conversation_text = "\n".join([
@@ -139,10 +139,10 @@ class JourneyTrackingService:
                 logger.warning(f"User {user_id} not found")
                 return
             
-            old_stage = user.last_journey_stage
+            old_stage = user.hero_stage
             
             # Обновляем этап
-            user.last_journey_stage = new_stage
+            user.hero_stage = new_stage
             
             # Создаём запись в JourneyProgress
             progress = JourneyProgress(
