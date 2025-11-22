@@ -55,10 +55,11 @@ class ChannelProfileFiller:
             'users_updated': 0,
             'profiles_filled': 0,
             'errors': 0,
-            'duplicates_skipped': 0  # Пользователи, найденные в нескольких каналах
+            'duplicates_found': 0  # Пользователи, найденные в нескольких каналах
         }
-        # Множество для отслеживания уже обработанных пользователей
-        self.processed_user_ids = set()
+        # Словарь для накопления данных пользователей из всех каналов
+        # {user_id: {'tg_user': TelethonUser, 'channels': [channel_names], 'posts': [messages]}}
+        self.user_data_accumulator = {}
     
     async def find_relove_channels(self) -> List[str]:
         """Находит все каналы и чаты с 'relove' в названии"""
@@ -235,15 +236,17 @@ class ChannelProfileFiller:
             logger.error(f"Error filling profile for user {user.id}: {e}")
             self.stats['errors'] += 1
     
-    async def process_channel(
+    async def collect_user_data_from_channel(
         self,
         channel_info: dict,
-        limit: Optional[int] = None,
-        fill_profiles: bool = True
+        limit: Optional[int] = None
     ):
-        """Обрабатывает один канал"""
+        """
+        Собирает данные пользователей из канала (участники + их посты).
+        Накапливает в self.user_data_accumulator для последующей обработки.
+        """
         logger.info(f"\n{'='*60}")
-        logger.info(f"Processing: {channel_info['name']}")
+        logger.info(f"Collecting data from: {channel_info['name']}")
         logger.info(f"{'='*60}")
         
         # Получаем участников
@@ -264,57 +267,280 @@ class ChannelProfileFiller:
         
         self.stats['users_found'] += len(participants)
         
-        # Сохраняем пользователей в БД
+        # Получаем посты пользователей из этого канала
+        logger.info(f"Collecting posts from {len(participants)} users...")
+        
+        try:
+            # Получаем последние N сообщений из канала
+            messages = []
+            async for message in self.client.iter_messages(
+                channel_identifier,
+                limit=1000  # Последние 1000 сообщений
+            ):
+                if message.text and message.sender_id:
+                    messages.append(message)
+            
+            logger.info(f"Collected {len(messages)} messages from channel")
+            
+            # Группируем сообщения по пользователям
+            for tg_user in participants:
+                user_id = tg_user.id
+                
+                # Инициализируем данные пользователя если его ещё нет
+                if user_id not in self.user_data_accumulator:
+                    self.user_data_accumulator[user_id] = {
+                        'tg_user': tg_user,
+                        'channels': [],
+                        'posts': []
+                    }
+                else:
+                    # Пользователь уже встречался в другом канале
+                    self.stats['duplicates_found'] += 1
+                    logger.debug(
+                        f"User {user_id} (@{tg_user.username}) found in multiple channels"
+                    )
+                
+                # Добавляем канал в список
+                if channel_info['name'] not in self.user_data_accumulator[user_id]['channels']:
+                    self.user_data_accumulator[user_id]['channels'].append(channel_info['name'])
+                
+                # Собираем посты этого пользователя из канала
+                user_messages = [msg for msg in messages if msg.sender_id == user_id]
+                self.user_data_accumulator[user_id]['posts'].extend(user_messages)
+                
+                if user_messages:
+                    logger.debug(
+                        f"User {user_id} (@{tg_user.username}): "
+                        f"{len(user_messages)} posts in {channel_info['name']}"
+                    )
+        
+        except Exception as e:
+            logger.error(f"Error collecting posts from {channel_info['name']}: {e}")
+        
+        self.stats['channels_processed'] += 1
+    
+    async def process_accumulated_users(self, fill_profiles: bool = True):
+        """
+        Обрабатывает всех накопленных пользователей.
+        Создаёт/обновляет в БД и заполняет профили на основе данных из ВСЕХ каналов.
+        """
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Processing {len(self.user_data_accumulator)} accumulated users")
+        logger.info(f"{'='*60}")
+        
         async with async_session() as session:
             with tqdm(
-                total=len(participants),
-                desc=f"Processing {channel_info['name']}"
+                total=len(self.user_data_accumulator),
+                desc="Processing users"
             ) as pbar:
-                for tg_user in participants:
-                    # Проверяем, не обрабатывали ли мы уже этого пользователя
-                    is_duplicate = tg_user.id in self.processed_user_ids
+                for user_id, user_data in self.user_data_accumulator.items():
+                    tg_user = user_data['tg_user']
+                    channels = user_data['channels']
+                    posts = user_data['posts']
                     
-                    if is_duplicate:
-                        self.stats['duplicates_skipped'] += 1
-                        logger.debug(
-                            f"User {tg_user.id} (@{tg_user.username}) already processed "
-                            f"(found in multiple channels)"
-                        )
+                    # Сохраняем пользователя в БД
+                    db_user = await self.save_user_to_db(tg_user, session, is_duplicate=False)
+                    
+                    if not db_user:
                         pbar.update(1)
                         continue
                     
-                    # Сохраняем пользователя
-                    db_user = await self.save_user_to_db(tg_user, session, is_duplicate=False)
-                    
-                    # Добавляем в множество обработанных
-                    if db_user:
-                        self.processed_user_ids.add(tg_user.id)
+                    # Логируем информацию о пользователе
+                    logger.info(
+                        f"User {user_id} (@{tg_user.username}): "
+                        f"{len(channels)} channels, {len(posts)} posts"
+                    )
                     
                     # Заполняем профиль если нужно
-                    if db_user and fill_profiles:
-                        # Проверяем, нет ли уже профиля (используем правильную колонку)
-                        has_profile = db_user.profile_summary is not None
+                    if fill_profiles:
+                        # Проверяем, нужно ли заполнять/обновлять профиль
+                        needs_full_fill = (
+                            not db_user.profile_summary or 
+                            not db_user.psychological_summary
+                        )
                         
-                        if not has_profile:
-                            await self.fill_user_profile(db_user, session)
+                        if needs_full_fill:
+                            # Полное заполнение профиля
+                            await self.fill_user_profile_with_posts(
+                                db_user, 
+                                session,
+                                posts=posts,
+                                channels=channels,
+                                mode='full'
+                            )
+                            self.stats['profiles_filled'] += 1
                         else:
+                            # Инкрементальное обновление (если есть новые посты)
+                            await self.fill_user_profile_with_posts(
+                                db_user, 
+                                session,
+                                posts=posts,
+                                channels=channels,
+                                mode='incremental'
+                            )
                             logger.debug(
-                                f"User {db_user.id} already has profile, skipping"
+                                f"User {db_user.id} profile updated incrementally"
                             )
                     
                     pbar.update(1)
                     
-                    # Небольшая пауза чтобы не перегружать
+                    # Небольшая пауза
                     await asyncio.sleep(0.1)
+    
+    async def fill_user_profile_with_posts(
+        self,
+        user: User,
+        session,
+        posts: list = None,
+        channels: list = None,
+        mode: str = 'full'
+    ):
+        """
+        Заполняет или обновляет профиль пользователя с учётом постов из всех каналов.
         
-        self.stats['channels_processed'] += 1
+        Args:
+            user: Пользователь из БД
+            session: Сессия БД
+            posts: Список сообщений пользователя из всех каналов
+            channels: Список каналов, где найден пользователь
+            mode: 'full' - полное заполнение, 'incremental' - инкрементальное обновление
+        """
+        try:
+            from relove_bot.services import telegram_service
+            from datetime import datetime, timedelta
+            
+            # Определяем, какие посты использовать
+            if mode == 'incremental' and user.last_seen_date:
+                # Инкрементальное обновление: только новые посты
+                cutoff_date = user.last_seen_date
+                new_posts = [p for p in posts if p.date > cutoff_date] if posts else []
+                
+                if not new_posts:
+                    logger.debug(
+                        f"No new posts for user {user.id} since {cutoff_date}, skipping update"
+                    )
+                    return
+                
+                logger.info(
+                    f"Incremental update for user {user.id}: "
+                    f"{len(new_posts)} new posts since {cutoff_date}"
+                )
+                posts_to_analyze = new_posts
+            else:
+                # Полное заполнение: все посты
+                posts_to_analyze = posts or []
+            
+            # Формируем текст из постов для анализа
+            posts_text = ""
+            if posts_to_analyze:
+                # Сортируем по дате (новые первые)
+                sorted_posts = sorted(posts_to_analyze, key=lambda x: x.date, reverse=True)
+                posts_text = "\n\n".join([
+                    f"[{msg.date.strftime('%Y-%m-%d')}] {msg.text}" 
+                    for msg in sorted_posts[:50]  # Берём последние 50 постов
+                ])
+            
+            # Получаем bio пользователя через Telethon
+            bio = ""
+            try:
+                full_user = await self.client.get_entity(user.id)
+                bio = getattr(full_user, 'about', '') or ''
+            except Exception as e:
+                logger.warning(f"Could not get bio for user {user.id}: {e}")
+            
+            # Получаем фото профиля (только для полного заполнения)
+            photo_url = None
+            if mode == 'full':
+                try:
+                    photos = await self.client.get_profile_photos(user.id, limit=1)
+                    if photos:
+                        # Скачиваем фото во временный файл
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as tmp:
+                            await self.client.download_media(photos[0], tmp.name)
+                            photo_url = tmp.name
+                except Exception as e:
+                    logger.warning(f"Could not get photo for user {user.id}: {e}")
+            
+            # Генерируем психологический анализ
+            if mode == 'incremental':
+                # Инкрементальное обновление: добавляем к существующему
+                text_for_analysis = posts_text
+                
+                if text_for_analysis.strip():
+                    # Генерируем анализ новых постов
+                    new_insights = await telegram_service.openai_psychological_summary(
+                        text=f"Новые посты пользователя:\n\n{text_for_analysis}",
+                        image_url=None
+                    )
+                    
+                    # Добавляем к существующему профилю
+                    if user.psychological_summary:
+                        user.psychological_summary += f"\n\n--- ОБНОВЛЕНИЕ {datetime.now().strftime('%Y-%m-%d')} ---\n{new_insights}"
+                    else:
+                        user.psychological_summary = new_insights
+                    
+                    logger.info(
+                        f"Incrementally updated profile for user {user.id} (@{user.username}) "
+                        f"with {len(posts_to_analyze)} new posts"
+                    )
+            else:
+                # Полное заполнение
+                text_for_analysis = f"{bio}\n\n{posts_text}" if bio else posts_text
+                
+                if text_for_analysis.strip():
+                    summary = await telegram_service.openai_psychological_summary(
+                        text=text_for_analysis,
+                        image_url=photo_url
+                    )
+                    
+                    # Обновляем профиль
+                    user.psychological_summary = summary
+                    user.profile_summary = (
+                        f"Active in {len(channels)} channels: {', '.join(channels[:3])}"
+                        f"{' and more' if len(channels) > 3 else ''}"
+                    )
+                    
+                    # Сохраняем фото если есть
+                    if photo_url:
+                        try:
+                            import os
+                            with open(photo_url, 'rb') as f:
+                                user.photo_jpeg = f.read()
+                            os.unlink(photo_url)  # Удаляем временный файл
+                        except Exception as e:
+                            logger.warning(f"Could not save photo for user {user.id}: {e}")
+                    
+                    logger.info(
+                        f"Filled profile for user {user.id} (@{user.username}) "
+                        f"with data from {len(channels)} channels, {len(posts_to_analyze)} posts"
+                    )
+                else:
+                    logger.warning(f"No data to analyze for user {user.id}")
+                    return
+            
+            # Обновляем last_seen_date
+            user.last_seen_date = datetime.now()
+            
+            await session.commit()
+            
+        except Exception as e:
+            logger.error(f"Error filling profile for user {user.id}: {e}")
+            self.stats['errors'] += 1
     
     async def process_all_relove_channels(
         self,
         limit: Optional[int] = None,
         fill_profiles: bool = True
     ):
-        """Обрабатывает все найденные каналы reLove"""
+        """
+        Обрабатывает все найденные каналы reLove.
+        
+        Новая логика:
+        1. Собирает данные (участники + посты) из ВСЕХ каналов
+        2. Накапливает посты каждого пользователя из всех каналов
+        3. Один раз обрабатывает каждого пользователя с полными данными
+        """
         # Находим каналы
         channels = await self.find_relove_channels()
         
@@ -326,16 +552,25 @@ class ChannelProfileFiller:
         for ch in channels:
             logger.info(f"  - {ch['name']} (@{ch['username']}) [{ch['type']}]")
         
-        # Обрабатываем каждый канал
+        # ШАГ 1: Собираем данные из ВСЕХ каналов
+        logger.info(f"\n{'='*60}")
+        logger.info("STEP 1: Collecting data from all channels")
+        logger.info(f"{'='*60}")
+        
         for channel_info in channels:
-            await self.process_channel(
+            await self.collect_user_data_from_channel(
                 channel_info,
-                limit=limit,
-                fill_profiles=fill_profiles
+                limit=limit
             )
-            
             # Пауза между каналами
             await asyncio.sleep(2)
+        
+        # ШАГ 2: Обрабатываем всех пользователей с накопленными данными
+        logger.info(f"\n{'='*60}")
+        logger.info("STEP 2: Processing all users with accumulated data")
+        logger.info(f"{'='*60}")
+        
+        await self.process_accumulated_users(fill_profiles=fill_profiles)
     
     async def process_specific_channel(
         self,
@@ -414,6 +649,11 @@ async def main():
         '--no-fill',
         action='store_true',
         help='Только импортировать пользователей, не заполнять профили'
+    )
+    parser.add_argument(
+        '--incremental',
+        action='store_true',
+        help='Инкрементальное обновление (только новые посты с последнего запуска)'
     )
     parser.add_argument(
         '--list-channels',
