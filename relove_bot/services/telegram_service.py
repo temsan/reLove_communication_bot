@@ -212,8 +212,15 @@ async def analyze_message(self, message: str) -> str:
 
 async def openai_psychological_summary(text: str, image_url: str = None) -> str:
     """
-    Отправляет текст и/или фото в LLM.analyze_content и возвращает психологический портрет пользователя
+    Отправляет текст и/или фото в LLM.analyze_text и возвращает психологический портрет пользователя
     в стиле "Безжалостное Зеркало Правды".
+    
+    Args:
+        text: Текст для анализа (bio, посты и т.д.)
+        image_url: URL фото профиля для анализа (опционально)
+    
+    Returns:
+        str: Психологический анализ пользователя
     """
     from . import prompts
     
@@ -225,7 +232,7 @@ async def openai_psychological_summary(text: str, image_url: str = None) -> str:
             prompt=text,
             system_prompt=prompt,
             max_tokens=1024,  # Увеличиваем лимит токенов для более развернутого анализа
-            image_url=image_url
+            image_url=image_url  # Передаём URL изображения для анализа
         )
         return result
     except Exception as e:

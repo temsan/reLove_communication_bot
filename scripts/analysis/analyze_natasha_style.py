@@ -382,8 +382,8 @@ async def main():
     parser.add_argument(
         '--sample-size',
         type=int,
-        default=50,
-        help='Number of dialogs to analyze (default: 50)'
+        default=15,
+        help='Number of dialogs to analyze (default: 15)'
     )
     
     args = parser.parse_args()

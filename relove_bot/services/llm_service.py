@@ -285,16 +285,85 @@ class LLMService:
             logger.error(f"Ошибка при анализе фото: {e}", exc_info=True)
             
         return None
-
-    async def analyze_text(self, prompt: str, system_prompt: str = None, max_tokens: int = 64, user_info: dict = None) -> str:
+    
+    async def _analyze_with_vision(self, text: str, image_url: str, system_prompt: str, max_tokens: int) -> str:
         """
-        Анализирует текст через LLM.
+        Анализирует текст и изображение через Vision API.
+        
+        Args:
+            text: Текст для анализа
+            image_url: URL изображения
+            system_prompt: Системный промпт
+            max_tokens: Максимальное количество токенов
+            
+        Returns:
+            str: Результат анализа
+        """
+        try:
+            # Формируем сообщения для Vision API
+            messages = [
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": text
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image_url
+                            }
+                        }
+                    ]
+                }
+            ]
+            
+            # Отправляем запрос
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.api_base}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key.get_secret_value()}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://relove.com",
+                        "X-Title": "reLove_communication_bot"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": messages,
+                        "max_tokens": max_tokens,
+                        "temperature": 0.7
+                    },
+                    timeout=aiohttp.ClientTimeout(total=60)
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        content = result.get('choices', [{}])[0].get('message', {}).get('content', '')
+                        return content.strip()
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Vision API error: {response.status} - {error_text}")
+                        return ""
+        
+        except Exception as e:
+            logger.error(f"Ошибка при анализе с изображением: {e}", exc_info=True)
+            return ""
+
+    async def analyze_text(self, prompt: str, system_prompt: str = None, max_tokens: int = 64, user_info: dict = None, image_url: str = None) -> str:
+        """
+        Анализирует текст через LLM, опционально с изображением.
         
         Args:
             prompt: Текст для анализа
             system_prompt: Системный промпт
             max_tokens: Максимальное количество токенов
             user_info: Информация о пользователе
+            image_url: URL изображения для анализа (опционально)
             
         Returns:
             str: Результат анализа
@@ -303,12 +372,21 @@ class LLMService:
             # Формируем промпт для анализа
             analysis_prompt = get_analysis_prompt(prompt)
             
-            # Отправляем запрос к LLM
-            result = await self.llm.analyze_content(
-                content=analysis_prompt,
-                system_prompt=system_prompt or PSYCHOLOGICAL_ANALYSIS_PROMPT,
-                max_tokens=max_tokens
-            )
+            # Если есть изображение, используем vision API
+            if image_url:
+                result = await self._analyze_with_vision(
+                    text=analysis_prompt,
+                    image_url=image_url,
+                    system_prompt=system_prompt or PSYCHOLOGICAL_ANALYSIS_PROMPT,
+                    max_tokens=max_tokens
+                )
+            else:
+                # Отправляем запрос к LLM без изображения
+                result = await self.llm.analyze_content(
+                    content=analysis_prompt,
+                    system_prompt=system_prompt or PSYCHOLOGICAL_ANALYSIS_PROMPT,
+                    max_tokens=max_tokens
+                )
             
             if not result:
                 return ''
