@@ -54,8 +54,11 @@ class ChannelProfileFiller:
             'users_added': 0,
             'users_updated': 0,
             'profiles_filled': 0,
-            'errors': 0
+            'errors': 0,
+            'duplicates_skipped': 0  # Пользователи, найденные в нескольких каналах
         }
+        # Множество для отслеживания уже обработанных пользователей
+        self.processed_user_ids = set()
     
     async def find_relove_channels(self) -> List[str]:
         """Находит все каналы и чаты с 'relove' в названии"""
@@ -126,9 +129,17 @@ class ChannelProfileFiller:
     async def save_user_to_db(
         self, 
         tg_user: TelethonUser,
-        session
+        session,
+        is_duplicate: bool = False
     ) -> Optional[User]:
-        """Сохраняет пользователя в БД"""
+        """
+        Сохраняет пользователя в БД.
+        
+        Args:
+            tg_user: Пользователь из Telegram
+            session: Сессия БД
+            is_duplicate: True если пользователь уже был обработан в другом канале
+        """
         try:
             # Проверяем, есть ли уже такой пользователь
             result = await session.execute(
@@ -156,9 +167,13 @@ class ChannelProfileFiller:
                     db_user.is_active = True
                     update_needed = True
                 
+                # ВАЖНО: НЕ трогаем markers (summary, relove_context и т.д.)
+                # Они сохраняются как есть
+                
                 if update_needed:
                     await session.commit()
-                    self.stats['users_updated'] += 1
+                    if not is_duplicate:
+                        self.stats['users_updated'] += 1
                     logger.debug(f"Updated user {tg_user.id} (@{tg_user.username})")
                 
                 return db_user
@@ -176,7 +191,8 @@ class ChannelProfileFiller:
                 await session.commit()
                 await session.refresh(new_user)
                 
-                self.stats['users_added'] += 1
+                if not is_duplicate:
+                    self.stats['users_added'] += 1
                 logger.info(f"Added new user {tg_user.id} (@{tg_user.username})")
                 
                 return new_user
@@ -255,12 +271,36 @@ class ChannelProfileFiller:
                 desc=f"Processing {channel_info['name']}"
             ) as pbar:
                 for tg_user in participants:
+                    # Проверяем, не обрабатывали ли мы уже этого пользователя
+                    is_duplicate = tg_user.id in self.processed_user_ids
+                    
+                    if is_duplicate:
+                        self.stats['duplicates_skipped'] += 1
+                        logger.debug(
+                            f"User {tg_user.id} (@{tg_user.username}) already processed "
+                            f"(found in multiple channels)"
+                        )
+                        pbar.update(1)
+                        continue
+                    
                     # Сохраняем пользователя
-                    db_user = await self.save_user_to_db(tg_user, session)
+                    db_user = await self.save_user_to_db(tg_user, session, is_duplicate=False)
+                    
+                    # Добавляем в множество обработанных
+                    if db_user:
+                        self.processed_user_ids.add(tg_user.id)
                     
                     # Заполняем профиль если нужно
                     if db_user and fill_profiles:
-                        await self.fill_user_profile(db_user, session)
+                        # Проверяем, нет ли уже профиля (используем правильную колонку)
+                        has_profile = db_user.profile_summary is not None
+                        
+                        if not has_profile:
+                            await self.fill_user_profile(db_user, session)
+                        else:
+                            logger.debug(
+                                f"User {db_user.id} already has profile, skipping"
+                            )
                     
                     pbar.update(1)
                     
@@ -329,12 +369,25 @@ class ChannelProfileFiller:
         logger.info("STATISTICS")
         logger.info("="*60)
         logger.info(f"Channels processed: {self.stats['channels_processed']}")
-        logger.info(f"Users found: {self.stats['users_found']}")
+        logger.info(f"Users found (total): {self.stats['users_found']}")
+        logger.info(f"Users found (unique): {len(self.processed_user_ids)}")
+        logger.info(f"Duplicates skipped: {self.stats['duplicates_skipped']}")
         logger.info(f"Users added: {self.stats['users_added']}")
         logger.info(f"Users updated: {self.stats['users_updated']}")
         logger.info(f"Profiles filled: {self.stats['profiles_filled']}")
         logger.info(f"Errors: {self.stats['errors']}")
         logger.info("="*60)
+        
+        # Дополнительная информация
+        if self.stats['duplicates_skipped'] > 0:
+            overlap_percent = (
+                self.stats['duplicates_skipped'] / self.stats['users_found'] * 100
+                if self.stats['users_found'] > 0 else 0
+            )
+            logger.info(f"\n💡 Channel overlap: {overlap_percent:.1f}%")
+            logger.info(
+                f"   {self.stats['duplicates_skipped']} users found in multiple channels"
+            )
 
 
 async def main():
