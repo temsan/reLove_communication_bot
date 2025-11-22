@@ -500,16 +500,28 @@ class ChannelProfileFiller:
                     user.profile = profile
                     
                     # Определяем этап пути героя на основе профиля
-                    journey_stage = await telegram_service.determine_journey_stage(profile)
+                    from relove_bot.services.profile_enrichment import (
+                        determine_journey_stage,
+                        create_metaphysical_profile,
+                        determine_streams
+                    )
+                    
+                    journey_stage = await determine_journey_stage(profile)
                     if journey_stage:
                         user.hero_stage = journey_stage
                         logger.info(f"Determined hero_stage for user {user.id}: {journey_stage.value}")
                     
                     # Создаём метафизику
-                    metaphysics = await telegram_service.create_metaphysical_profile(profile)
+                    metaphysics = await create_metaphysical_profile(profile)
                     if metaphysics:
                         user.metaphysics = metaphysics
                         logger.info(f"Created metaphysics for user {user.id}")
+                    
+                    # Определяем потоки
+                    streams = await determine_streams(profile)
+                    if streams:
+                        user.streams = streams
+                        logger.info(f"Determined streams for user {user.id}: {streams}")
                     
                     # Сохраняем фото если есть
                     if photo_url:
