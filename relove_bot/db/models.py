@@ -53,6 +53,10 @@ class User(Base):
         Text, nullable=True, 
         doc="Психопрофиль из постов/био/каналов. Цель: понимание личности для подбора подхода"
     )
+    profile_version: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None,
+        doc="Версия формата профиля (2 = текущий формат)"
+    )
     hero_stage: Mapped[Optional[JourneyStageEnum]] = mapped_column(
         SQLEnum(JourneyStageEnum), nullable=True, index=True, 
         doc="Этап пути героя. Цель: определение текущей точки трансформации для выбора стратегии"

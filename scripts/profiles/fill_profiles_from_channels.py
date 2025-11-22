@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 import argparse
+import json
+import re
 
 # Добавляем корневую директорию в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -54,12 +56,20 @@ class ChannelProfileFiller:
             'users_added': 0,
             'users_updated': 0,
             'profiles_filled': 0,
+            'profiles_refilled': 0,  # Профили в старом формате, перезаполненные
             'errors': 0,
             'duplicates_found': 0  # Пользователи, найденные в нескольких каналах
         }
         # Словарь для накопления данных пользователей из всех каналов
         # {user_id: {'tg_user': TelethonUser, 'channels': [channel_names], 'posts': [messages]}}
         self.user_data_accumulator = {}
+    
+    CURRENT_PROFILE_VERSION = 2
+    
+    def _needs_profile_refill(self, user: User) -> bool:
+        """Проверяет, нужно ли перезаполнить профиль."""
+        # Нет профиля или версия не совпадает
+        return not user.profile or user.profile_version != self.CURRENT_PROFILE_VERSION
     
     async def find_relove_channels(self) -> List[str]:
         """Находит все каналы и чаты с 'relove' в названии"""
@@ -354,9 +364,12 @@ class ChannelProfileFiller:
                     # Заполняем профиль если нужно
                     if fill_profiles:
                         # Проверяем, нужно ли заполнять/обновлять профиль
-                        needs_full_fill = not db_user.profile
+                        needs_full_fill = self._needs_profile_refill(db_user)
                         
                         if needs_full_fill:
+                            # Проверяем, это новый профиль или перезаполнение
+                            is_refill = bool(db_user.profile)
+                            
                             # Полное заполнение профиля
                             await self.fill_user_profile_with_posts(
                                 db_user, 
@@ -365,7 +378,12 @@ class ChannelProfileFiller:
                                 channels=channels,
                                 mode='full'
                             )
-                            self.stats['profiles_filled'] += 1
+                            
+                            if is_refill:
+                                self.stats['profiles_refilled'] += 1
+                                logger.info(f"✅ Refilled profile for user {db_user.id} (old format)")
+                            else:
+                                self.stats['profiles_filled'] += 1
                         else:
                             # Инкрементальное обновление (если есть новые посты)
                             await self.fill_user_profile_with_posts(
@@ -498,6 +516,7 @@ class ChannelProfileFiller:
                         image_url=photo_url
                     )
                     user.profile = profile
+                    user.profile_version = self.CURRENT_PROFILE_VERSION
                     
                     # Определяем этап пути героя на основе профиля
                     from relove_bot.services.profile_enrichment import (
@@ -627,11 +646,12 @@ class ChannelProfileFiller:
         logger.info("="*60)
         logger.info(f"Channels processed: {self.stats['channels_processed']}")
         logger.info(f"Users found (total): {self.stats['users_found']}")
-        logger.info(f"Users found (unique): {len(self.processed_user_ids)}")
-        logger.info(f"Duplicates skipped: {self.stats['duplicates_skipped']}")
+        logger.info(f"Users found (unique): {len(self.user_data_accumulator)}")
+        logger.info(f"Duplicates found: {self.stats['duplicates_found']}")
         logger.info(f"Users added: {self.stats['users_added']}")
         logger.info(f"Users updated: {self.stats['users_updated']}")
-        logger.info(f"Profiles filled: {self.stats['profiles_filled']}")
+        logger.info(f"Profiles filled (new): {self.stats['profiles_filled']}")
+        logger.info(f"Profiles refilled (old format): {self.stats['profiles_refilled']}")
         logger.info(f"Errors: {self.stats['errors']}")
         logger.info("="*60)
         

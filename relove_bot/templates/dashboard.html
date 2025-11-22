@@ -10,18 +10,22 @@
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
     
     :root {
-        --glass-bg: rgba(255, 255, 255, 0.7);
-        --glass-border: rgba(255, 255, 255, 0.5);
-        --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
-        --glass-blur: blur(8px);
+        --glass-bg: rgba(255, 255, 255, 0.15);
+        --glass-bg-hover: rgba(255, 255, 255, 0.25);
+        --glass-border: rgba(255, 255, 255, 0.3);
+        --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        --glass-blur: blur(16px);
         --primary-gradient: linear-gradient(135deg, #e94e77 0%, #b721ff 100%);
         --secondary-gradient: linear-gradient(135deg, #36d1c4 0%, #7f53ac 100%);
+        --accent-glow: 0 0 20px rgba(233, 78, 119, 0.4);
     }
 
     body {
         font-family: 'Inter', Arial, sans-serif;
-        background: linear-gradient(135deg, #f5f7fa 0%, #e4e8f0 100%);
-        color: #1a1a1a;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
+        background-size: 400% 400%;
+        animation: gradientBG 20s ease infinite;
+        color: #ffffff;
         margin: 0;
         padding: 0;
         min-height: 100vh;
@@ -37,11 +41,24 @@
         left: 0;
         width: 100%;
         height: 100%;
-        background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96c93d);
-        background-size: 400% 400%;
-        animation: gradientBG 15s ease infinite;
-        z-index: -1;
-        opacity: 0.1;
+        background: 
+            radial-gradient(circle at 20% 50%, rgba(233, 78, 119, 0.2) 0%, transparent 50%),
+            radial-gradient(circle at 80% 80%, rgba(54, 209, 196, 0.2) 0%, transparent 50%),
+            radial-gradient(circle at 40% 20%, rgba(183, 33, 255, 0.2) 0%, transparent 50%);
+        z-index: 0;
+        pointer-events: none;
+    }
+
+    body::after {
+        content: '';
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.1);
+        z-index: 0;
+        pointer-events: none;
     }
 
     @keyframes gradientBG {
@@ -63,58 +80,73 @@
 
     .shape {
         position: absolute;
-        background: var(--glass-bg);
-        backdrop-filter: var(--glass-blur);
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.05));
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
         border-radius: 50%;
-        animation: float 20s infinite;
-        opacity: 0.1;
+        animation: float 25s infinite ease-in-out;
+        opacity: 0.6;
+        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
     }
 
     .shape:nth-child(1) {
-        width: 300px;
-        height: 300px;
-        top: -150px;
-        left: -150px;
+        width: 400px;
+        height: 400px;
+        top: -200px;
+        left: -200px;
         animation-delay: 0s;
+        background: linear-gradient(135deg, rgba(233, 78, 119, 0.3), rgba(183, 33, 255, 0.1));
     }
 
     .shape:nth-child(2) {
-        width: 200px;
-        height: 200px;
-        top: 50%;
-        right: -100px;
-        animation-delay: -5s;
+        width: 300px;
+        height: 300px;
+        top: 40%;
+        right: -150px;
+        animation-delay: -8s;
+        background: linear-gradient(135deg, rgba(54, 209, 196, 0.3), rgba(127, 83, 172, 0.1));
     }
 
     .shape:nth-child(3) {
-        width: 150px;
-        height: 150px;
-        bottom: -75px;
-        left: 50%;
-        animation-delay: -10s;
+        width: 250px;
+        height: 250px;
+        bottom: -125px;
+        left: 40%;
+        animation-delay: -15s;
+        background: linear-gradient(135deg, rgba(183, 33, 255, 0.3), rgba(233, 78, 119, 0.1));
     }
 
     @keyframes float {
-        0% { transform: translate(0, 0) rotate(0deg); }
-        33% { transform: translate(100px, 100px) rotate(120deg); }
-        66% { transform: translate(-50px, 200px) rotate(240deg); }
-        100% { transform: translate(0, 0) rotate(360deg); }
+        0%, 100% { 
+            transform: translate(0, 0) rotate(0deg) scale(1); 
+        }
+        25% { 
+            transform: translate(50px, -50px) rotate(90deg) scale(1.1); 
+        }
+        50% { 
+            transform: translate(100px, 50px) rotate(180deg) scale(0.9); 
+        }
+        75% { 
+            transform: translate(-50px, 100px) rotate(270deg) scale(1.05); 
+        }
     }
 
-    /* Улучшенные карточки */
+    /* Улучшенные карточки с жидким стеклом */
     .relove-card {
         background: var(--glass-bg);
         backdrop-filter: var(--glass-blur);
         -webkit-backdrop-filter: var(--glass-blur);
         border: 1px solid var(--glass-border);
-        border-radius: 1.6rem;
+        border-radius: 2rem;
         box-shadow: var(--glass-shadow);
-        padding: 1.8rem;
+        padding: 2rem;
         margin-bottom: 2rem;
-        color: #1a1a1a;
-        transition: all 0.3s ease;
+        color: #ffffff;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         position: relative;
         overflow: hidden;
+        z-index: 1;
     }
 
     .relove-card::before {
@@ -123,10 +155,11 @@
         top: 0;
         left: 0;
         right: 0;
-        height: 4px;
+        height: 3px;
         background: var(--primary-gradient);
         opacity: 0;
-        transition: opacity 0.3s ease;
+        transition: opacity 0.4s ease;
+        box-shadow: var(--accent-glow);
     }
 
     .relove-card::after {
@@ -136,14 +169,17 @@
         left: 0;
         width: 100%;
         height: 100%;
-        background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-        transform: translateX(-100%);
-        transition: transform 0.6s ease;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, transparent 50%, rgba(255, 255, 255, 0.1) 100%);
+        transform: translateX(-100%) skewX(-15deg);
+        transition: transform 0.8s ease;
+        pointer-events: none;
     }
 
     .relove-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.2);
+        transform: translateY(-8px) scale(1.02);
+        box-shadow: 0 20px 60px 0 rgba(31, 38, 135, 0.5), var(--accent-glow);
+        background: var(--glass-bg-hover);
+        border-color: rgba(255, 255, 255, 0.5);
     }
 
     .relove-card:hover::before {
@@ -151,22 +187,31 @@
     }
 
     .relove-card:hover::after {
-        transform: translateX(100%);
+        transform: translateX(100%) skewX(-15deg);
     }
 
-    /* Улучшенные кнопки */
+    .relove-card h5 {
+        color: #ffffff;
+        font-weight: 600;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Улучшенные кнопки с жидким стеклом */
     .relove-btn {
         background: var(--primary-gradient);
         color: #fff;
-        border: none;
-        border-radius: 1.2rem;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 1.5rem;
         font-weight: 600;
-        padding: 0.8em 2.2em;
-        font-size: 1.1em;
-        box-shadow: 0 4px 15px rgba(233, 78, 119, 0.2);
-        transition: all 0.3s ease;
+        padding: 0.9em 2.5em;
+        font-size: 1.05em;
+        box-shadow: 0 8px 25px rgba(233, 78, 119, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         position: relative;
         overflow: hidden;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
 
     .relove-btn::before {
@@ -176,30 +221,36 @@
         left: -100%;
         width: 100%;
         height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-        transition: 0.5s;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+        transition: 0.6s;
     }
 
     .relove-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 25px rgba(233, 78, 119, 0.3);
+        transform: translateY(-3px) scale(1.05);
+        box-shadow: 0 12px 35px rgba(233, 78, 119, 0.6), var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+        border-color: rgba(255, 255, 255, 0.6);
     }
 
     .relove-btn:hover::before {
         left: 100%;
     }
 
-    /* Улучшенные вкладки */
+    .relove-btn:active {
+        transform: translateY(-1px) scale(1.02);
+    }
+
+    /* Улучшенные вкладки с жидким стеклом */
     .relove-tabs {
         background: var(--glass-bg);
         backdrop-filter: var(--glass-blur);
         -webkit-backdrop-filter: var(--glass-blur);
         border: 1px solid var(--glass-border);
-        border-radius: 1.2rem;
+        border-radius: 1.8rem;
         overflow: hidden;
-        margin-bottom: 2rem;
-        box-shadow: var(--glass-shadow);
+        margin-bottom: 2.5rem;
+        box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
         position: relative;
+        z-index: 1;
     }
 
     .relove-tabs::before {
@@ -209,9 +260,9 @@
         left: 0;
         width: 100%;
         height: 100%;
-        background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
         transform: translateX(-100%);
-        transition: transform 0.6s ease;
+        transition: transform 0.8s ease;
     }
 
     .relove-tabs:hover::before {
@@ -235,6 +286,12 @@
     .chart-container:hover {
         transform: translateY(-3px);
         box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.2);
+    }
+
+    /* Контейнер */
+    .container {
+        position: relative;
+        z-index: 1;
     }
 
     /* reLove фирменные карточки */
@@ -295,16 +352,17 @@
         backdrop-filter: var(--glass-blur);
         -webkit-backdrop-filter: var(--glass-blur);
         border: 1px solid var(--glass-border);
-        border-radius: 2rem;
-        box-shadow: var(--glass-shadow);
-        padding: 1.4rem 2rem;
-        margin: 0 0 2rem 0;
+        border-radius: 2.5rem;
+        box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+        padding: 1.8rem 2.5rem;
+        margin: 0 0 2.5rem 0;
         display: flex;
         align-items: center;
         justify-content: flex-start;
-        min-height: 68px;
+        min-height: 80px;
         position: relative;
         overflow: hidden;
+        z-index: 1;
     }
 
     .dashboard-title-bar::before {
@@ -314,20 +372,38 @@
         left: 0;
         right: 0;
         bottom: 0;
-        background: var(--primary-gradient);
-        opacity: 0.1;
+        background: linear-gradient(135deg, rgba(233, 78, 119, 0.2), rgba(183, 33, 255, 0.2));
+        opacity: 0.3;
         z-index: 0;
     }
 
+    .dashboard-title-bar::after {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+        animation: shimmer 8s linear infinite;
+        z-index: 0;
+    }
+
+    @keyframes shimmer {
+        0% { transform: translate(-50%, -50%) rotate(0deg); }
+        100% { transform: translate(-50%, -50%) rotate(360deg); }
+    }
+
     .dashboard-title {
-        color: #1a1a1a;
-        font-size: 2.2rem;
+        color: #ffffff;
+        font-size: 2.5rem;
         font-weight: 700;
-        letter-spacing: 0.01em;
+        letter-spacing: 0.02em;
         position: relative;
         z-index: 1;
         display: flex;
         align-items: center;
+        text-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), 0 0 30px rgba(233, 78, 119, 0.5);
     }
 
     .dashboard-title .relove-heart {
@@ -337,16 +413,17 @@
         filter: drop-shadow(0 1px 4px rgba(233,78,119,0.13));
     }
 
-    /* Вкладки */
+    /* Вкладки с жидким стеклом */
     .relove-tab-btn {
-        color: #1a1a1a;
+        color: rgba(255, 255, 255, 0.8);
         border: none;
-        padding: 1.2rem 2rem;
+        padding: 1.3rem 2.2rem;
         font-weight: 500;
-        transition: all 0.3s ease;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         background: transparent;
         position: relative;
         overflow: hidden;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
 
     .relove-tab-btn::before {
@@ -355,99 +432,181 @@
         bottom: 0;
         left: 50%;
         width: 0;
-        height: 2px;
+        height: 3px;
         background: var(--primary-gradient);
-        transition: all 0.3s ease;
+        transition: all 0.4s ease;
         transform: translateX(-50%);
+        box-shadow: var(--accent-glow);
+    }
+
+    .relove-tab-btn::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+        opacity: 0;
+        transition: opacity 0.4s ease;
+    }
+
+    .relove-tab-btn:hover {
+        color: #ffffff;
+        background: rgba(255, 255, 255, 0.1);
     }
 
     .relove-tab-btn:hover::before {
         width: 80%;
     }
 
+    .relove-tab-btn:hover::after {
+        opacity: 1;
+    }
+
     .relove-tab-btn.active {
-        background: rgba(233, 78, 119, 0.1);
-        color: #e94e77;
+        background: linear-gradient(135deg, rgba(233, 78, 119, 0.3), rgba(183, 33, 255, 0.3));
+        color: #ffffff;
         font-weight: 600;
+        box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.2);
     }
 
     .relove-tab-btn.active::before {
         width: 100%;
     }
 
-    /* Статистические карточки */
+    .relove-tab-btn.active::after {
+        opacity: 1;
+    }
+
+    /* Статистические карточки с жидким стеклом */
     .stat-card {
         background: var(--glass-bg);
         backdrop-filter: var(--glass-blur);
         -webkit-backdrop-filter: var(--glass-blur);
         border: 1px solid var(--glass-border);
-        border-radius: 1.2rem;
-        padding: 1.8rem;
+        border-radius: 1.5rem;
+        padding: 2rem;
         margin-bottom: 1.5rem;
-        box-shadow: var(--glass-shadow);
-        transition: all 0.3s ease;
+        box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .stat-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+        opacity: 0;
+        transition: opacity 0.4s ease;
     }
 
     .stat-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.2);
+        transform: translateY(-5px) scale(1.03);
+        box-shadow: 0 15px 50px 0 rgba(31, 38, 135, 0.4), var(--accent-glow);
+        background: var(--glass-bg-hover);
+    }
+
+    .stat-card:hover::before {
+        opacity: 1;
     }
 
     .stat-card .title {
-        font-size: 0.9rem;
-        color: #6c757d;
-        margin-bottom: 0.8rem;
+        font-size: 0.95rem;
+        color: rgba(255, 255, 255, 0.8);
+        margin-bottom: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 500;
     }
 
     .stat-card .value {
-        font-size: 2rem;
+        font-size: 2.5rem;
         font-weight: 700;
-        color: #1a1a1a;
+        color: #ffffff;
         background: var(--primary-gradient);
         background-clip: text;
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
+        text-shadow: 0 0 30px rgba(233, 78, 119, 0.5);
+        filter: drop-shadow(0 4px 10px rgba(233, 78, 119, 0.3));
     }
 
-    /* Формы и инпуты */
+    /* Формы и инпуты с жидким стеклом */
     .form-control, .form-select {
         background: var(--glass-bg);
         backdrop-filter: var(--glass-blur);
         -webkit-backdrop-filter: var(--glass-blur);
         border: 1px solid var(--glass-border);
-        border-radius: 1rem;
-        padding: 0.8rem 1.2rem;
-        transition: all 0.3s ease;
+        border-radius: 1.2rem;
+        padding: 1rem 1.5rem;
+        transition: all 0.4s ease;
+        color: #ffffff;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .form-control::placeholder {
+        color: rgba(255, 255, 255, 0.6);
     }
 
     .form-control:focus, .form-select:focus {
-        background: var(--glass-bg);
-        border-color: #e94e77;
-        box-shadow: 0 0 0 0.2rem rgba(233, 78, 119, 0.15);
+        background: var(--glass-bg-hover);
+        border-color: rgba(233, 78, 119, 0.8);
+        box-shadow: 0 0 0 0.3rem rgba(233, 78, 119, 0.25), var(--accent-glow);
+        outline: none;
+        color: #ffffff;
     }
 
-    /* Таблица */
+    .form-select {
+        color: #ffffff;
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e");
+    }
+
+    .form-select option {
+        background: rgba(26, 26, 26, 0.95);
+        color: #ffffff;
+    }
+
+    /* Таблица с жидким стеклом */
     .table {
         background: var(--glass-bg);
         backdrop-filter: var(--glass-blur);
         -webkit-backdrop-filter: var(--glass-blur);
-        border-radius: 1rem;
+        border-radius: 1.5rem;
         overflow: hidden;
+        border: 1px solid var(--glass-border);
+        box-shadow: var(--glass-shadow);
     }
 
     .table thead th {
-        background: rgba(233, 78, 119, 0.1);
-        border-bottom: 2px solid var(--glass-border);
-        color: #1a1a1a;
+        background: linear-gradient(135deg, rgba(233, 78, 119, 0.3), rgba(183, 33, 255, 0.3));
+        border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+        color: #ffffff;
         font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 1.2rem 1rem;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
     }
 
     .table tbody tr {
         transition: all 0.3s ease;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
 
     .table tbody tr:hover {
-        background: rgba(233, 78, 119, 0.05);
+        background: rgba(233, 78, 119, 0.15);
+        transform: scale(1.01);
+    }
+
+    .table tbody td {
+        color: rgba(255, 255, 255, 0.95);
+        padding: 1rem;
     }
 
     .user-avatar {
@@ -569,37 +728,91 @@
     .gallery-summary { font-size: 0.8rem; opacity: 0.95; margin-top: 4px; max-height: 3.2em; overflow: hidden; }
     .gallery-loader { text-align: center; padding: 16px; color: #666; }
 
-    /* Плашки во вкладке Пользователи */
+    /* Плашки во вкладке Пользователи с жидким стеклом */
     .users-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-        gap: 16px;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 20px;
     }
     .user-card {
         display: flex;
-        gap: 12px;
+        gap: 15px;
         align-items: stretch;
-        padding: 12px;
-        border-radius: 16px;
+        padding: 18px;
+        border-radius: 20px;
         background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
         border: 1px solid var(--glass-border);
-        box-shadow: var(--glass-shadow);
-        transition: transform .2s ease, box-shadow .2s ease;
-        min-height: 96px;
+        box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        min-height: 110px;
+        position: relative;
+        overflow: hidden;
     }
-    .user-card:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(31,38,135,0.18); }
+    .user-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+        opacity: 0;
+        transition: opacity 0.4s ease;
+    }
+    .user-card:hover { 
+        transform: translateY(-5px) scale(1.02); 
+        box-shadow: 0 15px 50px rgba(31,38,135,0.4), var(--accent-glow);
+        background: var(--glass-bg-hover);
+    }
+    .user-card:hover::before {
+        opacity: 1;
+    }
     .user-card .avatar {
-        width: 72px; height: 72px; border-radius: 12px; overflow: hidden; flex: 0 0 auto;
-        display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.15);
-        font-weight: 700; font-size: 22px; color: #1a1a1a; background-image: var(--primary-gradient);
-        background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        width: 80px; height: 80px; border-radius: 16px; overflow: hidden; flex: 0 0 auto;
+        display: flex; align-items: center; justify-content: center; 
+        background: linear-gradient(135deg, rgba(233, 78, 119, 0.3), rgba(183, 33, 255, 0.3));
+        font-weight: 700; font-size: 28px; color: #ffffff;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
     }
-    .user-card .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .user-card .content { flex: 1 1 auto; min-width: 0; }
-    .user-card .name { font-weight: 700; margin: 0; font-size: 1rem; color: rgba(0,0,0,0.85); }
-    .user-card .meta { font-size: .85rem; color: rgba(0,0,0,0.6); margin-top: 2px; }
-    .user-card .summary { font-size: .85rem; color: rgba(0,0,0,0.75); margin-top: 6px; max-height: 3.2em; overflow: hidden; }
-    .user-card .actions { display: flex; gap: 6px; align-items: center; margin-left: 8px; }
+    .user-card .avatar img { 
+        width: 100%; height: 100%; object-fit: cover; display: block;
+        border-radius: 14px;
+    }
+    .user-card .content { flex: 1 1 auto; min-width: 0; position: relative; z-index: 1; }
+    .user-card .name { 
+        font-weight: 700; margin: 0; font-size: 1.05rem; color: #ffffff;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    }
+    .user-card .meta { 
+        font-size: .9rem; color: rgba(255, 255, 255, 0.8); margin-top: 4px;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    }
+    .user-card .summary { 
+        font-size: .88rem; color: rgba(255, 255, 255, 0.85); margin-top: 8px; 
+        max-height: 3.5em; overflow: hidden; line-height: 1.4;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    }
+    .user-card .actions { 
+        display: flex; gap: 8px; align-items: center; margin-left: 10px;
+        position: relative; z-index: 1;
+    }
+    .user-card .actions button {
+        background: rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        transition: all 0.3s ease;
+    }
+    .user-card .actions button:hover {
+        background: rgba(255, 255, 255, 0.3);
+        transform: scale(1.1);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    }
     </style>
 </head>
 <body>
@@ -703,18 +916,29 @@
             <!-- Вкладка "Пользователи" -->
             <div class="tab-pane fade" id="users" role="tabpanel">
                 <div class="relove-card">
-                    <h5>Поиск пользователей</h5>
-                    <form method="get" action="/dashboard/search" class="mb-3">
-                        <div class="input-group mb-3">
-                            <input type="text" class="form-control" name="query" placeholder="Поиск по имени, username или ID...">
-                            <select class="form-select" name="gender" style="max-width: 150px;">
-                                <option value="">Все полы</option>
-                                <option value="male">Мужской</option>
-                                <option value="female">Женский</option>
-                            </select>
-                            <button class="btn relove-btn" type="submit">Найти</button>
+                    <h5>Поиск и фильтры</h5>
+                    
+                    <!-- Быстрые фильтры -->
+                    <div class="mb-3">
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-sm relove-btn" onclick="filterUsers('all')">Все</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="filterUsers('male')">👨 Мужчины</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="filterUsers('female')">👩 Женщины</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="filterUsers('with_profile')">✅ С профилем</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="filterUsers('with_photo')">📷 С фото</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="filterUsers('active')">🟢 Активные</button>
                         </div>
-                    </form>
+                    </div>
+
+                    <!-- Поиск -->
+                    <div class="mb-3">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="searchInput" placeholder="Поиск по имени, username или ID..." onkeyup="searchUsers()">
+                            <button class="btn btn-outline-secondary" type="button" onclick="clearSearch()">
+                                <span>✕</span>
+                            </button>
+                        </div>
+                    </div>
 
                     <div id="usersGrid" class="users-grid"></div>
                     <div id="usersLoader" class="gallery-loader">Загрузка...</div>
@@ -968,6 +1192,68 @@
         const usersLimit = 36;
         let usersLoading = false;
         let usersEnded = false;
+        let allUsers = []; // Кэш всех загруженных пользователей
+        let currentFilter = 'all';
+        let currentSearch = '';
+
+        // Функции фильтрации
+        function filterUsers(filterType) {
+            currentFilter = filterType;
+            applyFilters();
+            
+            // Обновляем активную кнопку
+            document.querySelectorAll('.btn-group button').forEach(btn => {
+                btn.classList.remove('relove-btn');
+                btn.classList.add('btn-outline-secondary');
+            });
+            event.target.classList.remove('btn-outline-secondary');
+            event.target.classList.add('relove-btn');
+        }
+
+        function searchUsers() {
+            currentSearch = document.getElementById('searchInput').value.toLowerCase();
+            applyFilters();
+        }
+
+        function clearSearch() {
+            document.getElementById('searchInput').value = '';
+            currentSearch = '';
+            applyFilters();
+        }
+
+        function applyFilters() {
+            let filtered = allUsers;
+
+            // Применяем фильтр по типу
+            if (currentFilter !== 'all') {
+                filtered = filtered.filter(user => {
+                    switch(currentFilter) {
+                        case 'male': return user.gender === 'male';
+                        case 'female': return user.gender === 'female';
+                        case 'with_profile': return user.profile && user.profile.trim().length > 0;
+                        case 'with_photo': return user.photo_jpeg && user.photo_jpeg.length > 0;
+                        case 'active': return user.is_active === true;
+                        default: return true;
+                    }
+                });
+            }
+
+            // Применяем поиск
+            if (currentSearch) {
+                filtered = filtered.filter(user => {
+                    const searchStr = `${user.first_name || ''} ${user.last_name || ''} ${user.username || ''} ${user.id}`.toLowerCase();
+                    return searchStr.includes(currentSearch);
+                });
+            }
+
+            // Перерисовываем
+            usersGrid.innerHTML = '';
+            renderUserCards(filtered);
+            
+            if (filtered.length === 0) {
+                usersGrid.innerHTML = '<div class="gallery-loader">Пользователи не найдены</div>';
+            }
+        }
 
         function renderUserCards(items) {
             const frag = document.createDocumentFragment();
@@ -979,18 +1265,17 @@
                     ? `<img src="data:image/jpeg;base64,${user.photo_jpeg}" alt="${user.first_name||''}">`
                     : initials;
                 const username = user.username ? '@' + user.username : '';
-                const gender = user.gender || '';
-                const summary = (user.profile_summary || '').toString();
+                const genderIcon = user.gender === 'male' ? '👨' : user.gender === 'female' ? '👩' : '';
+                const summary = (user.profile || '').toString().substring(0, 150);
                 card.innerHTML = `
                     <div class="avatar">${avatar}</div>
                     <div class="content">
                         <p class="name">${user.first_name || ''} ${user.last_name || ''} <span class="text-muted">${username}</span></p>
-                        <div class="meta">${gender}</div>
+                        <div class="meta">${genderIcon} ${user.gender || ''}</div>
                         <div class="summary">${summary}</div>
                     </div>
                     <div class="actions">
-                        <button class="btn btn-sm btn-primary" onclick="showUserDetails('${user.id}')" title="Детали"><i class="fas fa-eye"></i></button>
-                        <button class="btn btn-sm btn-info" onclick="analyzeUser('${user.id}')" title="Анализ"><i class="fas fa-brain"></i></button>
+                        <button class="btn btn-sm btn-primary" onclick="showUserDetails('${user.id}')" title="Детали">👁️</button>
                     </div>
                 `;
                 frag.appendChild(card);
@@ -1007,10 +1292,11 @@
                 const data = await resp.json();
                 if (!Array.isArray(data) || data.length === 0) {
                     usersEnded = true;
-                    usersLoader.textContent = 'Больше пользователей нет';
+                    usersLoader.textContent = 'Все пользователи загружены';
                     return;
                 }
-                renderUserCards(data);
+                allUsers = allUsers.concat(data);
+                applyFilters();
                 usersOffset += data.length;
                 usersLoader.textContent = 'Прокрутите ниже для загрузки ещё';
             } catch (e) {

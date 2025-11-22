@@ -161,11 +161,11 @@ async def dashboard(request: web.Request):
             for u in users:
                 try:
                     post_count = sum(1 for l in logs if l.user_id == u.id and l.activity_type in ('message', 'post'))
-                    if u.profile_summary or post_count:
+                    if u.profile or post_count:
                         user_posts_analytics.append({
                             'id': u.id,
                             'gender': (u.gender.value if hasattr(u.gender, 'value') else u.gender) or 'unknown',
-                            'summary': u.profile_summary or '',
+                            'summary': u.profile or '',
                             'post_count': post_count
                         })
                 except Exception as e:
@@ -197,7 +197,7 @@ async def dashboard(request: web.Request):
                         'last_name': u.last_name or '',
                         'username': u.username or '',
                         'gender': (u.gender.value if hasattr(u.gender, 'value') else u.gender) or '',
-                        'profile_summary': u.profile_summary or '',
+                        'profile': u.profile or '',
                         'streams_count': streams_count,
                         'post_count': post_count,
                         'is_active': getattr(u, 'is_active', False),
@@ -300,7 +300,7 @@ async def dashboard(request: web.Request):
                 'emotion_data': emotion_data,
                 'active_users_today': sum(1 for u in users if getattr(u, 'is_active', False)),
                 'new_users_week': sum(1 for u in users if getattr(u, 'created_at', None) and (datetime.now() - u.created_at).days <= 7),
-                'analyzed_users': sum(1 for u in users if getattr(u, 'profile_summary', None))
+                'analyzed_users': sum(1 for u in users if getattr(u, 'profile', None))
             })
     except Exception as e:
         logger.error(f"Критическая ошибка в дашборде: {e}", exc_info=True)
@@ -334,7 +334,7 @@ async def dashboard_data_api(request: web.Request):
                 'last_name': u.last_name or '',
                 'username': u.username or '',
                 'gender': u.gender.value if u.gender else '',
-                'profile_summary': u.profile_summary or '',
+                'profile': u.profile or '',
                 'streams_count': len(getattr(u, 'streams', []) or []),
                 'post_count': post_count,
             })
@@ -402,7 +402,7 @@ async def users_gallery_api(request: web.Request):
                         photo_b64 = base64.b64encode(pj).decode('utf-8')
                     elif isinstance(pj, str):
                         photo_b64 = pj
-                summary = (getattr(u, 'profile_summary', '') or '')
+                summary = (getattr(u, 'profile', '') or '')
                 if summary and len(summary) > 220:
                     summary = summary[:217] + '...'
                 gender_val = getattr(u, 'gender', '')
@@ -414,7 +414,7 @@ async def users_gallery_api(request: web.Request):
                     'last_name': getattr(u, 'last_name', '') or '',
                     'username': getattr(u, 'username', '') or '',
                     'gender': gender_val,
-                    'profile_summary': summary,
+                    'profile': summary,
                 })
             except Exception as e:
                 uid = getattr(u, 'id', '?')
@@ -580,7 +580,7 @@ async def user_details(request: web.Request):
                 'last_seen_date': user.last_seen_date.isoformat() if user.last_seen_date else None,
                 'streams': user.streams or [],
                 'psychological_summary': user.psychological_summary or '',
-                'profile_summary': user.profile_summary or '',
+                'profile': user.profile or '',
                 'metaphysical_profile': user.metaphysical_profile or {},
                 'last_journey_stage': user.last_journey_stage.value if user.last_journey_stage else '',
                 'markers': user.markers or {},
@@ -836,3 +836,4 @@ def create_app(bot: Bot, dp: Dispatcher) -> web.Application:
     logger.info(f"aiohttp application created. Webhook path: {settings.webhook_path}")
     return app
     return app 
+
