@@ -10,282 +10,208 @@
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
     
     :root {
-        --glass-bg: rgba(255, 255, 255, 0.15);
-        --glass-bg-hover: rgba(255, 255, 255, 0.25);
-        --glass-border: rgba(255, 255, 255, 0.3);
-        --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-        --glass-blur: blur(16px);
-        --primary-gradient: linear-gradient(135deg, #e94e77 0%, #b721ff 100%);
-        --secondary-gradient: linear-gradient(135deg, #36d1c4 0%, #7f53ac 100%);
-        --accent-glow: 0 0 20px rgba(233, 78, 119, 0.4);
+        --bg-primary: #f5f6f7;
+        --bg-secondary: #ffffff;
+        --bg-card: rgba(255, 255, 255, 0.9);
+        --text-primary: #1a1a1a;
+        --text-secondary: #6b6b6b;
+        --accent-primary: #1da0c3;
+        --accent-hover: #23b8dd;
+        --border-color: rgba(0, 0, 0, 0.08);
+        --shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        --refraction-color: rgba(29, 160, 195, 0.12);
+    }
+
+    /* Темная тема */
+    [data-theme="dark"] {
+        --bg-primary: #16171a;
+        --bg-secondary: #1e1f23;
+        --bg-card: rgba(30, 31, 35, 0.7);
+        --text-primary: #ffffff;
+        --text-secondary: #9a9ba0;
+        --border-color: rgba(255, 255, 255, 0.08);
+        --shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+        --refraction-color: rgba(29, 160, 195, 0.15);
     }
 
     body {
-        font-family: 'Inter', Arial, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 25%, #f093fb 50%, #4facfe 75%, #00f2fe 100%);
-        background-size: 400% 400%;
-        animation: gradientBG 20s ease infinite;
-        color: #ffffff;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
         margin: 0;
         padding: 0;
         min-height: 100vh;
         position: relative;
         overflow-x: hidden;
+        line-height: 1.6;
     }
 
-    /* Анимированный фон */
+    /* Эффект преломления света */
     body::before {
         content: '';
         position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
         background: 
-            radial-gradient(circle at 20% 50%, rgba(233, 78, 119, 0.2) 0%, transparent 50%),
-            radial-gradient(circle at 80% 80%, rgba(54, 209, 196, 0.2) 0%, transparent 50%),
-            radial-gradient(circle at 40% 20%, rgba(183, 33, 255, 0.2) 0%, transparent 50%);
+            radial-gradient(ellipse at 30% 20%, var(--refraction-color) 0%, transparent 40%),
+            radial-gradient(ellipse at 70% 60%, rgba(29, 160, 195, 0.06) 0%, transparent 50%),
+            radial-gradient(ellipse at 50% 80%, rgba(29, 160, 195, 0.04) 0%, transparent 60%);
+        animation: refract 30s ease-in-out infinite;
         z-index: 0;
         pointer-events: none;
+        filter: blur(70px);
+        opacity: 0.6;
     }
 
-    body::after {
-        content: '';
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.1);
-        z-index: 0;
-        pointer-events: none;
+    @keyframes refract {
+        0%, 100% { 
+            transform: translate(0, 0) rotate(0deg);
+            opacity: 0.6;
+        }
+        33% { 
+            transform: translate(5%, -5%) rotate(120deg);
+            opacity: 0.8;
+        }
+        66% { 
+            transform: translate(-5%, 5%) rotate(240deg);
+            opacity: 0.7;
+        }
     }
 
-    @keyframes gradientBG {
-        0% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
-    }
-
-    /* Плавающие элементы фона */
+    /* Минималистичные акценты */
     .floating-shapes {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-        z-index: -1;
+        display: none;
     }
 
-    .shape {
-        position: absolute;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.05));
+    /* Карточки в стиле Bandcamp */
+    .relove-card {
+        background: var(--bg-card);
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        border-radius: 50%;
-        animation: float 25s infinite ease-in-out;
-        opacity: 0.6;
-        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-    }
-
-    .shape:nth-child(1) {
-        width: 400px;
-        height: 400px;
-        top: -200px;
-        left: -200px;
-        animation-delay: 0s;
-        background: linear-gradient(135deg, rgba(233, 78, 119, 0.3), rgba(183, 33, 255, 0.1));
-    }
-
-    .shape:nth-child(2) {
-        width: 300px;
-        height: 300px;
-        top: 40%;
-        right: -150px;
-        animation-delay: -8s;
-        background: linear-gradient(135deg, rgba(54, 209, 196, 0.3), rgba(127, 83, 172, 0.1));
-    }
-
-    .shape:nth-child(3) {
-        width: 250px;
-        height: 250px;
-        bottom: -125px;
-        left: 40%;
-        animation-delay: -15s;
-        background: linear-gradient(135deg, rgba(183, 33, 255, 0.3), rgba(233, 78, 119, 0.1));
-    }
-
-    @keyframes float {
-        0%, 100% { 
-            transform: translate(0, 0) rotate(0deg) scale(1); 
-        }
-        25% { 
-            transform: translate(50px, -50px) rotate(90deg) scale(1.1); 
-        }
-        50% { 
-            transform: translate(100px, 50px) rotate(180deg) scale(0.9); 
-        }
-        75% { 
-            transform: translate(-50px, 100px) rotate(270deg) scale(1.05); 
-        }
-    }
-
-    /* Улучшенные карточки с жидким стеклом */
-    .relove-card {
-        background: var(--glass-bg);
-        backdrop-filter: var(--glass-blur);
-        -webkit-backdrop-filter: var(--glass-blur);
-        border: 1px solid var(--glass-border);
-        border-radius: 2rem;
-        box-shadow: var(--glass-shadow);
-        padding: 2rem;
-        margin-bottom: 2rem;
-        color: #ffffff;
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        box-shadow: var(--shadow);
+        padding: 24px;
+        margin-bottom: 24px;
+        color: var(--text-primary);
+        transition: all 0.2s ease;
         position: relative;
         overflow: hidden;
         z-index: 1;
     }
 
+    /* Эффект преломления на карточке */
     .relove-card::before {
         content: '';
         position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 3px;
-        background: var(--primary-gradient);
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, var(--refraction-color) 0%, transparent 70%);
         opacity: 0;
-        transition: opacity 0.4s ease;
-        box-shadow: var(--accent-glow);
-    }
-
-    .relove-card::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, transparent 50%, rgba(255, 255, 255, 0.1) 100%);
-        transform: translateX(-100%) skewX(-15deg);
-        transition: transform 0.8s ease;
+        transition: opacity 0.3s ease;
         pointer-events: none;
     }
 
     .relove-card:hover {
-        transform: translateY(-8px) scale(1.02);
-        box-shadow: 0 20px 60px 0 rgba(31, 38, 135, 0.5), var(--accent-glow);
-        background: var(--glass-bg-hover);
-        border-color: rgba(255, 255, 255, 0.5);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+        border-color: rgba(29, 160, 195, 0.3);
     }
 
     .relove-card:hover::before {
         opacity: 1;
     }
 
-    .relove-card:hover::after {
-        transform: translateX(100%) skewX(-15deg);
-    }
-
     .relove-card h5 {
-        color: #ffffff;
+        color: var(--text-primary);
         font-weight: 600;
-        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+        font-size: 16px;
+        margin: 0 0 16px 0;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
 
-    /* Улучшенные кнопки с жидким стеклом */
+    /* Кнопки в стиле Bandcamp */
     .relove-btn {
-        background: var(--primary-gradient);
+        background: var(--accent-primary);
         color: #fff;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        border-radius: 1.5rem;
+        border: none;
+        border-radius: 3px;
         font-weight: 600;
-        padding: 0.9em 2.5em;
-        font-size: 1.05em;
-        box-shadow: 0 8px 25px rgba(233, 78, 119, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        padding: 10px 20px;
+        font-size: 14px;
+        box-shadow: none;
+        transition: all 0.15s ease;
         position: relative;
         overflow: hidden;
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        cursor: pointer;
     }
 
     .relove-btn::before {
         content: '';
         position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
-        transition: 0.6s;
+        top: 50%;
+        left: 50%;
+        width: 0;
+        height: 0;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.2);
+        transform: translate(-50%, -50%);
+        transition: width 0.4s ease, height 0.4s ease;
     }
 
     .relove-btn:hover {
-        transform: translateY(-3px) scale(1.05);
-        box-shadow: 0 12px 35px rgba(233, 78, 119, 0.6), var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.5);
-        border-color: rgba(255, 255, 255, 0.6);
+        background: var(--accent-hover);
+        transform: none;
     }
 
     .relove-btn:hover::before {
-        left: 100%;
+        width: 300px;
+        height: 300px;
     }
 
     .relove-btn:active {
-        transform: translateY(-1px) scale(1.02);
+        transform: scale(0.98);
     }
 
-    /* Улучшенные вкладки с жидким стеклом */
+    .btn-outline-secondary {
+        background: transparent;
+        color: var(--text-secondary);
+        border: 1px solid var(--border-color);
+    }
+
+    .btn-outline-secondary:hover {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        border-color: var(--accent-primary);
+    }
+
+    /* Вкладки в стиле Bandcamp */
     .relove-tabs {
-        background: var(--glass-bg);
-        backdrop-filter: var(--glass-blur);
-        -webkit-backdrop-filter: var(--glass-blur);
-        border: 1px solid var(--glass-border);
-        border-radius: 1.8rem;
-        overflow: hidden;
-        margin-bottom: 2.5rem;
-        box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        background: transparent;
+        border: none;
+        border-bottom: 1px solid var(--border-color);
+        margin-bottom: 32px;
         position: relative;
         z-index: 1;
     }
 
-    .relove-tabs::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
-        transform: translateX(-100%);
-        transition: transform 0.8s ease;
-    }
-
-    .relove-tabs:hover::before {
-        transform: translateX(100%);
-    }
-
-    /* Улучшенные графики */
+    /* Графики в стиле Bandcamp */
     .chart-container {
         position: relative;
         margin: auto;
         height: 300px;
         width: 100%;
-        background: var(--glass-bg);
-        backdrop-filter: var(--glass-blur);
-        -webkit-backdrop-filter: var(--glass-blur);
-        border-radius: 1rem;
-        padding: 1rem;
-        transition: all 0.3s ease;
-    }
-
-    .chart-container:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.2);
+        background: transparent;
+        border-radius: 0;
+        padding: 16px 0;
+        transition: all 0.2s ease;
     }
 
     /* Контейнер */
@@ -348,148 +274,129 @@
     }
 
     .dashboard-title-bar {
-        background: var(--glass-bg);
-        backdrop-filter: var(--glass-blur);
-        -webkit-backdrop-filter: var(--glass-blur);
-        border: 1px solid var(--glass-border);
-        border-radius: 2.5rem;
-        box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-        padding: 1.8rem 2.5rem;
-        margin: 0 0 2.5rem 0;
+        background: transparent;
+        border: none;
+        border-bottom: 1px solid var(--border-color);
+        padding: 32px 0 24px 0;
+        margin: 0 0 32px 0;
         display: flex;
         align-items: center;
-        justify-content: flex-start;
-        min-height: 80px;
+        justify-content: space-between;
         position: relative;
-        overflow: hidden;
         z-index: 1;
-    }
-
-    .dashboard-title-bar::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: linear-gradient(135deg, rgba(233, 78, 119, 0.2), rgba(183, 33, 255, 0.2));
-        opacity: 0.3;
-        z-index: 0;
-    }
-
-    .dashboard-title-bar::after {
-        content: '';
-        position: absolute;
-        top: -50%;
-        left: -50%;
-        width: 200%;
-        height: 200%;
-        background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
-        animation: shimmer 8s linear infinite;
-        z-index: 0;
-    }
-
-    @keyframes shimmer {
-        0% { transform: translate(-50%, -50%) rotate(0deg); }
-        100% { transform: translate(-50%, -50%) rotate(360deg); }
     }
 
     .dashboard-title {
-        color: #ffffff;
-        font-size: 2.5rem;
+        color: var(--text-primary);
+        font-size: 28px;
         font-weight: 700;
-        letter-spacing: 0.02em;
+        letter-spacing: -0.5px;
         position: relative;
         z-index: 1;
         display: flex;
         align-items: center;
-        text-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), 0 0 30px rgba(233, 78, 119, 0.5);
+    }
+
+    /* Переключатель темы */
+    .theme-toggle {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 20px;
+        padding: 6px;
+        display: flex;
+        gap: 4px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .theme-toggle:hover {
+        border-color: var(--accent-primary);
+    }
+
+    .theme-toggle-btn {
+        background: transparent;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 16px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .theme-toggle-btn.active {
+        background: var(--accent-primary);
+        color: #ffffff;
+    }
+
+    .theme-toggle-btn:hover:not(.active) {
+        color: var(--text-primary);
     }
 
     .dashboard-title .relove-heart {
-        margin-left: 0.5rem;
-        font-size: 2.1rem;
+        margin-left: 8px;
+        font-size: 24px;
         vertical-align: middle;
-        filter: drop-shadow(0 1px 4px rgba(233,78,119,0.13));
+        color: var(--accent-primary);
     }
 
-    /* Вкладки с жидким стеклом */
+    /* Вкладки в стиле Bandcamp */
     .relove-tab-btn {
-        color: rgba(255, 255, 255, 0.8);
+        color: var(--text-secondary);
         border: none;
-        padding: 1.3rem 2.2rem;
+        padding: 12px 20px;
         font-weight: 500;
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        font-size: 14px;
+        transition: all 0.15s ease;
         background: transparent;
         position: relative;
-        overflow: hidden;
-        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
 
     .relove-tab-btn::before {
         content: '';
         position: absolute;
-        bottom: 0;
-        left: 50%;
-        width: 0;
-        height: 3px;
-        background: var(--primary-gradient);
-        transition: all 0.4s ease;
-        transform: translateX(-50%);
-        box-shadow: var(--accent-glow);
-    }
-
-    .relove-tab-btn::after {
-        content: '';
-        position: absolute;
-        top: 0;
+        bottom: -1px;
         left: 0;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
-        opacity: 0;
-        transition: opacity 0.4s ease;
+        width: 0;
+        height: 2px;
+        background: var(--accent-primary);
+        transition: width 0.2s ease;
     }
 
     .relove-tab-btn:hover {
-        color: #ffffff;
-        background: rgba(255, 255, 255, 0.1);
+        color: var(--text-primary);
     }
 
     .relove-tab-btn:hover::before {
-        width: 80%;
-    }
-
-    .relove-tab-btn:hover::after {
-        opacity: 1;
+        width: 100%;
     }
 
     .relove-tab-btn.active {
-        background: linear-gradient(135deg, rgba(233, 78, 119, 0.3), rgba(183, 33, 255, 0.3));
-        color: #ffffff;
+        color: var(--accent-primary);
         font-weight: 600;
-        box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.2);
     }
 
     .relove-tab-btn.active::before {
         width: 100%;
     }
 
-    .relove-tab-btn.active::after {
-        opacity: 1;
-    }
-
-    /* Статистические карточки с жидким стеклом */
+    /* Статистические карточки в стиле Bandcamp */
     .stat-card {
-        background: var(--glass-bg);
-        backdrop-filter: var(--glass-blur);
-        -webkit-backdrop-filter: var(--glass-blur);
-        border: 1px solid var(--glass-border);
-        border-radius: 1.5rem;
-        padding: 2rem;
-        margin-bottom: 1.5rem;
-        box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        background: var(--bg-card);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 20px;
+        margin-bottom: 16px;
+        box-shadow: var(--shadow);
+        transition: all 0.2s ease;
         position: relative;
         overflow: hidden;
     }
@@ -499,17 +406,16 @@
         position: absolute;
         top: 0;
         left: 0;
-        width: 100%;
+        width: 3px;
         height: 100%;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+        background: var(--accent-primary);
         opacity: 0;
-        transition: opacity 0.4s ease;
+        transition: opacity 0.2s ease;
     }
 
     .stat-card:hover {
-        transform: translateY(-5px) scale(1.03);
-        box-shadow: 0 15px 50px 0 rgba(31, 38, 135, 0.4), var(--accent-glow);
-        background: var(--glass-bg-hover);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
     }
 
     .stat-card:hover::before {
@@ -517,96 +423,87 @@
     }
 
     .stat-card .title {
-        font-size: 0.95rem;
-        color: rgba(255, 255, 255, 0.8);
-        margin-bottom: 1rem;
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        font-weight: 500;
+        letter-spacing: 0.5px;
+        font-weight: 600;
     }
 
     .stat-card .value {
-        font-size: 2.5rem;
+        font-size: 32px;
         font-weight: 700;
-        color: #ffffff;
-        background: var(--primary-gradient);
-        background-clip: text;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-shadow: 0 0 30px rgba(233, 78, 119, 0.5);
-        filter: drop-shadow(0 4px 10px rgba(233, 78, 119, 0.3));
+        color: var(--accent-primary);
+        line-height: 1;
     }
 
-    /* Формы и инпуты с жидким стеклом */
+    /* Формы и инпуты в стиле Bandcamp */
     .form-control, .form-select {
-        background: var(--glass-bg);
-        backdrop-filter: var(--glass-blur);
-        -webkit-backdrop-filter: var(--glass-blur);
-        border: 1px solid var(--glass-border);
-        border-radius: 1.2rem;
-        padding: 1rem 1.5rem;
-        transition: all 0.4s ease;
-        color: #ffffff;
-        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-color);
+        border-radius: 3px;
+        padding: 10px 14px;
+        transition: all 0.15s ease;
+        color: var(--text-primary);
+        font-size: 14px;
     }
 
     .form-control::placeholder {
-        color: rgba(255, 255, 255, 0.6);
+        color: var(--text-secondary);
     }
 
     .form-control:focus, .form-select:focus {
-        background: var(--glass-bg-hover);
-        border-color: rgba(233, 78, 119, 0.8);
-        box-shadow: 0 0 0 0.3rem rgba(233, 78, 119, 0.25), var(--accent-glow);
+        background: var(--bg-secondary);
+        border-color: var(--accent-primary);
+        box-shadow: 0 0 0 2px rgba(29, 160, 195, 0.2);
         outline: none;
-        color: #ffffff;
+        color: var(--text-primary);
     }
 
     .form-select {
-        color: #ffffff;
-        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e");
+        color: var(--text-primary);
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23b8b9bd' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e");
     }
 
     .form-select option {
-        background: rgba(26, 26, 26, 0.95);
-        color: #ffffff;
+        background: var(--bg-secondary);
+        color: var(--text-primary);
     }
 
-    /* Таблица с жидким стеклом */
+    /* Таблица в стиле Bandcamp */
     .table {
-        background: var(--glass-bg);
-        backdrop-filter: var(--glass-blur);
-        -webkit-backdrop-filter: var(--glass-blur);
-        border-radius: 1.5rem;
+        background: transparent;
+        border-radius: 0;
         overflow: hidden;
-        border: 1px solid var(--glass-border);
-        box-shadow: var(--glass-shadow);
+        border: none;
+        box-shadow: none;
     }
 
     .table thead th {
-        background: linear-gradient(135deg, rgba(233, 78, 119, 0.3), rgba(183, 33, 255, 0.3));
-        border-bottom: 2px solid rgba(255, 255, 255, 0.3);
-        color: #ffffff;
+        background: transparent;
+        border-bottom: 1px solid var(--border-color);
+        color: var(--text-secondary);
         font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        padding: 1.2rem 1rem;
-        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        letter-spacing: 0.5px;
+        padding: 12px 16px;
+        font-size: 12px;
     }
 
     .table tbody tr {
-        transition: all 0.3s ease;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        transition: all 0.15s ease;
+        border-bottom: 1px solid var(--border-color);
     }
 
     .table tbody tr:hover {
-        background: rgba(233, 78, 119, 0.15);
-        transform: scale(1.01);
+        background: rgba(29, 160, 195, 0.05);
     }
 
     .table tbody td {
-        color: rgba(255, 255, 255, 0.95);
-        padding: 1rem;
+        color: var(--text-primary);
+        padding: 16px;
+        font-size: 14px;
     }
 
     .user-avatar {
@@ -728,90 +625,85 @@
     .gallery-summary { font-size: 0.8rem; opacity: 0.95; margin-top: 4px; max-height: 3.2em; overflow: hidden; }
     .gallery-loader { text-align: center; padding: 16px; color: #666; }
 
-    /* Плашки во вкладке Пользователи с жидким стеклом */
+    /* Плашки во вкладке Пользователи в стиле Bandcamp */
     .users-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        gap: 20px;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 16px;
     }
     .user-card {
         display: flex;
-        gap: 15px;
-        align-items: stretch;
-        padding: 18px;
-        border-radius: 20px;
-        background: var(--glass-bg);
-        backdrop-filter: var(--glass-blur);
-        -webkit-backdrop-filter: var(--glass-blur);
-        border: 1px solid var(--glass-border);
-        box-shadow: var(--glass-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        min-height: 110px;
+        gap: 16px;
+        align-items: flex-start;
+        padding: 16px;
+        border-radius: 4px;
+        background: var(--bg-card);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--border-color);
+        box-shadow: var(--shadow);
+        transition: all 0.2s ease;
+        min-height: 100px;
         position: relative;
         overflow: hidden;
     }
     .user-card::before {
         content: '';
         position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), transparent);
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, var(--refraction-color) 0%, transparent 70%);
         opacity: 0;
-        transition: opacity 0.4s ease;
+        transition: opacity 0.3s ease;
+        pointer-events: none;
     }
     .user-card:hover { 
-        transform: translateY(-5px) scale(1.02); 
-        box-shadow: 0 15px 50px rgba(31,38,135,0.4), var(--accent-glow);
-        background: var(--glass-bg-hover);
+        transform: translateY(-2px); 
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+        border-color: rgba(29, 160, 195, 0.3);
     }
     .user-card:hover::before {
         opacity: 1;
     }
     .user-card .avatar {
-        width: 80px; height: 80px; border-radius: 16px; overflow: hidden; flex: 0 0 auto;
+        width: 64px; height: 64px; border-radius: 3px; overflow: hidden; flex: 0 0 auto;
         display: flex; align-items: center; justify-content: center; 
-        background: linear-gradient(135deg, rgba(233, 78, 119, 0.3), rgba(183, 33, 255, 0.3));
-        font-weight: 700; font-size: 28px; color: #ffffff;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-        border: 2px solid rgba(255, 255, 255, 0.3);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
+        background: var(--bg-secondary);
+        font-weight: 700; font-size: 24px; color: var(--accent-primary);
+        border: 1px solid var(--border-color);
     }
     .user-card .avatar img { 
         width: 100%; height: 100%; object-fit: cover; display: block;
-        border-radius: 14px;
     }
     .user-card .content { flex: 1 1 auto; min-width: 0; position: relative; z-index: 1; }
     .user-card .name { 
-        font-weight: 700; margin: 0; font-size: 1.05rem; color: #ffffff;
-        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        font-weight: 600; margin: 0 0 4px 0; font-size: 15px; color: var(--text-primary);
     }
     .user-card .meta { 
-        font-size: .9rem; color: rgba(255, 255, 255, 0.8); margin-top: 4px;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;
     }
     .user-card .summary { 
-        font-size: .88rem; color: rgba(255, 255, 255, 0.85); margin-top: 8px; 
-        max-height: 3.5em; overflow: hidden; line-height: 1.4;
-        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        font-size: 13px; color: var(--text-secondary); 
+        max-height: 3em; overflow: hidden; line-height: 1.5;
     }
     .user-card .actions { 
-        display: flex; gap: 8px; align-items: center; margin-left: 10px;
+        display: flex; gap: 6px; align-items: flex-start;
         position: relative; z-index: 1;
     }
     .user-card .actions button {
-        background: rgba(255, 255, 255, 0.2);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        transition: all 0.3s ease;
+        background: transparent;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        padding: 6px 10px;
+        font-size: 18px;
+        transition: all 0.15s ease;
     }
     .user-card .actions button:hover {
-        background: rgba(255, 255, 255, 0.3);
-        transform: scale(1.1);
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        background: var(--accent-primary);
+        border-color: var(--accent-primary);
+        color: #fff;
     }
     </style>
 </head>
@@ -826,6 +718,14 @@
     <div class="container py-3">
         <div class="dashboard-title-bar mb-4">
             <span class="dashboard-title">reLove Админ-панель <span class="relove-heart">❤</span></span>
+            <div class="theme-toggle">
+                <button class="theme-toggle-btn active" data-theme="light" onclick="setTheme('light')">
+                    <span>☀️</span> Светлая
+                </button>
+                <button class="theme-toggle-btn" data-theme="dark" onclick="setTheme('dark')">
+                    <span>🌙</span> Темная
+                </button>
+            </div>
         </div>
 
         <!-- Вкладки -->
@@ -1097,6 +997,25 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Переключение темы
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            
+            // Обновляем активную кнопку
+            document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+                if (btn.getAttribute('data-theme') === theme) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
+
+        // Загружаем сохраненную тему
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        setTheme(savedTheme);
+
         // Инициализация графиков
         document.addEventListener('DOMContentLoaded', function() {
             // График распределения по потокам
