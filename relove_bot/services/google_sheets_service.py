@@ -96,7 +96,7 @@ class GoogleSheetsService:
             print(f"Ошибка при вставке изображения с текстом: {e}")
             return False
     
-    def apply_pastel_colors(self, spreadsheet_id: str, sheet_name: str, num_rows: int, color_index: int = 0) -> bool:
+    def apply_pastel_colors(self, spreadsheet_id: str, sheet_name: str, num_rows: int, color_index: int = 0, num_columns: int = 4) -> bool:
         """Применяет пастельные цвета к листу (разные для каждого ритуала)."""
         try:
             sheet_id = self.get_sheet_id(spreadsheet_id, sheet_name)
@@ -112,8 +112,8 @@ class GoogleSheetsService:
             bg_color = pastel_colors[color_index % len(pastel_colors)]
             header_color = {"red": 0.4, "green": 0.2, "blue": 0.6}
             requests = [
-                {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 6}, "cell": {"userEnteredFormat": {"backgroundColor": header_color, "textFormat": {"bold": True, "fontSize": 12, "foregroundColor": {"red": 1, "green": 1, "blue": 1}}, "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"}}, "fields": "userEnteredFormat"}},
-                {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": num_rows, "startColumnIndex": 0, "endColumnIndex": 6}, "cell": {"userEnteredFormat": {"backgroundColor": bg_color}}, "fields": "userEnteredFormat.backgroundColor"}}
+                {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": num_columns}, "cell": {"userEnteredFormat": {"backgroundColor": header_color, "textFormat": {"bold": True, "fontSize": 12, "foregroundColor": {"red": 1, "green": 1, "blue": 1}}, "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"}}, "fields": "userEnteredFormat"}},
+                {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": num_rows, "startColumnIndex": 0, "endColumnIndex": num_columns}, "cell": {"userEnteredFormat": {"backgroundColor": bg_color}}, "fields": "userEnteredFormat.backgroundColor"}}
             ]
             body = {'requests': requests}
             self.service.spreadsheets().batchUpdate(spreadsheetId=spreadsheet_id, body=body).execute()
@@ -137,7 +137,7 @@ class GoogleSheetsService:
             print(f"Ошибка при обновлении строк в Google Sheets: {e}")
             return False
     
-    def _set_text_wrapping(self, spreadsheet_id: str, sheet_name: str, num_rows: int) -> bool:
+    def _set_text_wrapping(self, spreadsheet_id: str, sheet_name: str, num_rows: int, num_columns: int = 4) -> bool:
         """Устанавливает перенос текста, высоту строк и цветное оформление в палитре reLove."""
         try:
             sheet_id = self.get_sheet_id(spreadsheet_id, sheet_name)
@@ -146,9 +146,9 @@ class GoogleSheetsService:
             header_color = {"red": 0.4, "green": 0.2, "blue": 0.6}
             light_bg = {"red": 0.95, "green": 0.92, "blue": 0.98}
             requests = [
-                {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": num_rows, "startColumnIndex": 0, "endColumnIndex": 6}, "cell": {"userEnteredFormat": {"wrapStrategy": "WRAP", "verticalAlignment": "TOP"}}, "fields": "userEnteredFormat.wrapStrategy,userEnteredFormat.verticalAlignment"}},
-                {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 6}, "cell": {"userEnteredFormat": {"backgroundColor": header_color, "textFormat": {"bold": True, "fontSize": 12, "foregroundColor": {"red": 1, "green": 1, "blue": 1}}, "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"}}, "fields": "userEnteredFormat"}},
-                {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": num_rows, "startColumnIndex": 0, "endColumnIndex": 6}, "cell": {"userEnteredFormat": {"backgroundColor": light_bg}}, "fields": "userEnteredFormat.backgroundColor"}},
+                {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": num_rows, "startColumnIndex": 0, "endColumnIndex": num_columns}, "cell": {"userEnteredFormat": {"wrapStrategy": "WRAP", "verticalAlignment": "TOP"}}, "fields": "userEnteredFormat.wrapStrategy,userEnteredFormat.verticalAlignment"}},
+                {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": num_columns}, "cell": {"userEnteredFormat": {"backgroundColor": header_color, "textFormat": {"bold": True, "fontSize": 12, "foregroundColor": {"red": 1, "green": 1, "blue": 1}}, "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"}}, "fields": "userEnteredFormat"}},
+                {"repeatCell": {"range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": num_rows, "startColumnIndex": 0, "endColumnIndex": num_columns}, "cell": {"userEnteredFormat": {"backgroundColor": light_bg}}, "fields": "userEnteredFormat.backgroundColor"}},
                 {"updateDimensionProperties": {"range": {"sheetId": sheet_id, "dimension": "ROWS", "startIndex": 1, "endIndex": num_rows}, "properties": {"pixelSize": 200}, "fields": "pixelSize"}},
                 {"updateDimensionProperties": {"range": {"sheetId": sheet_id, "dimension": "ROWS", "startIndex": 0, "endIndex": 1}, "properties": {"pixelSize": 50}, "fields": "pixelSize"}}
             ]
