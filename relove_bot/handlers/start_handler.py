@@ -1,6 +1,7 @@
 """
 Стартовое меню - максимально простое.
 Минимум текста, максимум простоты.
+Одна кнопка - просто начни писать.
 """
 from aiogram import Router, types
 from aiogram.filters import Command
@@ -10,12 +11,9 @@ router = Router()
 
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
-    """Главная клавиатура - максимум 2 кнопки."""
+    """Главная клавиатура - одна кнопка для начала."""
     buttons = [
-        [
-            KeyboardButton(text="💬 Написать Наташе"),
-            KeyboardButton(text="⚡ Выбрать тему"),
-        ]
+        [KeyboardButton(text="💬 Начать")]
     ]
     return ReplyKeyboardMarkup(
         keyboard=buttons,
@@ -26,28 +24,15 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
 
 @router.message(Command("start"))
 async def start_command(message: types.Message):
-    """Стартовое сообщение."""
+    """Стартовое сообщение - максимум простоты."""
     await message.answer(
         "👋 Привет! Я Наташа.\n\n"
-        "Просто напиши мне, что тебя волнует.",
+        "Просто напиши, что тебя волнует.",
         reply_markup=get_main_keyboard()
     )
 
 
-@router.message(lambda msg: msg.text == "💬 Написать Наташе")
-async def write_to_natasha(message: types.Message):
-    """Переход к написанию сообщения."""
-    await message.answer(
-        "Напиши, что тебя волнует 👇"
-    )
-
-
-@router.message(lambda msg: msg.text == "⚡ Выбрать тему")
-async def select_theme(message: types.Message):
-    """Переход к выбору темы."""
-    from relove_bot.handlers.quick_menu_handler import get_theme_quick_menu
-    
-    await message.answer(
-        "Выбери тему:",
-        reply_markup=get_theme_quick_menu()
-    )
+@router.message(lambda msg: msg.text == "💬 Начать")
+async def start_writing(message: types.Message):
+    """Начни писать."""
+    await message.answer("Слушаю 👇")

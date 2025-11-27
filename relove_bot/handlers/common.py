@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from aiogram import Router, types
 from aiogram.types import CallbackQuery
 from aiogram.filters import Command, CommandStart
@@ -11,7 +12,7 @@ from ..db.models import UserActivityLog, User, GenderEnum
 from datetime import datetime
 from relove_bot.db.memory_index import user_memory_index
 from relove_bot.services.llm_service import llm_service
-from relove_bot.services.prompts import MESSAGE_SUMMARY_PROMPT
+from relove_bot.services.prompts import MESSAGE_SUMMARY_PROMPT, NATASHA_PROVOCATIVE_PROMPT
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -27,6 +28,7 @@ ADMIN_IDS = {123456789, 987654321}  # Замените на свои id
 from relove_bot.utils.profile_utils import fill_all_profiles
 from relove_bot.config import settings
 import asyncio
+from relove_bot.services.prompts import NATASHA_PROVOCATIVE_PROMPT
 
 async def get_or_create_user(session: AsyncSession, tg_user: types.User) -> User:
     """Gets a user from DB or creates/updates it."""
@@ -135,10 +137,34 @@ async def handle_start(message: types.Message, session: AsyncSession):
             reply_markup=keyboard
         )
     
-    # Отправляем основное меню
+    # Отправляем основное меню с кнопками
     await message.answer(
-        "💡 Выбери действие из меню ниже или просто напиши мне — я отвечу.",
+        "💡 Выбери действие или просто напиши мне:",
         reply_markup=get_main_menu_keyboard()
+    )
+
+@router.message(Command(commands=["diagnostic"]))
+async def handle_diagnostic_command(message: types.Message, session: AsyncSession):
+    """Команда для запуска диагностики"""
+    from relove_bot.handlers.flexible_diagnostic import start_flexible_diagnostic
+    from aiogram.fsm.context import FSMContext
+    from aiogram.fsm.storage.memory import MemoryStorage
+    
+    storage = MemoryStorage()
+    state = FSMContext(storage=storage, key=f"{message.chat.id}:{message.from_user.id}")
+    
+    await start_flexible_diagnostic(message, state, session)
+
+@router.message(Command(commands=["streams"]))
+async def handle_streams_command(message: types.Message):
+    """Команда для показа потоков"""
+    from relove_bot.keyboards.main_menu import get_streams_keyboard
+    
+    await message.answer(
+        "🌀 <b>Потоки reLove</b>\n\n"
+        "Выбери поток для подробной информации:",
+        parse_mode="HTML",
+        reply_markup=get_streams_keyboard()
     )
 
 @router.message(Command(commands=["admin_update_summaries"]))
@@ -235,113 +261,174 @@ async def handle_admin_user_info(message: types.Message):
 
 @router.message()
 async def handle_message(message: types.Message):
+    """Оптимизированный обработчик сообщений с асинхронной обработкой"""
+    user_id = message.from_user.id
+    
     try:
-        llm = LLM()
-        summary_struct = await llm.analyze_content(content=message.text)
-        
-        # Обработка результата analyze_content
-        if isinstance(summary_struct, dict):
-            summary = summary_struct.get('summary', str(summary_struct))
-        else:
-            summary = str(summary_struct)
-        
+        # 1. МГНОВЕННЫЙ ОТКЛИК - показываем "печатает..." и отправляем в фон
         try:
-            async with SessionLocal() as session:
-                # Получаем или создаём пользователя
-                user = await session.get(User, message.from_user.id)
-                is_new_user = False
-                
-                if not user:
-                    is_new_user = True
-                    user = User(
-                        id=message.from_user.id,
-                        username=message.from_user.username,
-                        first_name=message.from_user.first_name,
-                        last_name=message.from_user.last_name,
-                        is_active=True,
-                        markers={}
-                    )
-                    session.add(user)
-                    await session.flush()  # Сохраняем пользователя перед анализом профиля
-                    
-                    # Для нового пользователя создаем полный профиль
-                    try:
-                        from relove_bot.services.profile_service import ProfileService
-                        profile_service = ProfileService(session)
-                        await profile_service.analyze_profile(
-                            user_id=message.from_user.id,
-                            tg_user=message.from_user
-                        )
-                        logging.info(f"Профиль создан для нового пользователя {message.from_user.id}")
-                    except Exception as e:
-                        logging.warning(f"Не удалось создать полный профиль для {message.from_user.id}: {e}")
-                
-                # Обновляем markers: summary и relove_context
-                user.markers = user.markers or {}
-                user.markers['last_message'] = message.text
-                user.markers['summary'] = summary
-                
-                # Получаем профиль пользователя
-                profile_summary = await get_profile_summary(message.from_user.id, session)
-                user.markers['relove_context'] = profile_summary
-                await session.commit()
-                relove_context = user.markers.get("relove_context")
+            await message.chat.do("typing")
+        except Exception:
+            pass  # Игнорируем ошибки при отправке статуса
         
-        except Exception as db_error:
-            # Обработка ошибок БД
-            error_msg = str(db_error).lower()
-            
-            if "connection refused" in error_msg or "refused" in error_msg:
-                logging.error(f"БД недоступна: {db_error}")
-                await message.answer(
-                    "⚠️ Сервис временно недоступен. Пожалуйста, попробуйте позже.\n"
-                    "Убедитесь, что Docker контейнеры запущены: `docker-compose up -d`"
-                )
-                return
-            elif "timeout" in error_msg:
-                logging.error(f"Таймаут БД: {db_error}")
-                await message.answer(
-                    "⏱️ Сервис отвечает медленно. Пожалуйста, попробуйте позже."
-                )
-                return
-            else:
-                logging.error(f"Ошибка БД: {db_error}")
-                await message.answer(
-                    "❌ Ошибка при обработке запроса. Пожалуйста, попробуйте позже."
-                )
-                return
-        
-        # Генерируем персонализированный ответ с учетом контекста
-        if relove_context:
-            prompt = (
-                f"Контекст пользователя: {relove_context}\n"
-                f"Новое сообщение пользователя: {message.text}\n"
-                f"Дай персонализированную обратную связь для пробуждения и развития в потоке reLove."
-            )
-        else:
-            prompt = (
-                f"Профиль пользователя (summary): {summary}\n"
-                f"Новое сообщение пользователя: {message.text}\n"
-                f"Дай персонализированную обратную связь для пробуждения и развития в потоке reLove."
-            )
-        
-        # Генерируем ответ через LLM
-        try:
-            llm = LLM()
-            feedback = await llm.generate_rag_answer(context="", question=prompt)
-            
-            # Проверяем, что ответ не пустой
-            if not feedback or not feedback.strip():
-                feedback = "Спасибо за сообщение. Я обработал твои слова и буду помогать тебе на пути развития в reLove."
-        except Exception as e:
-            logging.error(f"Ошибка при генерации ответа: {e}")
-            feedback = "Спасибо за сообщение. Я обработал твои слова и буду помогать тебе на пути развития в reLove."
-        
-        await message.answer(feedback)
+        # 2. Запускаем обработку в фоне (не ждем результата)
+        asyncio.create_task(
+            _process_message_async(user_id, message)
+        )
         
     except Exception as e:
         logging.error(f"Ошибка в handle_message: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка при обработке сообщения. Попробуйте позже.")
+
+
+async def _process_message_async(user_id: int, message: types.Message):
+    """Асинхронная обработка сообщения в фоне"""
+    try:
+        # Таймаут 30 сек на всю обработку
+        async with asyncio.timeout(30):
+            # 1. Получаем или создаём пользователя (быстро из кэша или БД)
+            user_data = await _get_or_create_user_cached(user_id, message.from_user)
+            
+            if not user_data:
+                await message.answer("❌ Ошибка при обработке профиля.")
+                return
+            
+            # 2. Генерируем ответ (основная работа)
+            feedback = await _generate_response(user_id, message.text, user_data)
+            
+            # 3. Отправляем ответ
+            if feedback:
+                await message.answer(feedback)
+                
+                # 4. Добавляем реакцию (не критично, если не получится)
+                try:
+                    await message.react([{"type": "emoji", "emoji": "👁"}])
+                except Exception:
+                    pass
+            
+            # 5. Обновляем профиль в фоне (не блокируем)
+            asyncio.create_task(
+                _update_user_profile_async(user_id, message.text)
+            )
+            
+    except asyncio.TimeoutError:
+        logging.warning(f"Таймаут обработки сообщения от {user_id}")
+        try:
+            await message.answer("⏱️ Обработка заняла слишком много времени. Попробуйте позже.")
+        except Exception:
+            pass
+    except Exception as e:
+        logging.error(f"Ошибка в _process_message_async: {e}", exc_info=True)
+        try:
+            await message.answer("❌ Произошла ошибка при обработке сообщения.")
+        except Exception:
+            pass
+
+
+# Кэш пользователей в памяти (LRU)
+_user_cache = {}
+_cache_max_size = 1000
+
+async def _get_or_create_user_cached(user_id: int, tg_user) -> dict:
+    """Получает пользователя из кэша или БД"""
+    # Проверяем кэш
+    if user_id in _user_cache:
+        return _user_cache[user_id]
+    
+    try:
+        async with SessionLocal() as session:
+            user = await session.get(User, user_id)
+            
+            if not user:
+                # Создаем нового пользователя
+                user = User(
+                    id=user_id,
+                    username=tg_user.username,
+                    first_name=tg_user.first_name,
+                    last_name=tg_user.last_name,
+                    is_active=True,
+                    markers={}
+                )
+                session.add(user)
+                await session.commit()
+                logging.info(f"Создан новый пользователь {user_id}")
+            
+            # Кэшируем данные
+            user_data = {
+                'id': user.id,
+                'markers': user.markers or {},
+                'profile': user.profile or ''
+            }
+            
+            # Простая LRU: если кэш переполнен, удаляем старые записи
+            if len(_user_cache) >= _cache_max_size:
+                oldest_key = next(iter(_user_cache))
+                del _user_cache[oldest_key]
+            
+            _user_cache[user_id] = user_data
+            return user_data
+            
+    except Exception as e:
+        logging.error(f"Ошибка при получении пользователя {user_id}: {e}")
+        return None
+
+
+async def _generate_response(user_id: int, text: str, user_data: dict) -> str:
+    """Генерирует ответ с использованием LLM"""
+    try:
+        # Получаем контекст из кэша
+        relove_context = user_data.get('markers', {}).get('relove_context', '')
+        
+        # Формируем промпт (минимальный размер для скорости)
+        if relove_context:
+            full_prompt = (
+                f"{NATASHA_PROVOCATIVE_PROMPT}\n\n"
+                f"Контекст: {relove_context[:500]}\n"  # Ограничиваем размер контекста
+                f"Сообщение: {text[:200]}"  # Ограничиваем размер сообщения
+            )
+        else:
+            full_prompt = (
+                f"{NATASHA_PROVOCATIVE_PROMPT}\n\n"
+                f"Сообщение: {text[:200]}"
+            )
+        
+        # Генерируем ответ с таймаутом
+        try:
+            async with asyncio.timeout(20):  # 20 сек на LLM
+                feedback = await llm_service.generate_text(
+                    prompt=full_prompt,
+                    max_tokens=300,  # Меньше токенов = быстрее
+                    temperature=0.7  # Немного ниже для стабильности
+                )
+        except asyncio.TimeoutError:
+            feedback = "Обработка заняла слишком много времени. Попробуйте позже."
+        
+        return feedback.strip() if feedback else None
+        
+    except Exception as e:
+        logging.error(f"Ошибка при генерации ответа для {user_id}: {e}")
+        return None
+
+
+async def _update_user_profile_async(user_id: int, text: str):
+    """Обновляет профиль пользователя в фоне (не блокирует основной поток)"""
+    try:
+        async with asyncio.timeout(10):  # 10 сек на обновление
+            async with SessionLocal() as session:
+                user = await session.get(User, user_id)
+                if user:
+                    user.markers = user.markers or {}
+                    user.markers['last_message'] = text[:500]  # Ограничиваем размер
+                    user.markers['last_update'] = str(datetime.now())
+                    await session.commit()
+                    
+                    # Обновляем кэш
+                    if user_id in _user_cache:
+                        _user_cache[user_id]['markers'] = user.markers
+                        
+    except asyncio.TimeoutError:
+        logging.debug(f"Таймаут обновления профиля {user_id}")
+    except Exception as e:
+        logging.debug(f"Ошибка при обновлении профиля {user_id}: {e}")
 
 @router.message(Command(commands=["similar"]))
 async def handle_similar(message: types.Message):
@@ -649,6 +736,15 @@ async def callback_start_diagnostic(callback: CallbackQuery, session: AsyncSessi
     from aiogram.fsm.context import FSMContext
     from aiogram.fsm.storage.memory import MemoryStorage
     
+    # Отправляем текст выбора
+    await callback.message.answer("🎯 Диагностика")
+    
+    # Удаляем сообщение с кнопками
+    try:
+        await callback.message.delete()
+    except Exception as e:
+        logger.warning(f"Не удалось удалить сообщение: {e}")
+    
     # Создаём message из callback
     message = callback.message
     message.from_user = callback.from_user
@@ -748,10 +844,19 @@ async def callback_stream_info(callback: CallbackQuery):
         "Для регистрации свяжись с @NatashaVolkosh"
     )
     
-    await callback.message.edit_text(
+    # Отправляем текст выбора потока
+    await callback.message.answer(f"{stream['name']}")
+    
+    # Удаляем сообщение с кнопками выбора потока
+    try:
+        await callback.message.delete()
+    except Exception as e:
+        logger.warning(f"Не удалось удалить сообщение: {e}")
+    
+    # Отправляем информацию о потоке без кнопок
+    await callback.message.answer(
         stream_text,
-        parse_mode="HTML",
-        reply_markup=get_streams_keyboard()
+        parse_mode="HTML"
     )
     await callback.answer()
 
