@@ -164,20 +164,50 @@ class VideoProcessor:
         print(f"Видео обрезано: {output_path}")
         return output_path
     
-    def add_watermark(self, input_path, watermark_text, output_path=None):
-        """Наложение текстового ватермарка"""
+    def add_watermark(self, input_path, watermark_image=None, output_path=None):
+        """Наложение ватермарка (изображение или текст)"""
         if output_path is None:
             output_path = input_path.parent / f"{input_path.stem}_watermarked{input_path.suffix}"
         
         print(f"Наложение ватермарка: {input_path}")
         
-        cmd = [
-            'ffmpeg', '-i', str(input_path),
-            '-vf', f"drawtext=text='{watermark_text}':fontsize=24:fontcolor=white@0.5:x=10:y=10",
-            '-c:v', 'libx264', '-crf', '18', '-preset', 'slow',
-            '-c:a', 'copy',
-            str(output_path)
-        ]
+        # Если не указано изображение, используем логотип по умолчанию
+        if watermark_image is None:
+            watermark_image = Path(__file__).parent.parent.parent / "data/watermark/relove_logo.png"
+        
+        watermark_path = Path(watermark_image)
+        
+        if watermark_path.exists() and watermark_path.suffix in ['.png', '.svg']:
+            # Конвертируем SVG в PNG если нужно
+            if watermark_path.suffix == '.svg':
+                png_path = watermark_path.with_suffix('.png')
+                if not png_path.exists():
+                    # Конвертация SVG -> PNG через ffmpeg
+                    subprocess.run([
+                        'ffmpeg', '-i', str(watermark_path),
+                        '-vf', 'scale=200:200',
+                        str(png_path)
+                    ], check=True)
+                watermark_path = png_path
+            
+            # Накладываем изображение в правый нижний угол
+            cmd = [
+                'ffmpeg', '-i', str(input_path),
+                '-i', str(watermark_path),
+                '-filter_complex', '[1:v]scale=100:-1[wm];[0:v][wm]overlay=W-w-10:H-h-10',
+                '-c:v', 'libx264', '-crf', '18', '-preset', 'slow',
+                '-c:a', 'copy',
+                str(output_path)
+            ]
+        else:
+            # Текстовый ватермарк как fallback
+            cmd = [
+                'ffmpeg', '-i', str(input_path),
+                '-vf', "drawtext=text='reLove':fontsize=24:fontcolor=white@0.7:x=10:y=10",
+                '-c:v', 'libx264', '-crf', '18', '-preset', 'slow',
+                '-c:a', 'copy',
+                str(output_path)
+            ]
         
         subprocess.run(cmd, check=True)
         print(f"Ватермарк добавлен: {output_path}")
