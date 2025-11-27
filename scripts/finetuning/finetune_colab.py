@@ -200,7 +200,6 @@ class ColabFineTuner:
                 seed=42,
                 report_to=["tensorboard"],
                 gradient_checkpointing=True,
-                max_grad_norm=0.3,
             )
             
             # Создаем trainer
@@ -217,6 +216,13 @@ class ColabFineTuner:
             # Обучаем
             logger.info("\n[4/4] Training model...")
             logger.info(f"⏱️  Epochs: {num_epochs}, Batch size: {batch_size}, LR: {learning_rate}")
+            
+            # Создаём файл статуса для мониторинга
+            status_file = Path(output_dir) / "training_status.json"
+            status_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(status_file, 'w') as f:
+                json.dump({"status": "training", "started_at": str(Path(output_dir))}, f)
+            
             train_result = trainer.train()
             
             # Сохраняем модель
