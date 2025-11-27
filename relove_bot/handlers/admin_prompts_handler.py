@@ -212,8 +212,9 @@ async def handle_topic_selection(callback: types.CallbackQuery):
         # Отключи принудительную тему
         natasha_service = get_natasha_service()
         natasha_service.set_user_topic_override(str(callback.from_user.id), None)
-        await callback.answer("✅ Автоматический выбор включен")
-        await callback.message.edit_text("✅ Автоматический выбор темы включен")
+        await callback.answer("✅")
+        await callback.message.delete()
+        await callback.message.answer("✅ Автоматический выбор включен")
         return
 
     try:
@@ -221,8 +222,9 @@ async def handle_topic_selection(callback: types.CallbackQuery):
         natasha_service = get_natasha_service()
         natasha_service.set_user_topic_override(str(callback.from_user.id), topic)
 
-        await callback.answer("✅ Тема установлена")
-        await callback.message.edit_text(
+        await callback.answer("✅")
+        await callback.message.delete()
+        await callback.message.answer(
             f"✅ Тема установлена: {natasha_service.selector.get_topic_name(topic)}"
         )
 

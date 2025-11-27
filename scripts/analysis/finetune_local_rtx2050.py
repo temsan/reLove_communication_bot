@@ -31,6 +31,8 @@ from peft import LoraConfig, get_peft_model
 import logging
 import matplotlib.pyplot as plt
 import numpy as np
+from tqdm import tqdm
+import traceback
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,103 +44,162 @@ logger = logging.getLogger(__name__)
 class LocalFineTuner:
     """Локальный fine-tuner для RTX 2050."""
     
-    def __init__(self, model_name: str = "dphn/dolphin-2.8-mistral-7b-v02"):
+    def __init__(self, model_name: str = "dphn/dolphin-2.8-mistral-7b-v02", quantize: str = "8bit"):
         """
         Инициализирует fine-tuner.
         
         Args:
             model_name: Название модели из Hugging Face
+            quantize: Тип квантизации ('none', '8bit', '4bit')
         """
         self.model_name = model_name
+        self.quantize = quantize
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
         logger.info(f"Device: {self.device}")
         if self.device == "cuda":
             logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
             logger.info(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+        logger.info(f"Quantization: {quantize}")
     
     def load_model_and_tokenizer(self):
         """Загружает модель и токенайзер с оптимизацией для RTX 2050."""
-        logger.info(f"Loading model: {self.model_name}")
-        
-        # Загружаем токенайзер
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self.tokenizer.pad_token = self.tokenizer.eos_token
-        
-        # Загружаем модель
-        if self.device == "cuda":
-            try:
-                # На GPU пытаемся использовать 8-bit quantization
+        try:
+            logger.info(f"📥 Loading model: {self.model_name}")
+            
+            # Загружаем токенайзер
+            logger.info("Loading tokenizer...")
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+            logger.info("✅ Tokenizer loaded")
+            
+            # Загружаем модель
+            if self.device == "cuda":
+                if self.quantize == "8bit":
+                    try:
+                        logger.info("Attempting 8-bit quantization...")
+                        self.model = AutoModelForCausalLM.from_pretrained(
+                            self.model_name,
+                            load_in_8bit=True,
+                            device_map="auto",
+                            torch_dtype=torch.float16,
+                        )
+                        logger.info("✅ Loaded with 8-bit quantization")
+                    except Exception as e:
+                        logger.warning(f"8-bit quantization failed: {e}")
+                        logger.info("Falling back to no quantization...")
+                        self.model = AutoModelForCausalLM.from_pretrained(
+                            self.model_name,
+                            device_map="auto",
+                            torch_dtype=torch.float16,
+                        )
+                        logger.info("✅ Loaded without quantization")
+                elif self.quantize == "4bit":
+                    try:
+                        from transformers import BitsAndBytesConfig
+                        logger.info("Attempting 4-bit quantization...")
+                        bnb_config = BitsAndBytesConfig(
+                            load_in_4bit=True,
+                            bnb_4bit_use_double_quant=True,
+                            bnb_4bit_quant_type="nf4",
+                            bnb_4bit_compute_dtype=torch.float16
+                        )
+                        self.model = AutoModelForCausalLM.from_pretrained(
+                            self.model_name,
+                            quantization_config=bnb_config,
+                            device_map="auto",
+                        )
+                        logger.info("✅ Loaded with 4-bit quantization")
+                    except Exception as e:
+                        logger.warning(f"4-bit quantization failed: {e}")
+                        logger.info("Falling back to 8-bit...")
+                        self.model = AutoModelForCausalLM.from_pretrained(
+                            self.model_name,
+                            load_in_8bit=True,
+                            device_map="auto",
+                            torch_dtype=torch.float16,
+                        )
+                        logger.info("✅ Loaded with 8-bit quantization")
+                else:
+                    logger.info("Loading without quantization...")
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        self.model_name,
+                        device_map="auto",
+                        torch_dtype=torch.float16,
+                    )
+                    logger.info("✅ Loaded without quantization")
+            else:
+                # На CPU загружаем без quantization
+                logger.info("Loading on CPU (no quantization)...")
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_name,
-                    load_in_8bit=True,
-                    device_map="auto",
-                    torch_dtype=torch.float16,
+                    torch_dtype=torch.float32,
                 )
-                logger.info("✅ Loaded with 8-bit quantization")
-            except Exception as e:
-                logger.warning(f"8-bit quantization failed: {e}")
-                logger.info("Loading without quantization...")
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_name,
-                    device_map="auto",
-                    torch_dtype=torch.float16,
-                )
-        else:
-            # На CPU загружаем без quantization
-            logger.info("Loading on CPU (no quantization)...")
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_name,
-                torch_dtype=torch.float32,
-            )
+                logger.info("✅ Model loaded on CPU")
+        except Exception as e:
+            logger.error(f"❌ Failed to load model: {e}")
+            logger.error(traceback.format_exc())
+            raise
         
         # Применяем LoRA для уменьшения параметров
-        logger.info("Applying LoRA...")
-        
-        # Определяем target modules в зависимости от модели
-        if "mistral" in self.model_name.lower() or "zephyr" in self.model_name.lower():
-            target_modules = ["q_proj", "v_proj"]
-        elif "gpt2" in self.model_name.lower():
-            target_modules = ["c_attn"]
-        else:
-            # Для других моделей пытаемся найти attention модули
-            target_modules = ["q_proj", "v_proj", "c_attn"]
-        
-        lora_config = LoraConfig(
-            r=8,  # Rank
-            lora_alpha=16,
-            target_modules=target_modules,
-            lora_dropout=0.05,
-            bias="none",
-            task_type="CAUSAL_LM"
-        )
-        
-        self.model = get_peft_model(self.model, lora_config)
-        self.model.print_trainable_parameters()
+        try:
+            logger.info("🔧 Applying LoRA...")
+            
+            # Определяем target modules в зависимости от модели
+            if "mistral" in self.model_name.lower() or "zephyr" in self.model_name.lower() or "dolphin" in self.model_name.lower():
+                target_modules = ["q_proj", "v_proj"]
+            elif "gpt2" in self.model_name.lower():
+                target_modules = ["c_attn"]
+            else:
+                # Для других моделей пытаемся найти attention модули
+                target_modules = ["q_proj", "v_proj", "c_attn"]
+            
+            lora_config = LoraConfig(
+                r=8,  # Rank
+                lora_alpha=16,
+                target_modules=target_modules,
+                lora_dropout=0.05,
+                bias="none",
+                task_type="CAUSAL_LM"
+            )
+            
+            self.model = get_peft_model(self.model, lora_config)
+            self.model.print_trainable_parameters()
+            logger.info("✅ LoRA applied successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to apply LoRA: {e}")
+            logger.error(traceback.format_exc())
+            raise
         
         return self.model, self.tokenizer
     
     def load_dataset(self, jsonl_path: str):
         """Загружает датасет из JSONL файла."""
-        logger.info(f"Loading dataset from: {jsonl_path}")
-        
-        # Загружаем датасет
-        dataset = load_dataset('json', data_files=jsonl_path)
-        
-        # Преобразуем в нужный формат
-        def format_data(example):
-            text = ""
-            for msg in example['messages']:
-                if msg['role'] == 'user':
-                    text += f"User: {msg['content']}\n"
-                else:
-                    text += f"Assistant: {msg['content']}\n"
-            return {'text': text}
-        
-        dataset = dataset.map(format_data)
-        
-        logger.info(f"Dataset size: {len(dataset['train'])} examples")
-        return dataset
+        try:
+            logger.info(f"📂 Loading dataset from: {jsonl_path}")
+            
+            # Загружаем датасет
+            dataset = load_dataset('json', data_files=jsonl_path)
+            
+            # Преобразуем в нужный формат
+            def format_data(example):
+                text = ""
+                for msg in example['messages']:
+                    if msg['role'] == 'user':
+                        text += f"User: {msg['content']}\n"
+                    else:
+                        text += f"Assistant: {msg['content']}\n"
+                return {'text': text}
+            
+            logger.info("Formatting dataset...")
+            dataset = dataset.map(format_data, desc="Formatting")
+            
+            logger.info(f"✅ Dataset loaded: {len(dataset['train'])} examples")
+            return dataset
+        except Exception as e:
+            logger.error(f"❌ Failed to load dataset: {e}")
+            logger.error(traceback.format_exc())
+            raise
     
     def tokenize_function(self, examples):
         """Токенизирует примеры."""
@@ -153,73 +214,107 @@ class LocalFineTuner:
         self,
         jsonl_path: str,
         output_dir: str = "./natasha-model-local",
-        num_epochs: int = 10,
+        num_epochs: int = 6,
         batch_size: int = 2,  # Маленький batch для RTX 2050
-        learning_rate: float = 2e-4,
+        learning_rate: float = 1e-4,
     ):
         """Обучает модель."""
-        logger.info("Starting training...")
-        
-        # Загружаем модель и датасет
-        self.load_model_and_tokenizer()
-        dataset = self.load_dataset(jsonl_path)
-        
-        # Токенизируем
-        logger.info("Tokenizing dataset...")
-        tokenized_dataset = dataset.map(
-            self.tokenize_function,
-            batched=True,
-            remove_columns=['messages', 'text']
-        )
-        
-        # Параметры обучения (оптимизированы для RTX 2050)
-        # Выбираем оптимайзер в зависимости от устройства
-        optim_type = "paged_adamw_8bit" if self.device == "cuda" else "adamw_torch"
-        use_fp16 = self.device == "cuda"
-        
-        training_args = TrainingArguments(
-            output_dir=output_dir,
-            num_train_epochs=num_epochs,
-            per_device_train_batch_size=batch_size,
-            gradient_accumulation_steps=4,  # Компенсируем маленький batch
-            learning_rate=learning_rate,
-            warmup_steps=100,
-            weight_decay=0.01,
-            logging_steps=10,
-            save_steps=50,
-            save_total_limit=2,
-            fp16=use_fp16,  # Mixed precision только на GPU
-            optim=optim_type,  # Оптимайзер в зависимости от устройства
-            max_grad_norm=0.3,
-            seed=42,
-            report_to=["tensorboard"],
-        )
-        
-        # Создаем trainer
-        trainer = Trainer(
-            model=self.model,
-            args=training_args,
-            train_dataset=tokenized_dataset['train'],
-            data_collator=DataCollatorForLanguageModeling(
-                self.tokenizer,
-                mlm=False
-            ),
-        )
-        
-        # Обучаем
-        logger.info("Training started...")
-        train_result = trainer.train()
-        
-        # Сохраняем модель
-        logger.info(f"Saving model to: {output_dir}")
-        self.model.save_pretrained(output_dir)
-        self.tokenizer.save_pretrained(output_dir)
-        
-        # Сохраняем логи обучения
-        self._plot_training_metrics(trainer, output_dir)
-        
-        logger.info("✅ Training completed!")
-        return output_dir
+        try:
+            logger.info("🚀 Starting training...")
+            
+            # Загружаем модель и датасет
+            logger.info("\n[1/4] Loading model and tokenizer...")
+            self.load_model_and_tokenizer()
+            
+            logger.info("\n[2/4] Loading dataset...")
+            dataset = self.load_dataset(jsonl_path)
+            
+            # Токенизируем
+            logger.info("\n[3/4] Tokenizing dataset...")
+            tokenized_dataset = dataset.map(
+                self.tokenize_function,
+                batched=True,
+                remove_columns=['messages', 'text'],
+                desc="Tokenizing"
+            )
+            
+            # Параметры обучения (оптимизированы для RTX 2050)
+            # Выбираем оптимайзер в зависимости от устройства
+            optim_type = "paged_adamw_8bit" if self.device == "cuda" else "adamw_torch"
+            use_fp16 = self.device == "cuda"
+            
+            training_args = TrainingArguments(
+                output_dir=output_dir,
+                num_train_epochs=num_epochs,
+                per_device_train_batch_size=batch_size,
+                gradient_accumulation_steps=4,  # Компенсируем маленький batch
+                learning_rate=learning_rate,
+                warmup_steps=100,
+                weight_decay=0.01,
+                logging_steps=10,
+                save_steps=50,
+                save_total_limit=2,
+                fp16=use_fp16,  # Mixed precision только на GPU
+                optim=optim_type,  # Оптимайзер в зависимости от устройства
+                max_grad_norm=0.3,
+                seed=42,
+                report_to=["tensorboard"],
+            )
+            
+            # Создаем trainer
+            trainer = Trainer(
+                model=self.model,
+                args=training_args,
+                train_dataset=tokenized_dataset['train'],
+                data_collator=DataCollatorForLanguageModeling(
+                    self.tokenizer,
+                    mlm=False
+                ),
+            )
+            
+            # Обучаем
+            logger.info("\n[4/4] Training model...")
+            logger.info(f"⏱️  Epochs: {num_epochs}, Batch size: {batch_size}, LR: {learning_rate}")
+            train_result = trainer.train()
+            
+            # Сохраняем модель
+            logger.info(f"\n💾 Saving model to: {output_dir}")
+            self.model.save_pretrained(output_dir)
+            self.tokenizer.save_pretrained(output_dir)
+            
+            # Сохраняем логи обучения
+            logger.info("📊 Generating training metrics...")
+            self._plot_training_metrics(trainer, output_dir)
+            
+            logger.info("\n" + "="*70)
+            logger.info("✅ Training completed successfully!")
+            logger.info("="*70)
+            return output_dir
+            
+        except KeyboardInterrupt:
+            logger.warning("\n⚠️  Training interrupted by user")
+            logger.info("Attempting to save checkpoint...")
+            try:
+                checkpoint_dir = Path(output_dir) / "interrupted_checkpoint"
+                self.model.save_pretrained(checkpoint_dir)
+                self.tokenizer.save_pretrained(checkpoint_dir)
+                logger.info(f"✅ Checkpoint saved to: {checkpoint_dir}")
+            except Exception as e:
+                logger.error(f"Failed to save checkpoint: {e}")
+            raise
+            
+        except Exception as e:
+            logger.error(f"\n❌ Training failed: {e}")
+            logger.error(traceback.format_exc())
+            logger.info("Attempting to save emergency checkpoint...")
+            try:
+                emergency_dir = Path(output_dir) / "emergency_checkpoint"
+                self.model.save_pretrained(emergency_dir)
+                self.tokenizer.save_pretrained(emergency_dir)
+                logger.info(f"✅ Emergency checkpoint saved to: {emergency_dir}")
+            except Exception as save_e:
+                logger.error(f"Failed to save emergency checkpoint: {save_e}")
+            raise
     
     def _plot_training_metrics(self, trainer, output_dir: str):
         """Создает графики метрик обучения."""
@@ -337,14 +432,27 @@ def main():
     parser.add_argument(
         '--epochs',
         type=int,
-        default=10,
-        help='Number of training epochs'
+        default=6,
+        help='Number of training epochs (default: 6 for 321 examples)'
     )
     parser.add_argument(
         '--batch-size',
         type=int,
         default=2,
         help='Batch size (default: 2 for RTX 2050)'
+    )
+    parser.add_argument(
+        '--lr',
+        type=float,
+        default=1e-4,
+        help='Learning rate (default: 1e-4 for small datasets)'
+    )
+    parser.add_argument(
+        '--quantize',
+        type=str,
+        choices=['none', '8bit', '4bit'],
+        default='8bit',
+        help='Quantization type (default: 8bit for RTX 2050)'
     )
     parser.add_argument(
         '--output',
@@ -356,19 +464,30 @@ def main():
     args = parser.parse_args()
     
     print("\n" + "="*70)
-    print("LOCAL FINE-TUNING FOR RTX 2050")
+    print("🤖 LOCAL FINE-TUNING FOR RTX 2050")
+    print("="*70)
+    print(f"Model: {args.model}")
+    print(f"Dataset: {args.file}")
+    print(f"Epochs: {args.epochs} | Batch size: {args.batch_size} | LR: {args.lr}")
+    print(f"Quantization: {args.quantize}")
     print("="*70 + "\n")
     
     try:
-        tuner = LocalFineTuner(model_name=args.model)
+        tuner = LocalFineTuner(model_name=args.model, quantize=args.quantize)
         tuner.train(
             jsonl_path=args.file,
             output_dir=args.output,
             num_epochs=args.epochs,
             batch_size=args.batch_size,
+            learning_rate=args.lr,
         )
+    except KeyboardInterrupt:
+        logger.warning("\n⚠️  Training interrupted by user")
+        sys.exit(1)
     except Exception as e:
-        logger.error(f"❌ Error: {e}", exc_info=True)
+        logger.error(f"\n❌ Fatal error: {e}")
+        logger.error(traceback.format_exc())
+        sys.exit(1)
 
 
 if __name__ == "__main__":

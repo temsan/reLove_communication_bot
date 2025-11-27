@@ -1,6 +1,7 @@
 """
 Быстрое меню для выбора темы (опционально).
 Максимум 2 кнопки, минимум выборов.
+Только самые нужные опции.
 """
 from aiogram import Router, types, F
 from aiogram.filters import Command
@@ -15,7 +16,7 @@ router = Router()
 def get_theme_quick_menu() -> InlineKeyboardMarkup:
     """
     Создай быстрое меню выбора темы.
-    Только самые популярные темы.
+    Максимум 2 кнопки в ряду, минимум выборов.
     """
     buttons = [
         [
@@ -38,12 +39,6 @@ def get_theme_quick_menu() -> InlineKeyboardMarkup:
                 callback_data="quick_theme:business"
             ),
         ],
-        [
-            InlineKeyboardButton(
-                text="🤖 Авто",
-                callback_data="quick_theme:auto"
-            ),
-        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -52,7 +47,7 @@ def get_theme_quick_menu() -> InlineKeyboardMarkup:
 async def quick_theme_menu(message: types.Message):
     """Быстрое меню выбора темы."""
     await message.answer(
-        "Выбери тему (или оставь авто):",
+        "Выбери тему:",
         reply_markup=get_theme_quick_menu()
     )
 
@@ -71,8 +66,9 @@ async def handle_quick_theme(callback: types.CallbackQuery):
                 str(callback.from_user.id),
                 None
             )
-            await callback.answer("✅ Авто режим")
-            await callback.message.edit_text("✅ Авто режим включен")
+            await callback.answer("✅")
+            await callback.message.delete()
+            await callback.message.answer("✅ Авто режим включен")
         else:
             # Установи тему
             topic = DialogTopic(theme_str)
@@ -81,7 +77,8 @@ async def handle_quick_theme(callback: types.CallbackQuery):
                 topic
             )
             await callback.answer("✅")
-            await callback.message.edit_text(
+            await callback.message.delete()
+            await callback.message.answer(
                 f"✅ Тема: {natasha_service.selector.get_topic_name(topic)}"
             )
     

@@ -106,7 +106,10 @@ async def handle_period_selection(callback: types.CallbackQuery):
     )
 
     await callback.answer()
-    await callback.message.edit_text(summary, parse_mode="Markdown")
+    await callback.message.delete()
+    
+    # Отправь резюме
+    await callback.message.answer(summary, parse_mode="Markdown")
 
     # Отправь детальный путь отдельным сообщением
     detailed = journey_service.get_detailed_journey(
