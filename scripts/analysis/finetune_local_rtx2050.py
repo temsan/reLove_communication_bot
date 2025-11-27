@@ -29,6 +29,8 @@ from transformers import (
 from datasets import load_dataset
 from peft import LoraConfig, get_peft_model
 import logging
+import matplotlib.pyplot as plt
+import numpy as np
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,7 +42,7 @@ logger = logging.getLogger(__name__)
 class LocalFineTuner:
     """Локальный fine-tuner для RTX 2050."""
     
-    def __init__(self, model_name: str = "mistralai/Mistral-7B-Instruct-v0.1"):
+    def __init__(self, model_name: str = "dphn/dolphin-2.8-mistral-7b-v02"):
         """
         Инициализирует fine-tuner.
         
@@ -63,31 +65,49 @@ class LocalFineTuner:
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         self.tokenizer.pad_token = self.tokenizer.eos_token
         
-        # Загружаем модель с quantization для экономии памяти
-        try:
-            # Пытаемся использовать 8-bit quantization
+        # Загружаем модель
+        if self.device == "cuda":
+            try:
+                # На GPU пытаемся использовать 8-bit quantization
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_name,
+                    load_in_8bit=True,
+                    device_map="auto",
+                    torch_dtype=torch.float16,
+                )
+                logger.info("✅ Loaded with 8-bit quantization")
+            except Exception as e:
+                logger.warning(f"8-bit quantization failed: {e}")
+                logger.info("Loading without quantization...")
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_name,
+                    device_map="auto",
+                    torch_dtype=torch.float16,
+                )
+        else:
+            # На CPU загружаем без quantization
+            logger.info("Loading on CPU (no quantization)...")
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
-                load_in_8bit=True,
-                device_map="auto",
-                torch_dtype=torch.float16,
-            )
-            logger.info("✅ Loaded with 8-bit quantization")
-        except Exception as e:
-            logger.warning(f"8-bit quantization failed: {e}")
-            logger.info("Loading without quantization...")
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_name,
-                device_map="auto",
-                torch_dtype=torch.float16,
+                torch_dtype=torch.float32,
             )
         
         # Применяем LoRA для уменьшения параметров
         logger.info("Applying LoRA...")
+        
+        # Определяем target modules в зависимости от модели
+        if "mistral" in self.model_name.lower() or "zephyr" in self.model_name.lower():
+            target_modules = ["q_proj", "v_proj"]
+        elif "gpt2" in self.model_name.lower():
+            target_modules = ["c_attn"]
+        else:
+            # Для других моделей пытаемся найти attention модули
+            target_modules = ["q_proj", "v_proj", "c_attn"]
+        
         lora_config = LoraConfig(
             r=8,  # Rank
             lora_alpha=16,
-            target_modules=["q_proj", "v_proj"],
+            target_modules=target_modules,
             lora_dropout=0.05,
             bias="none",
             task_type="CAUSAL_LM"
@@ -133,7 +153,7 @@ class LocalFineTuner:
         self,
         jsonl_path: str,
         output_dir: str = "./natasha-model-local",
-        num_epochs: int = 3,
+        num_epochs: int = 10,
         batch_size: int = 2,  # Маленький batch для RTX 2050
         learning_rate: float = 2e-4,
     ):
@@ -153,6 +173,10 @@ class LocalFineTuner:
         )
         
         # Параметры обучения (оптимизированы для RTX 2050)
+        # Выбираем оптимайзер в зависимости от устройства
+        optim_type = "paged_adamw_8bit" if self.device == "cuda" else "adamw_torch"
+        use_fp16 = self.device == "cuda"
+        
         training_args = TrainingArguments(
             output_dir=output_dir,
             num_train_epochs=num_epochs,
@@ -164,10 +188,11 @@ class LocalFineTuner:
             logging_steps=10,
             save_steps=50,
             save_total_limit=2,
-            fp16=True,  # Mixed precision для экономии памяти
-            optim="paged_adamw_8bit",  # Оптимизированный оптимайзер
+            fp16=use_fp16,  # Mixed precision только на GPU
+            optim=optim_type,  # Оптимайзер в зависимости от устройства
             max_grad_norm=0.3,
             seed=42,
+            report_to=["tensorboard"],
         )
         
         # Создаем trainer
@@ -183,15 +208,111 @@ class LocalFineTuner:
         
         # Обучаем
         logger.info("Training started...")
-        trainer.train()
+        train_result = trainer.train()
         
         # Сохраняем модель
         logger.info(f"Saving model to: {output_dir}")
         self.model.save_pretrained(output_dir)
         self.tokenizer.save_pretrained(output_dir)
         
+        # Сохраняем логи обучения
+        self._plot_training_metrics(trainer, output_dir)
+        
         logger.info("✅ Training completed!")
         return output_dir
+    
+    def _plot_training_metrics(self, trainer, output_dir: str):
+        """Создает графики метрик обучения."""
+        try:
+            import json
+            
+            # Получаем логи из trainer
+            logs = trainer.state.log_history
+            
+            if not logs:
+                logger.warning("No training logs found")
+                return
+            
+            # Извлекаем данные
+            steps = []
+            losses = []
+            learning_rates = []
+            
+            for log in logs:
+                if 'loss' in log:
+                    steps.append(log.get('step', len(steps)))
+                    losses.append(log['loss'])
+                    learning_rates.append(log.get('learning_rate', learning_rate))
+            
+            if not losses:
+                logger.warning("No loss data found")
+                return
+            
+            # Создаем фигуру с несколькими подграфиками
+            fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+            fig.suptitle('Training Metrics', fontsize=16, fontweight='bold')
+            
+            # График 1: Loss
+            axes[0, 0].plot(steps, losses, 'b-', linewidth=2)
+            axes[0, 0].set_xlabel('Step')
+            axes[0, 0].set_ylabel('Loss')
+            axes[0, 0].set_title('Training Loss')
+            axes[0, 0].grid(True, alpha=0.3)
+            
+            # График 2: Loss (сглаженный)
+            if len(losses) > 5:
+                window = max(1, len(losses) // 10)
+                smoothed_losses = np.convolve(losses, np.ones(window)/window, mode='valid')
+                smoothed_steps = steps[window-1:]
+                axes[0, 1].plot(smoothed_steps, smoothed_losses, 'g-', linewidth=2, label='Smoothed')
+                axes[0, 1].plot(steps, losses, 'b-', alpha=0.3, label='Raw')
+                axes[0, 1].set_xlabel('Step')
+                axes[0, 1].set_ylabel('Loss')
+                axes[0, 1].set_title('Smoothed Training Loss')
+                axes[0, 1].legend()
+                axes[0, 1].grid(True, alpha=0.3)
+            
+            # График 3: Learning Rate
+            if learning_rates and any(lr > 0 for lr in learning_rates):
+                axes[1, 0].plot(steps, learning_rates, 'r-', linewidth=2)
+                axes[1, 0].set_xlabel('Step')
+                axes[1, 0].set_ylabel('Learning Rate')
+                axes[1, 0].set_title('Learning Rate Schedule')
+                axes[1, 0].grid(True, alpha=0.3)
+            
+            # График 4: Loss Distribution
+            axes[1, 1].hist(losses, bins=30, color='purple', alpha=0.7, edgecolor='black')
+            axes[1, 1].set_xlabel('Loss Value')
+            axes[1, 1].set_ylabel('Frequency')
+            axes[1, 1].set_title('Loss Distribution')
+            axes[1, 1].grid(True, alpha=0.3, axis='y')
+            
+            plt.tight_layout()
+            
+            # Сохраняем график
+            plot_path = Path(output_dir) / "training_metrics.png"
+            plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+            logger.info(f"✅ Training metrics saved to: {plot_path}")
+            
+            # Сохраняем статистику
+            stats = {
+                'final_loss': losses[-1] if losses else None,
+                'min_loss': min(losses) if losses else None,
+                'max_loss': max(losses) if losses else None,
+                'avg_loss': np.mean(losses) if losses else None,
+                'total_steps': len(steps),
+            }
+            
+            stats_path = Path(output_dir) / "training_stats.json"
+            with open(stats_path, 'w') as f:
+                json.dump(stats, f, indent=2)
+            logger.info(f"✅ Training stats saved to: {stats_path}")
+            logger.info(f"Final Loss: {stats['final_loss']:.4f}")
+            logger.info(f"Min Loss: {stats['min_loss']:.4f}")
+            logger.info(f"Avg Loss: {stats['avg_loss']:.4f}")
+            
+        except Exception as e:
+            logger.error(f"Error plotting metrics: {e}", exc_info=True)
 
 
 def main():
@@ -210,13 +331,13 @@ def main():
     parser.add_argument(
         '--model',
         type=str,
-        default='mistralai/Mistral-7B-Instruct-v0.1',
+        default='dphn/dolphin-2.8-mistral-7b-v02',
         help='Model name from Hugging Face'
     )
     parser.add_argument(
         '--epochs',
         type=int,
-        default=3,
+        default=10,
         help='Number of training epochs'
     )
     parser.add_argument(
